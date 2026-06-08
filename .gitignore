@@ -1,0 +1,40 @@
+# macOS
+.DS_Store
+
+# Editors
+.idea/
+.vscode/
+*.iml
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Frontend
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
+frontend/.vite/
+
+# Backend
+backend/target/
+backend/.gradle/
+backend/build/
+backend/data/
+
+# Runtime data
+data/
+uploads/
+tmp/
+
+# Docker
+docker-compose.override.yml

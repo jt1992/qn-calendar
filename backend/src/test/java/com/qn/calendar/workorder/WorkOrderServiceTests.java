@@ -1,0 +1,119 @@
+package com.qn.calendar.workorder;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+
+@SpringBootTest
+class WorkOrderServiceTests {
+
+    @Autowired
+    private WorkOrderService service;
+
+    @Autowired
+    private WorkOrderRepository repository;
+
+    @BeforeEach
+    void setUp() {
+        repository.deleteAll();
+    }
+
+    @Test
+    void listsPendingWorkOrdersByNearestLatestShipTimeFirst() {
+        repository.save(order("ORD-LATER-URGENT", true, LocalDateTime.of(2026, 6, 11, 17, 0)));
+        repository.save(order("ORD-EARLIER-NORMAL", false, LocalDateTime.of(2026, 6, 9, 12, 0)));
+        repository.save(order("ORD-SAME-TIME-URGENT", true, LocalDateTime.of(2026, 6, 10, 18, 0)));
+        repository.save(order("ORD-SAME-TIME-NORMAL", false, LocalDateTime.of(2026, 6, 10, 18, 0)));
+
+        assertThat(service.getPendingWorkOrders())
+                .extracting("orderNo")
+                .containsExactly(
+                        "ORD-EARLIER-NORMAL",
+                        "ORD-SAME-TIME-URGENT",
+                        "ORD-SAME-TIME-NORMAL",
+                        "ORD-LATER-URGENT"
+                );
+    }
+
+    @Test
+    void updatesPendingDurationInFiveMinuteUnits() {
+        WorkOrder workOrder = repository.save(order("ORD-DURATION"));
+
+        WorkOrder updated = service.updateDuration(workOrder.getId(), 95);
+
+        assertThat(updated.getActualMinutes()).isEqualTo(95);
+        assertThat(repository.findById(workOrder.getId()).orElseThrow().getActualMinutes()).isEqualTo(95);
+    }
+
+    @Test
+    void rejectsDurationThatIsNotFiveMinuteMultiple() {
+        WorkOrder workOrder = repository.save(order("ORD-INVALID-DURATION"));
+
+        assertThatThrownBy(() -> service.updateDuration(workOrder.getId(), 92))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("工時必須是 5 分鐘的倍數");
+    }
+
+    @Test
+    void rejectsScheduledWorkOrderDurationUpdate() {
+        WorkOrder workOrder = repository.save(order("ORD-SCHEDULED"));
+        workOrder.schedule(
+                LocalDateTime.of(2026, 6, 8, 9, 0),
+                LocalDateTime.of(2026, 6, 8, 11, 0),
+                120
+        );
+        repository.saveAndFlush(workOrder);
+
+        assertThatThrownBy(() -> service.updateDuration(workOrder.getId(), 90))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("只有待排工單可先調整工時");
+    }
+
+    @Test
+    void unschedulesWorkOrderBackToPending() {
+        WorkOrder workOrder = repository.save(order("ORD-UNSCHEDULE"));
+        workOrder.schedule(
+                LocalDateTime.of(2026, 6, 8, 9, 0),
+                LocalDateTime.of(2026, 6, 8, 10, 30),
+                90
+        );
+        repository.saveAndFlush(workOrder);
+
+        WorkOrder updated = service.unschedule(workOrder.getId());
+
+        assertThat(updated.getStatus()).isEqualTo(WorkOrderStatus.PENDING);
+        assertThat(updated.getScheduledStart()).isNull();
+        assertThat(updated.getScheduledEnd()).isNull();
+        assertThat(updated.getActualMinutes()).isEqualTo(90);
+    }
+
+    @Test
+    void rejectsUnschedulingPendingWorkOrder() {
+        WorkOrder workOrder = repository.save(order("ORD-PENDING"));
+
+        assertThatThrownBy(() -> service.unschedule(workOrder.getId()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("工單尚未排入日曆");
+    }
+
+    private WorkOrder order(String orderNo) {
+        return order(orderNo, false, LocalDateTime.of(2026, 6, 10, 18, 0));
+    }
+
+    private WorkOrder order(String orderNo, boolean urgent, LocalDateTime latestShipTime) {
+        return new WorkOrder(
+                orderNo,
+                BigDecimal.valueOf(300),
+                180,
+                urgent,
+                latestShipTime
+        );
+    }
+}

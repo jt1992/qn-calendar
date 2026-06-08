@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-Hant" xmlns:th="http://www.thymeleaf.org">
+  <head>
+    <meta charset="UTF-8" />
+    <title th:text="${subject}">工單排程表</title>
+  </head>
+  <body style="margin:0;padding:24px;background:#f5f7f9;color:#17212b;font-family:Arial,'Noto Sans TC',sans-serif;">
+    <h1 style="margin:0 0 16px;font-size:22px;" th:text="${subject}">工單排程表</h1>
+    <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;background:#ffffff;border:1px solid #d8e0e8;">
+      <thead>
+        <tr>
+          <th style="width:72px;padding:10px;border:1px solid #d8e0e8;background:#edf1f5;text-align:left;">時間</th>
+          <th
+            th:each="day : ${days}"
+            th:text="${day.label}"
+            style="padding:10px;border:1px solid #d8e0e8;background:#edf1f5;text-align:left;"
+          >
+            2026-06-08 一
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr th:each="row : ${rows}">
+          <td th:text="${row.timeLabel}" style="vertical-align:top;padding:8px;border:1px solid #e4eaf0;color:#617083;font-size:13px;">09:00:00</td>
+          <td th:each="day : ${days}" style="vertical-align:top;min-width:120px;height:72px;padding:6px;border:1px solid #e4eaf0;">
+            <div
+              th:each="order : ${row.ordersByDay.get(day.date)}"
+              th:style="${order.status.name() == 'DONE'}
+                ? 'margin-bottom:6px;padding:8px;border-left:4px solid #8a98a8;background:#f1f3f5;color:#5d6874;opacity:0.55;'
+                : (${order.urgent} ? 'margin-bottom:6px;padding:8px;border-left:4px solid #d93525;background:#fff4f1;color:#17212b;' : 'margin-bottom:6px;padding:8px;border-left:4px solid #2563eb;background:#eff6ff;color:#17212b;')"
+            >
+              <div style="font-weight:700;font-size:13px;">
+                <span th:if="${order.urgent}" style="color:#b02a1c;">[加急] </span>
+                <span th:text="${order.orderNo}">A001</span>
+              </div>
+              <div style="margin-top:4px;font-size:12px;color:#617083;">
+                <span th:text="${#temporals.format(order.scheduledStart, 'yyyy-MM-dd HH:mm:ss')}">2026-06-08 09:00:00</span>
+                -
+                <span th:text="${#temporals.format(order.scheduledEnd, 'yyyy-MM-dd HH:mm:ss')}">2026-06-08 11:00:00</span>
+              </div>
+              <div style="margin-top:4px;font-size:12px;color:#617083;">
+                <span th:text="${order.status.name() == 'DONE' ? '完成' : '未完成'}">未完成</span>
+                · 最晚
+                <span th:text="${#temporals.format(order.latestShipTime, 'yyyy-MM-dd HH:mm:ss')}">2026-06-08 18:00:00</span>
+              </div>
+            </div>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </body>
+</html>

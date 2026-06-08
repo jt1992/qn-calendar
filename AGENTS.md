@@ -1,0 +1,137 @@
+# AGENTS.md
+
+本文件是本專案給 Codex / AI coding agent 的根目錄協作規則。實作前請先閱讀本文件，再依工作範圍閱讀子目錄規則。
+
+## 導航
+
+- 前端規則：[`frontend/AGENTS.md`](frontend/AGENTS.md)
+- 後端規則：[`backend/AGENTS.md`](backend/AGENTS.md)
+
+## 專案目標
+
+建立一套「XLSX 訂單匯入與工單排程系統」：
+
+1. 前端上傳 XLSX。
+2. 後端解析、去重並建立待排工單。
+3. 前端顯示待排工單與日曆。
+4. 使用者可拖曳、移動、resize 工單。
+5. 排程結束時間不可超過最晚發貨時間。
+6. 工單可標記完成，完成後淡化顯示。
+7. 工單允許重疊。
+8. 使用者可寄送靜態 HTML 週曆 Email。
+
+## 通用協作守則
+
+- 先明示假設與不確定性，不要靜默猜測。
+- 優先採用最簡單且足以完成需求的方案，不額外引入抽象、配置或擴充點。
+- 只修改與當前需求直接相關的內容；若發現無關問題，指出即可，不主動擴大重構。
+- 先把任務轉成可驗證的完成條件，再依條件實作與檢查。
+- 前端以 JavaScript、Vue 3.5.35、Vite 8.0.16 為基準。
+- 後端以本專案 Spring Boot 架構為基準。
+- 容器化以 Docker 為主。
+- 雲端架構以 AWS 為主。
+
+## GitHub Flow
+
+### Branch naming
+
+| Change type                            | Format                         |
+| -------------------------------------- | ------------------------------ |
+| New feature                            | `feature/codex-<description>`  |
+| Maintenance, bug fix, refactor, config | `chore/codex-<description>`    |
+
+Conventions:
+
+- `codex-` prefix is fixed (= "Codex-created").
+- `<description>` lowercase English, words joined with `-`.
+- Keep short and specific.
+
+Examples: `feature/codex-user-login`, `feature/codex-payment-flow`,
+`chore/codex-eslint-config`, `chore/codex-refactor-api`.
+
+### General Git rules
+
+- Always use `git switch` (never `git checkout`) to change branches.
+- Run `git status` before switching and confirm the working tree is clean.
+- If unrelated changes exist: `git stash` or ask the user first.
+- Announce the new branch name to the user before creating it.
+- Do not modify `main` directly.
+- New feature commit messages must start with `feat:`.
+- Maintenance commit messages must start with `chore:`.
+
+### Prohibited for AI agents
+
+The agent must not unilaterally:
+
+- Commit changes
+- Push to remote
+- Create a PR
+
+After finishing edits, wait for the user's confirmation. Trigger phrases and what they authorize:
+
+| Phrase                                    | Authorizes                                                                                       |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| **"可以提交"**                            | Full pipeline: commit -> push -> open PR (run all three back-to-back without further confirmation) |
+| "檢查完了" / "looks good" / "可以 commit" | Commit only                                                                                      |
+| "幫我 push"                               | Push the current branch                                                                          |
+| "幫我開 PR"                               | Open a PR (use Squash Merge default)                                                             |
+
+**"可以提交"** is the convenience shortcut: when the user says it, the
+agent runs commit -> push -> open PR in sequence and reports the PR URL.
+Use any available PR-creation path that works in the current environment
+(GitHub connector, GitHub CLI, or another approved repository tool); do not
+require a specific CLI command. The other phrases remain as fine-grained
+controls if the user wants to step through individually.
+
+PRs opened by the agent must be ready-for-review PRs, not draft PRs,
+unless the user explicitly asks for a draft.
+
+### Allowed exceptions
+
+Direct edits on `main` are allowed only for:
+
+- Edits limited to `CLAUDE.md`
+- Edits limited to `.gitignore`
+- Edits limited to `hand-off-doc.md` session handoff updates
+- New / reorganized `README.md`
+- User explicitly says "這次直接在 main 改" or equivalent
+
+Reminder: after every completed feature or bug fix, update `hand-off-doc.md`. This update may be committed directly on `main` without creating a feature branch.
+
+### Full sequence
+
+Unless a merge conflict occurs, do not perform excessive checks during this flow; run the listed commands in order.
+
+```bash
+# 1. Sync main and branch off it
+git switch main
+git pull origin main
+git switch -c feature/codex-xxx     # or chore/codex-xxx
+
+# 2. Develop, commit
+git add <files>
+git commit -m "feat: xxx"
+
+# 3. Before push, rebase onto latest main (linear history)
+git fetch origin
+git rebase origin/main
+
+# 4. Push (after rebase use --force-with-lease)
+git push -u origin feature/codex-xxx
+# if already pushed and rebased again:
+git push --force-with-lease
+
+# 5. Open PR -> Squash Merge -> delete the remote branch
+```
+
+### After merge: local cleanup
+
+```bash
+git switch main
+git pull origin main
+git branch -D feature/codex-xxx
+```
+
+### Why `--force-with-lease`
+
+`--force-with-lease` checks the remote state before pushing, so it will not clobber someone else's commits. Plain `--force` is unsafe and forbidden.
