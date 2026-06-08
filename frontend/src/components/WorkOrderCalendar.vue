@@ -29,6 +29,8 @@ const interactionPreview = ref(null)
 const interactionAction = ref('調整排程')
 const eventTooltip = ref(null)
 
+const focusedWorkOrderId = computed(() => props.focusedWorkOrder?.id || props.focusedWorkOrder?.workOrderId || null)
+
 const calendarEvents = computed(() => {
   const marker = deadlineMarkerEvent.value
   return marker ? [...props.events, marker] : props.events
@@ -113,7 +115,7 @@ const calendarOptions = computed(() => ({
   datesSet: handleDatesSet,
   eventAllow,
   eventDragStart: (info) => handleInteractionStart(info, '拖曳排程'),
-  eventDragStop: clearInteractionPreview,
+  eventDragStop: handleEventDragStop,
   eventReceive: handleEventReceive,
   eventDrop: handleEventMove,
   eventResizeStart: (info) => handleInteractionStart(info, '調整工時'),
@@ -121,7 +123,7 @@ const calendarOptions = computed(() => ({
   eventResize: handleEventMove,
   eventClick: handleEventClick,
   eventDidMount: bindEventTooltip,
-  eventClassNames
+  eventClassNames: (info) => eventClassNames(info, focusedWorkOrderId.value)
 }))
 
 onMounted(() => {
@@ -202,12 +204,13 @@ function eventContent(info) {
   const doneButton = document.createElement('button')
   const removeButton = document.createElement('button')
   const latestShipTime = info.event.extendedProps.latestShipTime
-  const actualMinutes = info.event.extendedProps.actualMinutes || diffMinutes(info.event.start, info.event.end)
+  const segmentMinutes = info.event.extendedProps.actualMinutes || diffMinutes(info.event.start, info.event.end)
+  const totalMinutes = info.event.extendedProps.totalMinutes || segmentMinutes
 
   root.className = 'calendar-event-card'
   root.dataset.tooltipTitle = `${info.event.extendedProps.urgent ? '[加急] ' : ''}${info.event.extendedProps.orderNo || info.event.title}`
   root.dataset.tooltipTimeRange = `${formatDateTime(info.event.start)} - ${formatDateTime(info.event.end)}`
-  root.dataset.tooltipDuration = formatDurationText(actualMinutes)
+  root.dataset.tooltipDuration = `總排程 ${formatDurationText(totalMinutes)}`
   root.dataset.tooltipStatus = info.event.extendedProps.status === 'DONE' ? '完成' : '未完成'
   root.dataset.tooltipLatest = formatDateTime(latestShipTime)
   root.dataset.tooltipPrice = info.event.extendedProps.price ? `$${info.event.extendedProps.price}` : ''
@@ -241,7 +244,7 @@ function eventContent(info) {
   timeRange.className = 'calendar-event-time'
   timeRange.textContent = `${formatTime(info.event.start)}~${formatTime(info.event.end)}`
   duration.className = 'calendar-event-duration'
-  duration.textContent = formatDurationText(info.event.extendedProps.actualMinutes)
+  duration.textContent = `總 ${formatDurationText(totalMinutes)}`
   deadlineLabel.className = 'calendar-event-deadline-label'
   deadlineLabel.textContent = '最晚發貨：'
   deadlineDate.className = 'calendar-event-deadline-date'
@@ -290,8 +293,8 @@ async function handleEventMove(info) {
     const end = currentView.value === 'timeGridWeek'
       ? info.event.end || addMinutes(start, info.event.extendedProps.actualMinutes)
       : addMinutes(start, info.event.extendedProps.actualMinutes)
-    await store.scheduleWorkOrder(
-      info.event.extendedProps.workOrderId,
+    await store.updateWorkOrderSegment(
+      info.event.extendedProps.segmentId,
       start,
       end
     )
@@ -315,24 +318,31 @@ function handleEventClick(info) {
     status: info.event.extendedProps.status,
     latestShipTime: info.event.extendedProps.latestShipTime,
     price: info.event.extendedProps.price,
-    actualMinutes: info.event.extendedProps.actualMinutes
+    actualMinutes: info.event.extendedProps.totalMinutes || info.event.extendedProps.actualMinutes,
+    totalMinutes: info.event.extendedProps.totalMinutes
   })
 }
 
-function eventClassNames(info) {
+function eventClassNames(info, focusedId) {
   if (info.event.extendedProps.isDeadlineMarker) {
     return ['deadline-marker']
   }
 
+  const classNames = []
+
+  if (focusedId && String(focusedId) === String(info.event.extendedProps.workOrderId)) {
+    classNames.push('work-order-selected')
+  }
+
   if (info.event.extendedProps.status === 'DONE') {
-    return ['work-order-done']
+    classNames.push('work-order-done')
   }
 
   if (info.event.extendedProps.urgent) {
-    return ['work-order-urgent']
+    classNames.push('work-order-urgent')
   }
 
-  return []
+  return classNames
 }
 
 function previousRange() {
@@ -353,11 +363,26 @@ function changeView(viewName) {
 
 async function unscheduleEvent(event) {
   try {
-    await store.unscheduleWorkOrder(event.extendedProps.workOrderId)
-    emit('focus-order', null)
+    const response = await store.deleteWorkOrderSegment(event.extendedProps.segmentId)
+
+    if (response.segments.length === 0) {
+      emit('focus-order', null)
+    }
   } catch (error) {
     store.error = error.message
   }
+}
+
+function handleEventDragStop(info) {
+  if (
+    !info.event.extendedProps.isDeadlineMarker
+    && info.event.extendedProps.segmentId
+    && isPointerOutsideCalendar(info.jsEvent)
+  ) {
+    unscheduleEvent(info.event)
+  }
+
+  clearInteractionPreview()
 }
 
 function handlePointerMove(event) {
@@ -440,12 +465,13 @@ function clearInteractionPreview() {
 function showEventTooltip(event, pointerEvent) {
   moveEventTooltip(pointerEvent)
   const latestShipTime = event.extendedProps.latestShipTime
-  const actualMinutes = event.extendedProps.actualMinutes || diffMinutes(event.start, event.end)
+  const segmentMinutes = event.extendedProps.actualMinutes || diffMinutes(event.start, event.end)
+  const totalMinutes = event.extendedProps.totalMinutes || segmentMinutes
 
   eventTooltip.value = {
     title: `${event.extendedProps.urgent ? '[加急] ' : ''}${event.extendedProps.orderNo || event.title}`,
     timeRange: `${formatDateTime(event.start)} - ${formatDateTime(event.end)}`,
-    durationText: formatDurationText(actualMinutes),
+    durationText: `總排程 ${formatDurationText(totalMinutes)}`,
     statusText: event.extendedProps.status === 'DONE' ? '完成' : '未完成',
     latestText: formatDateTime(latestShipTime),
     priceText: event.extendedProps.price ? `$${event.extendedProps.price}` : ''
@@ -484,6 +510,20 @@ function updateEventTooltipFromPointer(event) {
     latestText: eventCard.dataset.tooltipLatest,
     priceText: eventCard.dataset.tooltipPrice
   }
+}
+
+function isPointerOutsideCalendar(event) {
+  const element = calendarRef.value?.$el
+
+  if (!event || !element) {
+    return false
+  }
+
+  const rect = element.getBoundingClientRect()
+  return event.clientX < rect.left
+    || event.clientX > rect.right
+    || event.clientY < rect.top
+    || event.clientY > rect.bottom
 }
 
 function toDateOnly(date) {

@@ -833,6 +833,16 @@ input:disabled {
   opacity: 0.35;
 }
 
+.fc .fc-event.work-order-selected {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px var(--primary-soft), var(--shadow);
+}
+
+.fc .fc-event.work-order-selected.work-order-done {
+  opacity: 0.7;
+}
+
 .work-order-urgent {
   border-left: 4px solid var(--danger);
   font-weight: 800;

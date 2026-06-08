@@ -38,6 +38,20 @@ export async function scheduleWorkOrder(id, scheduledStart, scheduledEnd) {
   return data
 }
 
+export async function updateWorkOrderSegment(segmentId, scheduledStart, scheduledEnd) {
+  const { data } = await http.patch(`/api/work-orders/segments/${segmentId}`, {
+    scheduledStart,
+    scheduledEnd
+  })
+
+  return data
+}
+
+export async function deleteWorkOrderSegment(segmentId) {
+  const { data } = await http.delete(`/api/work-orders/segments/${segmentId}`)
+  return data
+}
+
 export async function updateWorkOrderDuration(id, actualMinutes) {
   const { data } = await http.patch(`/api/work-orders/${id}/duration`, {
     actualMinutes
