@@ -17,8 +17,9 @@
 4. 使用者可拖曳、移動、resize 工單。
 5. 排程結束時間不可超過最晚發貨時間。
 6. 工單可標記完成，完成後淡化顯示。
-7. 工單允許重疊。
-8. 使用者可寄送靜態 HTML 週曆 Email。
+7. 不同訂單編號的工單不可重疊。
+8. 同一訂單編號的分割片段若時間相鄰或重疊，需自動融合成同一片段。
+9. 使用者可寄送靜態 HTML 週曆 Email。
 
 ## 通用協作守則
 
@@ -31,9 +32,19 @@
 - 容器化以 Docker 為主。
 - 雲端架構以 AWS 為主。
 
+## 文件維護規則
+
+- `hand-off-doc.md` 只記錄尚未完成、需要接手或後續處理的功能與事項。
+- 已完成的功能不要保留在 `hand-off-doc.md`；完成後應刪除對應交接紀錄，並改記錄在根目錄 `README.md`。
+
 ## GitHub Flow
 
 ### Branch naming
+
+Branch naming follows the main purpose of the work item. If a feature branch
+already exists for the current task, continue implementing related feature and
+maintenance/documentation changes on that same branch; use commit messages to
+distinguish `feat:` and `chore:` changes instead of creating another branch.
 
 | Change type                            | Format                         |
 | -------------------------------------- | ------------------------------ |
@@ -56,6 +67,8 @@ Examples: `feature/codex-user-login`, `feature/codex-payment-flow`,
 - If unrelated changes exist: `git stash` or ask the user first.
 - Announce the new branch name to the user before creating it.
 - Do not modify `main` directly.
+- Do not create a separate branch only to split related feature and maintenance/documentation changes during the same task.
+- Within one branch, use separate commits to distinguish change type when useful.
 - New feature commit messages must start with `feat:`.
 - Maintenance commit messages must start with `chore:`.
 
@@ -96,7 +109,7 @@ Direct edits on `main` are allowed only for:
 - New / reorganized `README.md`
 - User explicitly says "這次直接在 main 改" or equivalent
 
-Reminder: after every completed feature or bug fix, update `hand-off-doc.md`. This update may be committed directly on `main` without creating a feature branch.
+Reminder: after every completed feature or bug fix, update documentation according to the file maintenance rules above. `hand-off-doc.md` should only keep unfinished follow-up items, while completed functionality belongs in the root `README.md`. Session handoff updates limited to `hand-off-doc.md` may still be committed directly on `main` without creating a feature branch.
 
 ### Full sequence
 
@@ -108,9 +121,11 @@ git switch main
 git pull origin main
 git switch -c feature/codex-xxx     # or chore/codex-xxx
 
-# 2. Develop, commit
+# 2. Develop, commit by actual change type
 git add <files>
 git commit -m "feat: xxx"
+# or
+git commit -m "chore: xxx"
 
 # 3. Before push, rebase onto latest main (linear history)
 git fetch origin
