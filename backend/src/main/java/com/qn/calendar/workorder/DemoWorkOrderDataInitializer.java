@@ -21,7 +21,7 @@ public class DemoWorkOrderDataInitializer implements ApplicationRunner {
 
     public DemoWorkOrderDataInitializer(
             WorkOrderRepository repository,
-            @Value("${app.demo-data.enabled:true}") boolean enabled
+            @Value("${APP_DEMO_DATA_ENABLED:true}") boolean enabled
     ) {
         this.repository = repository;
         this.enabled = enabled;

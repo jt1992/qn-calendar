@@ -2,9 +2,9 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: qn_calendar
-      POSTGRES_USER: qn_calendar
-      POSTGRES_PASSWORD: qn_calendar
+      POSTGRES_DB: ${POSTGRES_DB:-qn_calendar}
+      POSTGRES_USER: ${POSTGRES_USER:-qn_calendar}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-qn_calendar}
     ports:
       - "5432:5432"
     volumes:
@@ -13,17 +13,16 @@ services:
   backend:
     build:
       context: ./backend
+    env_file:
+      - .env
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/qn_calendar
-      SPRING_DATASOURCE_USERNAME: qn_calendar
-      SPRING_DATASOURCE_PASSWORD: qn_calendar
-      SPRING_MAIL_HOST: mailhog
-      SPRING_MAIL_PORT: 1025
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-qn_calendar}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-qn_calendar}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-qn_calendar}
     ports:
       - "8080:8080"
     depends_on:
       - postgres
-      - mailhog
 
   frontend:
     build:
@@ -32,12 +31,6 @@ services:
       - "5173:80"
     depends_on:
       - backend
-
-  mailhog:
-    image: mailhog/mailhog:v1.0.1
-    ports:
-      - "1025:1025"
-      - "8025:8025"
 
 volumes:
   postgres-data:

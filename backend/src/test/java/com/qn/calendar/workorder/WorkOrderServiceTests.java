@@ -6,6 +6,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
+import com.qn.calendar.workorder.dto.ScheduleWorkOrderRequest;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -16,6 +18,9 @@ class WorkOrderServiceTests {
 
     @Autowired
     private WorkOrderService service;
+
+    @Autowired
+    private WorkOrderScheduleService scheduleService;
 
     @Autowired
     private WorkOrderRepository repository;
@@ -101,6 +106,74 @@ class WorkOrderServiceTests {
         assertThatThrownBy(() -> service.unschedule(workOrder.getId()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("工單尚未排入日曆");
+    }
+
+    @Test
+    void rejectsOverlappingScheduledWorkOrder() {
+        WorkOrder existing = repository.save(order("ORD-EXISTING"));
+        existing.schedule(
+                LocalDateTime.of(2026, 6, 8, 12, 0),
+                LocalDateTime.of(2026, 6, 8, 14, 0),
+                120
+        );
+        repository.saveAndFlush(existing);
+        WorkOrder incoming = repository.save(order("ORD-INCOMING"));
+
+        assertThatThrownBy(() -> scheduleService.schedule(
+                incoming.getId(),
+                new ScheduleWorkOrderRequest(
+                        LocalDateTime.of(2026, 6, 8, 13, 0),
+                        LocalDateTime.of(2026, 6, 8, 15, 0)
+                )
+        ))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("工單排程不可與未完成工單重疊");
+    }
+
+    @Test
+    void allowsOverlapWithDoneWorkOrder() {
+        WorkOrder completed = repository.save(order("ORD-DONE"));
+        completed.schedule(
+                LocalDateTime.of(2026, 6, 8, 12, 0),
+                LocalDateTime.of(2026, 6, 8, 14, 0),
+                120
+        );
+        completed.markDone(LocalDateTime.of(2026, 6, 8, 14, 0));
+        repository.saveAndFlush(completed);
+        WorkOrder incoming = repository.save(order("ORD-ALLOWED"));
+
+        WorkOrder scheduled = scheduleService.schedule(
+                incoming.getId(),
+                new ScheduleWorkOrderRequest(
+                        LocalDateTime.of(2026, 6, 8, 13, 0),
+                        LocalDateTime.of(2026, 6, 8, 15, 0)
+                )
+        );
+
+        assertThat(scheduled.getStatus()).isEqualTo(WorkOrderStatus.SCHEDULED);
+    }
+
+    @Test
+    void rejectsReopeningDoneWorkOrderWhenItWouldOverlapActiveWorkOrder() {
+        WorkOrder completed = repository.save(order("ORD-DONE-OVERLAP"));
+        completed.schedule(
+                LocalDateTime.of(2026, 6, 8, 12, 0),
+                LocalDateTime.of(2026, 6, 8, 14, 0),
+                120
+        );
+        completed.markDone(LocalDateTime.of(2026, 6, 8, 14, 0));
+        repository.saveAndFlush(completed);
+        WorkOrder active = repository.save(order("ORD-ACTIVE"));
+        active.schedule(
+                LocalDateTime.of(2026, 6, 8, 13, 0),
+                LocalDateTime.of(2026, 6, 8, 15, 0),
+                120
+        );
+        repository.saveAndFlush(active);
+
+        assertThatThrownBy(() -> service.reopen(completed.getId()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("工單排程不可與未完成工單重疊");
     }
 
     private WorkOrder order(String orderNo) {

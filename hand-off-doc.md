@@ -58,3 +58,17 @@
 - 待排工單排序改為 `latest_ship_time ASC, urgent DESC, created_at ASC`，讓最晚發貨時間最靠近的工單優先顯示。
 - 主介面改為固定在 `100dvh` 視口內，窄視口也不撐出整頁高度；待排列表與日曆內容用各自滾動區補足，側欄保留足夠高度供工單卡片操作。
 - 週檢視日曆改為半小時可視區間，拖曳與 resize 仍保留 5 分鐘粒度。
+
+## 2026-06-08 Email SMTP 設定
+
+- 後端本機開發啟動會讀取根目錄 `.env`，Docker Compose 也會把同一份 `.env` 傳入 backend 容器。
+- Email SMTP 改用 `SMTP_HOST`、`SMTP_PORT`、`SMTP_USER`、`SMTP_PASSWORD`、`SMTP_FROM`、`SMTP_AUTH`、`SMTP_USE_SSL`、`SMTP_USE_TLS` 設定。
+- `SMTP_FROM` 會設定為實際寄件者；Email 收件者維持由前端 Dialog 必填輸入。
+- Docker Compose 已移除 MailHog，寄信測試會直接使用 `.env` 指定的真實 SMTP。
+
+## 2026-06-08 Email 週曆與重疊規則
+
+- Email 週曆改為 5 分鐘 slot 加 `rowspan` 呈現，工單會依實際 `scheduledStart` 到 `scheduledEnd` 跨越正確時段。
+- Email 週曆只輸出本週最早排程開始到最晚排程結束的時間範圍；沒有排程時顯示無資料列。
+- 排程與取消完成時會阻擋未完成工單彼此重疊；已完成工單不參與重疊阻擋。
+- 日曆事件 hover / focus 時會顯示 fixed tooltip，完整呈現被截斷的工單資訊，並避免被 FullCalendar 裁切。
