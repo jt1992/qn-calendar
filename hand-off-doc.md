@@ -72,3 +72,10 @@
 - Email 週曆只輸出本週最早排程開始到最晚排程結束的時間範圍；沒有排程時顯示無資料列。
 - 排程與取消完成時會阻擋未完成工單彼此重疊；已完成工單不參與重疊阻擋。
 - 日曆事件 hover / focus 時會顯示 fixed tooltip，完整呈現被截斷的工單資訊，並避免被 FullCalendar 裁切。
+
+## 2026-06-08 Docker PostgreSQL Port
+
+- Docker Compose PostgreSQL 本機對外 port 改為 `15432`，避免與本機既有 PostgreSQL `5432` 衝突。
+- Docker Compose PostgreSQL image 改為 `postgres:17`。
+- PostgreSQL named volume 改為 `postgres17-data`，讓 PostgreSQL 17 以新的 demo 資料目錄啟動，避免沿用 PostgreSQL 16 volume。
+- backend 容器仍透過 Compose service name 使用 `postgres:5432` 連線，容器內部資料庫 port 不變。
