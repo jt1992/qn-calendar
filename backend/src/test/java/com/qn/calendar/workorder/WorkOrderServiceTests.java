@@ -7,6 +7,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 import com.qn.calendar.workorder.dto.ScheduleWorkOrderRequest;
+import com.qn.calendar.workorder.dto.WorkOrderSegmentListResponse;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -25,8 +26,12 @@ class WorkOrderServiceTests {
     @Autowired
     private WorkOrderRepository repository;
 
+    @Autowired
+    private WorkOrderSegmentRepository segmentRepository;
+
     @BeforeEach
     void setUp() {
+        segmentRepository.deleteAll();
         repository.deleteAll();
     }
 
@@ -119,7 +124,7 @@ class WorkOrderServiceTests {
         repository.saveAndFlush(existing);
         WorkOrder incoming = repository.save(order("ORD-INCOMING"));
 
-        WorkOrder scheduled = scheduleService.schedule(
+        WorkOrderSegmentListResponse scheduled = scheduleService.schedule(
                 incoming.getId(),
                 new ScheduleWorkOrderRequest(
                         LocalDateTime.of(2026, 6, 8, 13, 0),
@@ -127,9 +132,10 @@ class WorkOrderServiceTests {
                 )
         );
 
-        assertThat(scheduled.getStatus()).isEqualTo(WorkOrderStatus.SCHEDULED);
-        assertThat(scheduled.getScheduledStart()).isEqualTo(LocalDateTime.of(2026, 6, 8, 13, 0));
-        assertThat(scheduled.getScheduledEnd()).isEqualTo(LocalDateTime.of(2026, 6, 8, 15, 0));
+        assertThat(scheduled.workOrder().status()).isEqualTo(WorkOrderStatus.SCHEDULED);
+        assertThat(scheduled.segments()).hasSize(1);
+        assertThat(scheduled.segments().getFirst().scheduledStart()).isEqualTo(LocalDateTime.of(2026, 6, 8, 13, 0));
+        assertThat(scheduled.segments().getFirst().scheduledEnd()).isEqualTo(LocalDateTime.of(2026, 6, 8, 15, 0));
     }
 
     @Test
@@ -144,7 +150,7 @@ class WorkOrderServiceTests {
         repository.saveAndFlush(completed);
         WorkOrder incoming = repository.save(order("ORD-ALLOWED"));
 
-        WorkOrder scheduled = scheduleService.schedule(
+        WorkOrderSegmentListResponse scheduled = scheduleService.schedule(
                 incoming.getId(),
                 new ScheduleWorkOrderRequest(
                         LocalDateTime.of(2026, 6, 8, 13, 0),
@@ -152,7 +158,7 @@ class WorkOrderServiceTests {
                 )
         );
 
-        assertThat(scheduled.getStatus()).isEqualTo(WorkOrderStatus.SCHEDULED);
+        assertThat(scheduled.workOrder().status()).isEqualTo(WorkOrderStatus.SCHEDULED);
     }
 
     @Test

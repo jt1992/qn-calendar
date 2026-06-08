@@ -7,7 +7,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
-import com.qn.calendar.workorder.dto.WorkOrderResponse;
+import com.qn.calendar.workorder.dto.WorkOrderSegmentResponse;
 
 import org.junit.jupiter.api.Test;
 
@@ -15,7 +15,7 @@ class WorkOrderEmailServiceTests {
 
     @Test
     void scheduleTableSpansOrderAcrossFiveMinuteSlotsAndTrimsEmptyTimeRange() {
-        WorkOrderResponse order = order(
+        WorkOrderSegmentResponse order = order(
                 "ORD-001",
                 LocalDateTime.of(2026, 6, 8, 12, 0),
                 LocalDateTime.of(2026, 6, 8, 15, 5),
@@ -40,13 +40,13 @@ class WorkOrderEmailServiceTests {
 
     @Test
     void scheduleTableUsesAdditionalLaneForOverlappingDoneOrder() {
-        WorkOrderResponse scheduled = order(
+        WorkOrderSegmentResponse scheduled = order(
                 "ORD-SCHEDULED",
                 LocalDateTime.of(2026, 6, 8, 12, 0),
                 LocalDateTime.of(2026, 6, 8, 14, 0),
                 WorkOrderStatus.SCHEDULED
         );
-        WorkOrderResponse done = order(
+        WorkOrderSegmentResponse done = order(
                 "ORD-DONE",
                 LocalDateTime.of(2026, 6, 8, 13, 0),
                 LocalDateTime.of(2026, 6, 8, 15, 0),
@@ -63,18 +63,22 @@ class WorkOrderEmailServiceTests {
         assertThat(table.rows()).hasSize(36);
     }
 
-    private WorkOrderResponse order(
+    private WorkOrderSegmentResponse order(
             String orderNo,
             LocalDateTime scheduledStart,
             LocalDateTime scheduledEnd,
             WorkOrderStatus status
     ) {
-        return new WorkOrderResponse(
+        int minutes = Math.toIntExact(java.time.Duration.between(scheduledStart, scheduledEnd).toMinutes());
+        return new WorkOrderSegmentResponse(
+                1L,
+                1L,
                 1L,
                 orderNo,
                 BigDecimal.valueOf(300),
                 180,
-                Math.toIntExact(java.time.Duration.between(scheduledStart, scheduledEnd).toMinutes()),
+                minutes,
+                minutes,
                 false,
                 scheduledEnd.plusDays(1),
                 status,

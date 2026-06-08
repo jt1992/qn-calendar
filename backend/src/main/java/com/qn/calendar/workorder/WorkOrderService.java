@@ -4,6 +4,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import com.qn.calendar.workorder.dto.WorkOrderSegmentResponse;
 import com.qn.calendar.workorder.dto.WorkOrderResponse;
 
 import org.springframework.stereotype.Service;
@@ -13,9 +14,14 @@ import org.springframework.transaction.annotation.Transactional;
 public class WorkOrderService {
 
     private final WorkOrderRepository repository;
+    private final WorkOrderSegmentRepository segmentRepository;
 
-    public WorkOrderService(WorkOrderRepository repository) {
+    public WorkOrderService(
+            WorkOrderRepository repository,
+            WorkOrderSegmentRepository segmentRepository
+    ) {
         this.repository = repository;
+        this.segmentRepository = segmentRepository;
     }
 
     @Transactional(readOnly = true)
@@ -27,7 +33,7 @@ public class WorkOrderService {
     }
 
     @Transactional(readOnly = true)
-    public List<WorkOrderResponse> getCalendarWorkOrders(LocalDate dateFrom, LocalDate dateTo) {
+    public List<WorkOrderSegmentResponse> getCalendarWorkOrders(LocalDate dateFrom, LocalDate dateTo) {
         if (dateTo.isBefore(dateFrom)) {
             throw new IllegalArgumentException("日曆日期區間不可無效");
         }
@@ -35,13 +41,18 @@ public class WorkOrderService {
         LocalDateTime from = dateFrom.atStartOfDay();
         LocalDateTime toExclusive = dateTo.plusDays(1).atStartOfDay();
 
-        return repository.findCalendarOrders(
+        return segmentRepository.findCalendarSegments(
                         List.of(WorkOrderStatus.SCHEDULED, WorkOrderStatus.DONE),
                         from,
                         toExclusive
                 )
                 .stream()
-                .map(WorkOrderResponse::from)
+                .map((segment) -> WorkOrderSegmentResponse.from(
+                        segment,
+                        totalMinutes(segmentRepository.findByWorkOrderIdOrderByScheduledStartAscScheduledEndAscIdAsc(
+                                segment.getWorkOrder().getId()
+                        ))
+                ))
                 .toList();
     }
 
@@ -77,6 +88,7 @@ public class WorkOrderService {
             throw new IllegalStateException("工單尚未排入日曆");
         }
 
+        segmentRepository.deleteByWorkOrderId(id);
         workOrder.unschedule();
         return workOrder;
     }
@@ -98,5 +110,14 @@ public class WorkOrderService {
         if (actualMinutes % 5 != 0) {
             throw new IllegalArgumentException("工時必須是 5 分鐘的倍數");
         }
+    }
+
+    private int totalMinutes(List<WorkOrderSegment> segments) {
+        return segments.stream()
+                .mapToInt((segment) -> Math.toIntExact(java.time.Duration.between(
+                        segment.getScheduledStart(),
+                        segment.getScheduledEnd()
+                ).toMinutes()))
+                .sum();
     }
 }

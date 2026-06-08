@@ -29,8 +29,12 @@ class WorkOrderImportServiceTests {
     @Autowired
     private WorkOrderRepository repository;
 
+    @Autowired
+    private WorkOrderSegmentRepository segmentRepository;
+
     @BeforeEach
     void setUp() {
+        segmentRepository.deleteAll();
         repository.deleteAll();
     }
 
