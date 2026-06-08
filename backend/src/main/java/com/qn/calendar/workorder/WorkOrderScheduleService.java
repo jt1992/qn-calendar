@@ -51,15 +51,6 @@ public class WorkOrderScheduleService {
         if (scheduledEnd.isAfter(workOrder.getLatestShipTime())) {
             throw new IllegalArgumentException("排程結束時間不可超過最晚發貨時間");
         }
-
-        if (repository.existsOverlappingWorkOrder(
-                workOrder.getId(),
-                java.util.List.of(WorkOrderStatus.SCHEDULED),
-                scheduledStart,
-                scheduledEnd
-        )) {
-            throw new IllegalArgumentException("工單排程不可與未完成工單重疊");
-        }
     }
 
     private boolean isFiveMinuteBoundary(LocalDateTime time) {

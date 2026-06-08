@@ -86,17 +86,6 @@ public class WorkOrderService {
         WorkOrder workOrder = repository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("找不到工單"));
 
-        if (workOrder.getScheduledStart() != null
-                && workOrder.getScheduledEnd() != null
-                && repository.existsOverlappingWorkOrder(
-                        workOrder.getId(),
-                        List.of(WorkOrderStatus.SCHEDULED),
-                        workOrder.getScheduledStart(),
-                        workOrder.getScheduledEnd()
-                )) {
-            throw new IllegalArgumentException("工單排程不可與未完成工單重疊");
-        }
-
         workOrder.reopen();
         return workOrder;
     }

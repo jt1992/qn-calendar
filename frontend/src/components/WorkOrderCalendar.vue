@@ -103,8 +103,8 @@ const calendarOptions = computed(() => ({
   eventDurationEditable: currentView.value === 'timeGridWeek',
   eventStartEditable: true,
   droppable: true,
-  eventOverlap: canOverlapEvents,
-  slotEventOverlap: false,
+  eventOverlap: true,
+  slotEventOverlap: true,
   eventResizableFromStart: currentView.value === 'timeGridWeek',
   height: '100%',
   events: calendarEvents.value,
@@ -137,32 +137,23 @@ onBeforeUnmount(() => {
 function eventAllow(dropInfo, draggedEvent) {
   const latestShipTime = draggedEvent.extendedProps.latestShipTime
   const { start, end } = resolveInteractionWindow(dropInfo, draggedEvent)
-  const overlapAllowed = !overlapsActiveWorkOrder(draggedEvent, start, end)
 
   if (!latestShipTime) {
-    updateInteractionPreview(interactionAction.value, start, end, null, overlapAllowed, overlapAllowed ? '' : '與未完成工單重疊')
-    return overlapAllowed
+    updateInteractionPreview(interactionAction.value, start, end, null, true)
+    return true
   }
 
   const latest = new Date(latestShipTime)
   const deadlineAllowed = end <= latest
-  const allowed = deadlineAllowed && overlapAllowed
   updateInteractionPreview(
     interactionAction.value,
     start,
     end,
     latest,
-    allowed,
-    deadlineAllowed ? '與未完成工單重疊' : `超過最晚發貨時間 ${formatDateTime(latest)}`
+    deadlineAllowed,
+    deadlineAllowed ? '' : `超過最晚發貨時間 ${formatDateTime(latest)}`
   )
-  return allowed
-}
-
-function canOverlapEvents(stillEvent, movingEvent) {
-  return stillEvent.extendedProps.status === 'DONE'
-    || movingEvent.extendedProps.status === 'DONE'
-    || stillEvent.extendedProps.isDeadlineMarker
-    || movingEvent.extendedProps.isDeadlineMarker
+  return deadlineAllowed
 }
 
 async function handleDatesSet(info) {
@@ -401,7 +392,6 @@ function handleInteractionStart(info, action) {
   const latest = info.event.extendedProps.latestShipTime
     ? new Date(info.event.extendedProps.latestShipTime)
     : null
-  const overlapAllowed = !overlapsActiveWorkOrder(info.event, start, end)
   const deadlineAllowed = !latest || end <= latest
 
   updateInteractionPreview(
@@ -409,8 +399,8 @@ function handleInteractionStart(info, action) {
     start,
     end,
     latest,
-    deadlineAllowed && overlapAllowed,
-    deadlineAllowed ? '與未完成工單重疊' : `超過最晚發貨時間 ${formatDateTime(latest)}`
+    deadlineAllowed,
+    deadlineAllowed ? '' : `超過最晚發貨時間 ${formatDateTime(latest)}`
   )
 }
 
@@ -440,31 +430,6 @@ function updateInteractionPreview(action, start, end, latest, valid, invalidReas
     latestText: latest ? formatDateTime(latest) : '',
     invalidReason
   }
-}
-
-function overlapsActiveWorkOrder(draggedEvent, start, end) {
-  if (draggedEvent.extendedProps.status === 'DONE') {
-    return false
-  }
-
-  const draggedId = String(draggedEvent.extendedProps.workOrderId || draggedEvent.id)
-
-  return props.events.some((event) => {
-    if (event.extendedProps?.status === 'DONE') {
-      return false
-    }
-
-    const eventId = String(event.extendedProps?.workOrderId || event.id)
-
-    if (eventId === draggedId) {
-      return false
-    }
-
-    const eventStart = new Date(event.start)
-    const eventEnd = new Date(event.end)
-
-    return eventStart < end && eventEnd > start
-  })
 }
 
 function clearInteractionPreview() {

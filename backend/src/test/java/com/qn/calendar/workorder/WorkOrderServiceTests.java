@@ -109,7 +109,7 @@ class WorkOrderServiceTests {
     }
 
     @Test
-    void rejectsOverlappingScheduledWorkOrder() {
+    void allowsOverlappingScheduledWorkOrder() {
         WorkOrder existing = repository.save(order("ORD-EXISTING"));
         existing.schedule(
                 LocalDateTime.of(2026, 6, 8, 12, 0),
@@ -119,15 +119,17 @@ class WorkOrderServiceTests {
         repository.saveAndFlush(existing);
         WorkOrder incoming = repository.save(order("ORD-INCOMING"));
 
-        assertThatThrownBy(() -> scheduleService.schedule(
+        WorkOrder scheduled = scheduleService.schedule(
                 incoming.getId(),
                 new ScheduleWorkOrderRequest(
                         LocalDateTime.of(2026, 6, 8, 13, 0),
                         LocalDateTime.of(2026, 6, 8, 15, 0)
                 )
-        ))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("工單排程不可與未完成工單重疊");
+        );
+
+        assertThat(scheduled.getStatus()).isEqualTo(WorkOrderStatus.SCHEDULED);
+        assertThat(scheduled.getScheduledStart()).isEqualTo(LocalDateTime.of(2026, 6, 8, 13, 0));
+        assertThat(scheduled.getScheduledEnd()).isEqualTo(LocalDateTime.of(2026, 6, 8, 15, 0));
     }
 
     @Test
@@ -154,7 +156,7 @@ class WorkOrderServiceTests {
     }
 
     @Test
-    void rejectsReopeningDoneWorkOrderWhenItWouldOverlapActiveWorkOrder() {
+    void allowsReopeningDoneWorkOrderWhenItOverlapsActiveWorkOrder() {
         WorkOrder completed = repository.save(order("ORD-DONE-OVERLAP"));
         completed.schedule(
                 LocalDateTime.of(2026, 6, 8, 12, 0),
@@ -171,9 +173,10 @@ class WorkOrderServiceTests {
         );
         repository.saveAndFlush(active);
 
-        assertThatThrownBy(() -> service.reopen(completed.getId()))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("工單排程不可與未完成工單重疊");
+        WorkOrder reopened = service.reopen(completed.getId());
+
+        assertThat(reopened.getStatus()).isEqualTo(WorkOrderStatus.SCHEDULED);
+        assertThat(reopened.getCompletedAt()).isNull();
     }
 
     private WorkOrder order(String orderNo) {
