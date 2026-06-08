@@ -52,6 +52,14 @@ export async function deleteWorkOrderSegment(segmentId) {
   return data
 }
 
+export async function splitWorkOrderSegment(segmentId, splitAt) {
+  const { data } = await http.post(`/api/work-orders/segments/${segmentId}/split`, {
+    splitAt
+  })
+
+  return data
+}
+
 export async function updateWorkOrderDuration(id, actualMinutes) {
   const { data } = await http.patch(`/api/work-orders/${id}/duration`, {
     actualMinutes

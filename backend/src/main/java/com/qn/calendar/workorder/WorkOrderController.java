@@ -6,6 +6,7 @@ import java.util.List;
 import com.qn.calendar.workorder.dto.ImportWorkOrderResponse;
 import com.qn.calendar.workorder.dto.ScheduleEmailRequest;
 import com.qn.calendar.workorder.dto.ScheduleWorkOrderRequest;
+import com.qn.calendar.workorder.dto.SplitWorkOrderSegmentRequest;
 import com.qn.calendar.workorder.dto.UpdateWorkOrderDurationRequest;
 import com.qn.calendar.workorder.dto.WorkOrderResponse;
 import com.qn.calendar.workorder.dto.WorkOrderSegmentListResponse;
@@ -88,6 +89,14 @@ public class WorkOrderController {
     @DeleteMapping("/segments/{segmentId}")
     public WorkOrderSegmentListResponse deleteSegment(@PathVariable Long segmentId) {
         return segmentService.deleteSegment(segmentId);
+    }
+
+    @PostMapping("/segments/{segmentId}/split")
+    public WorkOrderSegmentListResponse splitSegment(
+            @PathVariable Long segmentId,
+            @Valid @RequestBody SplitWorkOrderSegmentRequest request
+    ) {
+        return segmentService.splitSegment(segmentId, request);
     }
 
     @PatchMapping("/{id}/duration")

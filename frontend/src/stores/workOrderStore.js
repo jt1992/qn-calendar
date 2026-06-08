@@ -8,6 +8,7 @@ import {
   reopenWorkOrder,
   scheduleWorkOrder,
   sendScheduleEmail,
+  splitWorkOrderSegment,
   unscheduleWorkOrder,
   updateWorkOrderSegment,
   updateWorkOrderDuration
@@ -75,6 +76,12 @@ export const useWorkOrderStore = defineStore('workOrders', {
     async deleteWorkOrderSegment(segmentId) {
       const response = await deleteWorkOrderSegment(segmentId)
       await this.fetchPendingWorkOrders()
+      await this.refreshCalendarEvents()
+      return response
+    },
+
+    async splitWorkOrderSegment(segmentId, splitAt) {
+      const response = await splitWorkOrderSegment(segmentId, toLocalDateTime(splitAt))
       await this.refreshCalendarEvents()
       return response
     },

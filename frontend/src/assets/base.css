@@ -662,7 +662,8 @@ input:disabled {
 }
 
 .event-remove-button,
-.event-complete-button {
+.event-complete-button,
+.event-split-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -681,6 +682,11 @@ input:disabled {
 
 .event-complete-button:hover {
   background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.event-split-button:hover {
+  background: var(--surface-strong);
   color: var(--primary);
 }
 

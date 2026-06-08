@@ -7,6 +7,7 @@ import java.util.Comparator;
 import java.util.List;
 
 import com.qn.calendar.workorder.dto.ScheduleWorkOrderRequest;
+import com.qn.calendar.workorder.dto.SplitWorkOrderSegmentRequest;
 import com.qn.calendar.workorder.dto.WorkOrderSegmentListResponse;
 
 import org.springframework.stereotype.Service;
@@ -55,6 +56,30 @@ public class WorkOrderSegmentService {
 
         segmentRepository.delete(segment);
         return normalize(workOrder);
+    }
+
+    @Transactional
+    public WorkOrderSegmentListResponse splitSegment(Long segmentId, SplitWorkOrderSegmentRequest request) {
+        WorkOrderSegment segment = segmentRepository.findById(segmentId)
+                .orElseThrow(() -> new IllegalArgumentException("找不到工單片段"));
+        WorkOrder workOrder = segment.getWorkOrder();
+        LocalDateTime originalEnd = segment.getScheduledEnd();
+
+        validateSplit(segment, request.splitAt());
+        segment.updateSchedule(segment.getScheduledStart(), request.splitAt());
+        segmentRepository.save(new WorkOrderSegment(workOrder, request.splitAt(), originalEnd));
+        List<WorkOrderSegment> segments = segmentRepository.findByWorkOrderIdOrderByScheduledStartAscScheduledEndAscIdAsc(
+                workOrder.getId()
+        );
+        int totalMinutes = segments.stream()
+                .mapToInt(WorkOrderSegmentService::segmentMinutes)
+                .sum();
+        workOrder.syncScheduleSummary(
+                segments.getFirst().getScheduledStart(),
+                segments.getLast().getScheduledEnd(),
+                totalMinutes
+        );
+        return WorkOrderSegmentListResponse.from(workOrder, segments, totalMinutes);
     }
 
     @Transactional
@@ -134,6 +159,16 @@ public class WorkOrderSegmentService {
 
         if (scheduledEnd.isAfter(workOrder.getLatestShipTime())) {
             throw new IllegalArgumentException("排程結束時間不可超過最晚發貨時間");
+        }
+    }
+
+    private void validateSplit(WorkOrderSegment segment, LocalDateTime splitAt) {
+        if (!isFiveMinuteBoundary(splitAt)) {
+            throw new IllegalArgumentException("拆分時間必須符合 5 分鐘粒度");
+        }
+
+        if (!splitAt.isAfter(segment.getScheduledStart()) || !splitAt.isBefore(segment.getScheduledEnd())) {
+            throw new IllegalArgumentException("拆分時間必須位於片段內");
         }
     }
 

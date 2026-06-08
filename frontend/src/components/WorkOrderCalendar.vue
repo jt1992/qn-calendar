@@ -202,6 +202,7 @@ function eventContent(info) {
   const deadlineTime = document.createElement('span')
   const actions = document.createElement('div')
   const doneButton = document.createElement('button')
+  const splitButton = document.createElement('button')
   const removeButton = document.createElement('button')
   const latestShipTime = info.event.extendedProps.latestShipTime
   const segmentMinutes = info.event.extendedProps.actualMinutes || diffMinutes(info.event.start, info.event.end)
@@ -231,6 +232,16 @@ function eventContent(info) {
     await toggleEventDone(info.event)
   })
 
+  splitButton.className = 'event-split-button'
+  splitButton.type = 'button'
+  splitButton.textContent = '拆'
+  splitButton.setAttribute('aria-label', '拆分片段')
+  splitButton.addEventListener('click', async (event) => {
+    event.preventDefault()
+    event.stopPropagation()
+    await splitEvent(info.event)
+  })
+
   removeButton.className = 'event-remove-button'
   removeButton.type = 'button'
   removeButton.textContent = 'X'
@@ -252,7 +263,7 @@ function eventContent(info) {
   deadlineTime.className = 'calendar-event-deadline-time'
   deadlineTime.textContent = formatTimePart(latestShipTime)
 
-  actions.append(doneButton, removeButton)
+  actions.append(doneButton, splitButton, removeButton)
   root.append(actions, title, timeRange, duration, deadlineLabel, deadlineDate, deadlineTime)
   return { domNodes: [root] }
 }
@@ -373,6 +384,21 @@ async function unscheduleEvent(event) {
   }
 }
 
+async function splitEvent(event) {
+  const splitAt = resolveSplitAt(event)
+
+  if (!splitAt) {
+    store.error = '片段至少 10 分鐘才能拆分'
+    return
+  }
+
+  try {
+    await store.splitWorkOrderSegment(event.extendedProps.segmentId, splitAt)
+  } catch (error) {
+    store.error = error.message
+  }
+}
+
 function handleEventDragStop(info) {
   if (
     !info.event.extendedProps.isDeadlineMarker
@@ -439,6 +465,18 @@ function resolveInteractionWindow(dropInfo, draggedEvent) {
     : addMinutes(start, duration)
 
   return { start, end }
+}
+
+function resolveSplitAt(event) {
+  const minutes = diffMinutes(event.start, event.end)
+
+  if (minutes < 10) {
+    return null
+  }
+
+  const roundedHalf = Math.round((minutes / 2) / 5) * 5
+  const offsetMinutes = Math.min(minutes - 5, Math.max(5, roundedHalf))
+  return addMinutes(event.start, offsetMinutes)
 }
 
 function updateInteractionPreview(action, start, end, latest, valid, invalidReason = '') {
