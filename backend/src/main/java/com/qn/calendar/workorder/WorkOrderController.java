@@ -99,6 +99,11 @@ public class WorkOrderController {
         return segmentService.splitSegment(segmentId, request);
     }
 
+    @PatchMapping("/segments/{segmentId}/done")
+    public WorkOrderSegmentListResponse completeSegment(@PathVariable Long segmentId) {
+        return segmentService.completeSegment(segmentId);
+    }
+
     @PatchMapping("/{id}/duration")
     public WorkOrderResponse updateDuration(
             @PathVariable Long id,

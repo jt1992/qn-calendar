@@ -98,6 +98,23 @@ class WorkOrderSegmentServiceTests {
     }
 
     @Test
+    void rejectsOverlappingSegmentForDifferentWorkOrder() {
+        WorkOrder existing = workOrderRepository.save(order("ORD-EXISTING"));
+        service.createSegment(existing.getId(), request(
+                LocalDateTime.of(2026, 6, 8, 9, 0),
+                LocalDateTime.of(2026, 6, 8, 11, 0)
+        ));
+        WorkOrder incoming = workOrderRepository.save(order("ORD-INCOMING"));
+
+        assertThatThrownBy(() -> service.createSegment(incoming.getId(), request(
+                LocalDateTime.of(2026, 6, 8, 10, 0),
+                LocalDateTime.of(2026, 6, 8, 12, 0)
+        )))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("不同工單排程不可重疊");
+    }
+
+    @Test
     void rejectsSegmentBeyondLatestShipTime() {
         WorkOrder workOrder = workOrderRepository.save(order(
                 "ORD-DEADLINE",
@@ -110,6 +127,29 @@ class WorkOrderSegmentServiceTests {
         )))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("排程結束時間不可超過最晚發貨時間");
+    }
+
+    @Test
+    void completingSegmentExtendsEndToCurrentTimeRoundedUpToFiveMinutes() {
+        WorkOrder workOrder = workOrderRepository.save(order(
+                "ORD-COMPLETE-EXTEND",
+                LocalDateTime.of(2026, 6, 9, 2, 0)
+        ));
+        WorkOrderSegmentListResponse created = service.createSegment(workOrder.getId(), request(
+                LocalDateTime.of(2026, 6, 9, 0, 0),
+                LocalDateTime.of(2026, 6, 9, 1, 0)
+        ));
+
+        WorkOrderSegmentListResponse response = service.completeSegment(
+                created.segments().getFirst().segmentId(),
+                LocalDateTime.of(2026, 6, 9, 1, 26, 1)
+        );
+
+        assertThat(response.workOrder().status()).isEqualTo(WorkOrderStatus.DONE);
+        assertThat(response.segments()).hasSize(1);
+        assertThat(response.segments().getFirst().scheduledStart()).isEqualTo(LocalDateTime.of(2026, 6, 9, 0, 0));
+        assertThat(response.segments().getFirst().scheduledEnd()).isEqualTo(LocalDateTime.of(2026, 6, 9, 1, 30));
+        assertThat(response.totalMinutes()).isEqualTo(90);
     }
 
     @Test

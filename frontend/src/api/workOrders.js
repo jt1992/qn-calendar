@@ -78,6 +78,11 @@ export async function markWorkOrderAsDone(id) {
   return data
 }
 
+export async function markWorkOrderSegmentAsDone(segmentId) {
+  const { data } = await http.patch(`/api/work-orders/segments/${segmentId}/done`)
+  return data
+}
+
 export async function reopenWorkOrder(id) {
   const { data } = await http.patch(`/api/work-orders/${id}/reopen`)
   return data

@@ -7,7 +7,6 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 import com.qn.calendar.workorder.dto.ScheduleWorkOrderRequest;
-import com.qn.calendar.workorder.dto.WorkOrderSegmentListResponse;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -114,51 +113,51 @@ class WorkOrderServiceTests {
     }
 
     @Test
-    void allowsOverlappingScheduledWorkOrder() {
+    void rejectsOverlappingDifferentScheduledWorkOrder() {
         WorkOrder existing = repository.save(order("ORD-EXISTING"));
-        existing.schedule(
-                LocalDateTime.of(2026, 6, 8, 12, 0),
-                LocalDateTime.of(2026, 6, 8, 14, 0),
-                120
+        scheduleService.schedule(
+                existing.getId(),
+                new ScheduleWorkOrderRequest(
+                        LocalDateTime.of(2026, 6, 8, 12, 0),
+                        LocalDateTime.of(2026, 6, 8, 14, 0)
+                )
         );
-        repository.saveAndFlush(existing);
         WorkOrder incoming = repository.save(order("ORD-INCOMING"));
 
-        WorkOrderSegmentListResponse scheduled = scheduleService.schedule(
+        assertThatThrownBy(() -> scheduleService.schedule(
                 incoming.getId(),
                 new ScheduleWorkOrderRequest(
                         LocalDateTime.of(2026, 6, 8, 13, 0),
                         LocalDateTime.of(2026, 6, 8, 15, 0)
                 )
-        );
-
-        assertThat(scheduled.workOrder().status()).isEqualTo(WorkOrderStatus.SCHEDULED);
-        assertThat(scheduled.segments()).hasSize(1);
-        assertThat(scheduled.segments().getFirst().scheduledStart()).isEqualTo(LocalDateTime.of(2026, 6, 8, 13, 0));
-        assertThat(scheduled.segments().getFirst().scheduledEnd()).isEqualTo(LocalDateTime.of(2026, 6, 8, 15, 0));
+        ))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("不同工單排程不可重疊");
     }
 
     @Test
-    void allowsOverlapWithDoneWorkOrder() {
+    void rejectsOverlapWithDifferentDoneWorkOrder() {
         WorkOrder completed = repository.save(order("ORD-DONE"));
-        completed.schedule(
-                LocalDateTime.of(2026, 6, 8, 12, 0),
-                LocalDateTime.of(2026, 6, 8, 14, 0),
-                120
+        scheduleService.schedule(
+                completed.getId(),
+                new ScheduleWorkOrderRequest(
+                        LocalDateTime.of(2026, 6, 8, 12, 0),
+                        LocalDateTime.of(2026, 6, 8, 14, 0)
+                )
         );
         completed.markDone(LocalDateTime.of(2026, 6, 8, 14, 0));
         repository.saveAndFlush(completed);
-        WorkOrder incoming = repository.save(order("ORD-ALLOWED"));
+        WorkOrder incoming = repository.save(order("ORD-BLOCKED"));
 
-        WorkOrderSegmentListResponse scheduled = scheduleService.schedule(
+        assertThatThrownBy(() -> scheduleService.schedule(
                 incoming.getId(),
                 new ScheduleWorkOrderRequest(
                         LocalDateTime.of(2026, 6, 8, 13, 0),
                         LocalDateTime.of(2026, 6, 8, 15, 0)
                 )
-        );
-
-        assertThat(scheduled.workOrder().status()).isEqualTo(WorkOrderStatus.SCHEDULED);
+        ))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("不同工單排程不可重疊");
     }
 
     @Test

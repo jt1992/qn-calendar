@@ -5,6 +5,7 @@ import {
   getPendingWorkOrders,
   importWorkOrders,
   markWorkOrderAsDone,
+  markWorkOrderSegmentAsDone,
   reopenWorkOrder,
   scheduleWorkOrder,
   sendScheduleEmail,
@@ -105,6 +106,11 @@ export const useWorkOrderStore = defineStore('workOrders', {
 
     async markAsDone(id) {
       await markWorkOrderAsDone(id)
+      await this.refreshCalendarEvents()
+    },
+
+    async markSegmentAsDone(segmentId) {
+      await markWorkOrderSegmentAsDone(segmentId)
       await this.refreshCalendarEvents()
     },
 

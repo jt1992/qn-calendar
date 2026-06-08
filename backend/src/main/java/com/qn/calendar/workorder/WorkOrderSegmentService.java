@@ -83,6 +83,27 @@ public class WorkOrderSegmentService {
     }
 
     @Transactional
+    public WorkOrderSegmentListResponse completeSegment(Long segmentId) {
+        return completeSegment(segmentId, LocalDateTime.now());
+    }
+
+    @Transactional
+    public WorkOrderSegmentListResponse completeSegment(Long segmentId, LocalDateTime completedAt) {
+        WorkOrderSegment segment = segmentRepository.findById(segmentId)
+                .orElseThrow(() -> new IllegalArgumentException("找不到工單片段"));
+        WorkOrder workOrder = segment.getWorkOrder();
+        LocalDateTime roundedCompletedAt = roundUpToFiveMinuteBoundary(completedAt);
+
+        if (roundedCompletedAt.isAfter(segment.getScheduledEnd())) {
+            validateSchedule(workOrder, segment.getScheduledStart(), roundedCompletedAt);
+            segment.updateSchedule(segment.getScheduledStart(), roundedCompletedAt);
+        }
+
+        workOrder.markDone(roundedCompletedAt);
+        return normalize(workOrder);
+    }
+
+    @Transactional
     public WorkOrderSegmentListResponse deleteAllSegments(Long workOrderId) {
         WorkOrder workOrder = workOrderRepository.findById(workOrderId)
                 .orElseThrow(() -> new IllegalArgumentException("找不到工單"));
@@ -160,6 +181,15 @@ public class WorkOrderSegmentService {
         if (scheduledEnd.isAfter(workOrder.getLatestShipTime())) {
             throw new IllegalArgumentException("排程結束時間不可超過最晚發貨時間");
         }
+
+        if (segmentRepository.existsOverlappingDifferentWorkOrder(
+                workOrder.getId(),
+                List.of(WorkOrderStatus.SCHEDULED, WorkOrderStatus.DONE),
+                scheduledStart,
+                scheduledEnd
+        )) {
+            throw new IllegalArgumentException("不同工單排程不可重疊");
+        }
     }
 
     private void validateSplit(WorkOrderSegment segment, LocalDateTime splitAt) {
@@ -183,5 +213,16 @@ public class WorkOrderSegmentService {
         return time.getSecond() == 0
                 && time.getNano() == 0
                 && time.getMinute() % 5 == 0;
+    }
+
+    private LocalDateTime roundUpToFiveMinuteBoundary(LocalDateTime time) {
+        LocalDateTime truncated = time.withSecond(0).withNano(0);
+        int remainder = truncated.getMinute() % 5;
+
+        if (remainder == 0 && time.getSecond() == 0 && time.getNano() == 0) {
+            return truncated;
+        }
+
+        return truncated.plusMinutes(remainder == 0 ? 5 : 5 - remainder);
     }
 }

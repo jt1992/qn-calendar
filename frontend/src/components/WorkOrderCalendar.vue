@@ -20,9 +20,12 @@ const props = defineProps({
 
 const emit = defineEmits(['send-email', 'range-change', 'focus-order'])
 const store = useWorkOrderStore()
+const calendarViewStorageKey = 'qn-calendar-view'
+const validCalendarViews = new Set(['timeGridWeek', 'dayGridMonth'])
+const initialCalendarView = getInitialCalendarView()
 const calendarRef = ref(null)
 const visibleTitle = ref('')
-const currentView = ref('timeGridWeek')
+const currentView = ref(initialCalendarView)
 const pointerPosition = ref({ x: 0, y: 0 })
 const tooltipPosition = ref({ x: 0, y: 0 })
 const interactionPreview = ref(null)
@@ -84,9 +87,16 @@ const eventTooltipStyle = computed(() => {
 
 const calendarOptions = computed(() => ({
   plugins: [dayGridPlugin, timeGridPlugin, interactionPlugin],
-  initialView: 'timeGridWeek',
+  initialView: initialCalendarView,
+  initialDate: todayStart(),
   headerToolbar: false,
   allDaySlot: false,
+  views: {
+    timeGridWeek: {
+      duration: { days: 7 },
+      dateAlignment: 'day'
+    }
+  },
   slotDuration: '00:30:00',
   slotLabelInterval: '01:00:00',
   snapDuration: '00:05:00',
@@ -105,8 +115,9 @@ const calendarOptions = computed(() => ({
   eventDurationEditable: currentView.value === 'timeGridWeek',
   eventStartEditable: true,
   droppable: true,
+  dragRevertDuration: 0,
   eventOverlap: true,
-  slotEventOverlap: true,
+  slotEventOverlap: false,
   eventResizableFromStart: currentView.value === 'timeGridWeek',
   height: '100%',
   events: calendarEvents.value,
@@ -139,23 +150,18 @@ onBeforeUnmount(() => {
 function eventAllow(dropInfo, draggedEvent) {
   const latestShipTime = draggedEvent.extendedProps.latestShipTime
   const { start, end } = resolveInteractionWindow(dropInfo, draggedEvent)
+  const latest = latestShipTime ? new Date(latestShipTime) : null
+  const scheduleWindow = resolveNonOverlappingWindow(draggedEvent, start, end, latest, todayStart())
 
-  if (!latestShipTime) {
-    updateInteractionPreview(interactionAction.value, start, end, null, true)
-    return true
-  }
-
-  const latest = new Date(latestShipTime)
-  const deadlineAllowed = end <= latest
   updateInteractionPreview(
     interactionAction.value,
-    start,
-    end,
+    scheduleWindow.start,
+    scheduleWindow.end,
     latest,
-    deadlineAllowed,
-    deadlineAllowed ? '' : `超過最晚發貨時間 ${formatDateTime(latest)}`
+    scheduleWindow.valid,
+    scheduleWindow.invalidReason
   )
-  return deadlineAllowed
+  return scheduleWindow.valid
 }
 
 async function handleDatesSet(info) {
@@ -165,9 +171,10 @@ async function handleDatesSet(info) {
   const focusWeekEnd = addDays(focusWeekStart, 6)
   visibleTitle.value = formatVisibleTitle(info)
   currentView.value = info.view.type
+  window.localStorage.setItem(calendarViewStorageKey, info.view.type)
   emit('range-change', {
-    dateFrom: toDateOnly(focusWeekStart),
-    dateTo: toDateOnly(focusWeekEnd),
+    dateFrom: info.view.type === 'timeGridWeek' ? dateFrom : toDateOnly(focusWeekStart),
+    dateTo: info.view.type === 'timeGridWeek' ? dateTo : toDateOnly(focusWeekEnd),
     visibleDateFrom: dateFrom,
     visibleDateTo: dateTo,
     viewType: info.view.type
@@ -203,7 +210,6 @@ function eventContent(info) {
   const actions = document.createElement('div')
   const doneButton = document.createElement('button')
   const splitButton = document.createElement('button')
-  const removeButton = document.createElement('button')
   const latestShipTime = info.event.extendedProps.latestShipTime
   const segmentMinutes = info.event.extendedProps.actualMinutes || diffMinutes(info.event.start, info.event.end)
   const totalMinutes = info.event.extendedProps.totalMinutes || segmentMinutes
@@ -242,16 +248,6 @@ function eventContent(info) {
     await splitEvent(info.event)
   })
 
-  removeButton.className = 'event-remove-button'
-  removeButton.type = 'button'
-  removeButton.textContent = 'X'
-  removeButton.setAttribute('aria-label', '移出日曆回到待排工單')
-  removeButton.addEventListener('click', async (event) => {
-    event.preventDefault()
-    event.stopPropagation()
-    await unscheduleEvent(info.event)
-  })
-
   timeRange.className = 'calendar-event-time'
   timeRange.textContent = `${formatTime(info.event.start)}~${formatTime(info.event.end)}`
   duration.className = 'calendar-event-duration'
@@ -263,7 +259,7 @@ function eventContent(info) {
   deadlineTime.className = 'calendar-event-deadline-time'
   deadlineTime.textContent = formatTimePart(latestShipTime)
 
-  actions.append(doneButton, splitButton, removeButton)
+  actions.append(doneButton, splitButton)
   root.append(actions, title, timeRange, duration, deadlineLabel, deadlineDate, deadlineTime)
   return { domNodes: [root] }
 }
@@ -288,7 +284,16 @@ async function handleEventReceive(info) {
   try {
     const start = normalizeScheduleStart(info.event.start)
     const end = addMinutes(start, info.event.extendedProps.actualMinutes)
-    await store.scheduleWorkOrder(info.event.extendedProps.workOrderId, start, end)
+    const latest = info.event.extendedProps.latestShipTime
+      ? new Date(info.event.extendedProps.latestShipTime)
+      : null
+    const scheduleWindow = resolveNonOverlappingWindow(info.event, start, end, latest, todayStart())
+
+    if (!scheduleWindow.valid) {
+      throw new Error(scheduleWindow.invalidReason || '排程時間不可用')
+    }
+
+    await store.scheduleWorkOrder(info.event.extendedProps.workOrderId, scheduleWindow.start, scheduleWindow.end)
     clearInteractionPreview()
   } catch (error) {
     store.error = error.message
@@ -304,10 +309,19 @@ async function handleEventMove(info) {
     const end = currentView.value === 'timeGridWeek'
       ? info.event.end || addMinutes(start, info.event.extendedProps.actualMinutes)
       : addMinutes(start, info.event.extendedProps.actualMinutes)
+    const latest = info.event.extendedProps.latestShipTime
+      ? new Date(info.event.extendedProps.latestShipTime)
+      : null
+    const scheduleWindow = resolveNonOverlappingWindow(info.event, start, end, latest, todayStart())
+
+    if (!scheduleWindow.valid) {
+      throw new Error(scheduleWindow.invalidReason || '排程時間不可用')
+    }
+
     await store.updateWorkOrderSegment(
       info.event.extendedProps.segmentId,
-      start,
-      end
+      scheduleWindow.start,
+      scheduleWindow.end
     )
     clearInteractionPreview()
   } catch (error) {
@@ -357,7 +371,22 @@ function eventClassNames(info, focusedId) {
 }
 
 function previousRange() {
-  calendarRef.value?.getApi().prev()
+  const calendarApi = calendarRef.value?.getApi()
+
+  if (!calendarApi) {
+    return
+  }
+
+  if (currentView.value === 'timeGridWeek') {
+    const previousStart = addDays(calendarApi.view.currentStart, -7)
+
+    if (previousStart < todayStart()) {
+      calendarApi.gotoDate(todayStart())
+      return
+    }
+  }
+
+  calendarApi.prev()
 }
 
 function nextRange() {
@@ -369,11 +398,27 @@ function today() {
 }
 
 function changeView(viewName) {
+  if (validCalendarViews.has(viewName)) {
+    window.localStorage.setItem(calendarViewStorageKey, viewName)
+  }
+
   calendarRef.value?.getApi().changeView(viewName)
 }
 
-async function unscheduleEvent(event) {
+function getInitialCalendarView() {
+  const storedView = window.localStorage.getItem(calendarViewStorageKey)
+  return validCalendarViews.has(storedView) ? storedView : 'timeGridWeek'
+}
+
+async function unscheduleEvent(event, options = {}) {
+  const { removeImmediately = false } = options
+
   try {
+    if (removeImmediately) {
+      event.remove()
+      hideEventTooltip()
+    }
+
     const response = await store.deleteWorkOrderSegment(event.extendedProps.segmentId)
 
     if (response.segments.length === 0) {
@@ -381,6 +426,7 @@ async function unscheduleEvent(event) {
     }
   } catch (error) {
     store.error = error.message
+    await store.refreshCalendarEvents()
   }
 }
 
@@ -405,7 +451,7 @@ function handleEventDragStop(info) {
     && info.event.extendedProps.segmentId
     && isPointerOutsideCalendar(info.jsEvent)
   ) {
-    unscheduleEvent(info.event)
+    unscheduleEvent(info.event, { removeImmediately: true })
   }
 
   clearInteractionPreview()
@@ -425,7 +471,7 @@ async function toggleEventDone(event) {
     if (event.extendedProps.status === 'DONE') {
       await store.reopen(event.extendedProps.workOrderId)
     } else {
-      await store.markAsDone(event.extendedProps.workOrderId)
+      await store.markSegmentAsDone(event.extendedProps.segmentId)
     }
   } catch (error) {
     store.error = error.message
@@ -443,15 +489,15 @@ function handleInteractionStart(info, action) {
   const latest = info.event.extendedProps.latestShipTime
     ? new Date(info.event.extendedProps.latestShipTime)
     : null
-  const deadlineAllowed = !latest || end <= latest
+  const scheduleWindow = resolveNonOverlappingWindow(info.event, start, end, latest, todayStart())
 
   updateInteractionPreview(
     action,
-    start,
-    end,
+    scheduleWindow.start,
+    scheduleWindow.end,
     latest,
-    deadlineAllowed,
-    deadlineAllowed ? '' : `超過最晚發貨時間 ${formatDateTime(latest)}`
+    scheduleWindow.valid,
+    scheduleWindow.invalidReason
   )
 }
 
@@ -477,6 +523,120 @@ function resolveSplitAt(event) {
   const roundedHalf = Math.round((minutes / 2) / 5) * 5
   const offsetMinutes = Math.min(minutes - 5, Math.max(5, roundedHalf))
   return addMinutes(event.start, offsetMinutes)
+}
+
+function resolveNonOverlappingWindow(draggedEvent, start, end, latest, minStart) {
+  const duration = diffMinutes(start, end)
+  const directWindow = { start, end }
+
+  if (duration <= 0) {
+    return {
+      ...directWindow,
+      valid: false,
+      invalidReason: '排程結束時間必須晚於開始時間'
+    }
+  }
+
+  if (getDifferentWorkOrderOverlaps(draggedEvent, start, end).length === 0) {
+    return withScheduleWindowValidation(directWindow, latest, minStart)
+  }
+
+  const directValidation = withScheduleWindowValidation(directWindow, latest, minStart)
+
+  if (!directValidation.valid) {
+    return directValidation
+  }
+
+  const candidates = [
+    buildAdjacentWindow(draggedEvent, start, duration, 'before'),
+    buildAdjacentWindow(draggedEvent, start, duration, 'after')
+  ]
+    .filter(Boolean)
+    .map((candidate) => withScheduleWindowValidation(candidate, latest, minStart))
+    .filter((candidate) => candidate.valid)
+    .sort((left, right) => {
+      const leftShift = Math.abs(left.start.getTime() - start.getTime())
+      const rightShift = Math.abs(right.start.getTime() - start.getTime())
+      return leftShift - rightShift
+    })
+
+  if (candidates.length > 0) {
+    return {
+      ...candidates[0],
+      invalidReason: '已貼齊其他工單'
+    }
+  }
+
+  return {
+    ...directWindow,
+    valid: false,
+    invalidReason: '找不到可貼齊的空檔'
+  }
+}
+
+function buildAdjacentWindow(draggedEvent, desiredStart, duration, direction) {
+  let candidateStart = new Date(desiredStart)
+  let candidateEnd = addMinutes(candidateStart, duration)
+
+  for (let attempt = 0; attempt < props.events.length + 1; attempt++) {
+    const overlaps = getDifferentWorkOrderOverlaps(draggedEvent, candidateStart, candidateEnd)
+
+    if (overlaps.length === 0) {
+      return { start: candidateStart, end: candidateEnd }
+    }
+
+    if (direction === 'after') {
+      candidateStart = new Date(Math.max(...overlaps.map((event) => new Date(event.end).getTime())))
+      candidateEnd = addMinutes(candidateStart, duration)
+    } else {
+      candidateEnd = new Date(Math.min(...overlaps.map((event) => new Date(event.start).getTime())))
+      candidateStart = addMinutes(candidateEnd, -duration)
+    }
+  }
+
+  return null
+}
+
+function withScheduleWindowValidation(scheduleWindow, latest, minStart) {
+  const minStartAllowed = !minStart || scheduleWindow.start >= minStart
+  const deadlineAllowed = !latest || scheduleWindow.end <= latest
+
+  return {
+    ...scheduleWindow,
+    valid: minStartAllowed && deadlineAllowed,
+    invalidReason: !minStartAllowed
+      ? '不可排到今天以前'
+      : deadlineAllowed ? '' : `超過最晚發貨時間 ${formatDateTime(latest)}`
+  }
+}
+
+function getDifferentWorkOrderOverlaps(draggedEvent, start, end) {
+  const draggedWorkOrderId = draggedEvent.extendedProps.workOrderId
+
+  if (!draggedWorkOrderId) {
+    return []
+  }
+
+  const draggedSegmentId = draggedEvent.extendedProps.segmentId
+
+  return props.events.filter((event) => {
+    if (event.extendedProps?.isDeadlineMarker) {
+      return false
+    }
+
+    if (String(event.extendedProps?.workOrderId) === String(draggedWorkOrderId)) {
+      return false
+    }
+
+    if (draggedSegmentId && String(event.extendedProps?.segmentId) === String(draggedSegmentId)) {
+      return false
+    }
+
+    const eventStart = new Date(event.start)
+    const eventEnd = new Date(event.end)
+
+    return eventStart < end && eventEnd > start
+  })
 }
 
 function updateInteractionPreview(action, start, end, latest, valid, invalidReason = '') {
@@ -578,6 +738,12 @@ function addDays(date, days) {
   return next
 }
 
+function todayStart() {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return today
+}
+
 function startOfWeek(date) {
   const weekStart = new Date(date)
   weekStart.setDate(weekStart.getDate() - weekStart.getDay())
@@ -667,7 +833,7 @@ function weekdayLabel(date) {
 <template>
   <section class="calendar-panel" aria-label="工單日曆">
     <header class="calendar-header">
-      <div>
+      <div class="calendar-title-group">
         <h2>{{ visibleTitle }}</h2>
         <p>{{ currentView === 'dayGridMonth' ? '月檢視拖到日期，週檢視精準調整時間' : '半小時區間，5 分鐘粒度' }}</p>
       </div>

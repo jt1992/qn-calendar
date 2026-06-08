@@ -28,6 +28,22 @@ public interface WorkOrderSegmentRepository extends JpaRepository<WorkOrderSegme
             @Param("dateToExclusive") LocalDateTime dateToExclusive
     );
 
+    @Query("""
+            select count(segment) > 0
+            from WorkOrderSegment segment
+            join segment.workOrder workOrder
+            where workOrder.id <> :workOrderId
+              and workOrder.status in :statuses
+              and segment.scheduledStart < :scheduledEnd
+              and segment.scheduledEnd > :scheduledStart
+            """)
+    boolean existsOverlappingDifferentWorkOrder(
+            @Param("workOrderId") Long workOrderId,
+            @Param("statuses") Collection<WorkOrderStatus> statuses,
+            @Param("scheduledStart") LocalDateTime scheduledStart,
+            @Param("scheduledEnd") LocalDateTime scheduledEnd
+    );
+
     @Modifying
     void deleteByWorkOrderId(Long workOrderId);
 }
