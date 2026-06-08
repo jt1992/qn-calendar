@@ -30,19 +30,31 @@ public class DemoWorkOrderDataInitializer implements ApplicationRunner {
     @Override
     @Transactional
     public void run(ApplicationArguments args) {
-        if (!enabled || repository.count() > 0) {
+        if (!enabled) {
             return;
         }
 
-        repository.saveAll(List.of(
+        List<WorkOrder> demoOrders = List.of(
                 demoOrder("ORD-001", "250", true, 180, 1, "18:00:00"),
                 demoOrder("ORD-002", "150", false, 120, 1, "12:00:00"),
                 demoOrder("ORD-003", "400", true, 240, 3, "17:00:00"),
                 demoOrder("ORD-004", "100", false, 60, 2, "23:59:59"),
                 demoOrder("ORD-005", "620", true, 420, 4, "16:30:00"),
                 demoOrder("ORD-006", "280", false, 180, 5, "20:00:00"),
-                demoOrder("ORD-007", "90", false, 60, 6, "11:30:00")
-        ));
+                demoOrder("ORD-007", "90", false, 60, 6, "11:30:00"),
+                demoOrder("ORD-008", "180", true, 120, 6, "16:00:00"),
+                demoOrder("ORD-009", "340", false, 240, 7, "14:30:00"),
+                demoOrder("ORD-010", "75", false, 60, 7, "18:30:00"),
+                demoOrder("ORD-011", "510", true, 360, 8, "10:00:00"),
+                demoOrder("ORD-012", "220", false, 180, 8, "15:30:00"),
+                demoOrder("ORD-013", "130", false, 120, 9, "12:00:00"),
+                demoOrder("ORD-014", "460", true, 300, 9, "19:00:00"),
+                demoOrder("ORD-015", "310", false, 240, 10, "17:30:00")
+        );
+
+        repository.saveAll(demoOrders.stream()
+                .filter(order -> !repository.existsByOrderNo(order.getOrderNo()))
+                .toList());
     }
 
     private WorkOrder demoOrder(

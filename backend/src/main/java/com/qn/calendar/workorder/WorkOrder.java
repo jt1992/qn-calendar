@@ -2,7 +2,10 @@ package com.qn.calendar.workorder;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
+import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -10,6 +13,7 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.OneToMany;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
@@ -63,6 +67,9 @@ public class WorkOrder {
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
 
+    @OneToMany(mappedBy = "workOrder", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<WorkOrderSegment> segments = new ArrayList<>();
+
     protected WorkOrder() {
     }
 
@@ -100,6 +107,17 @@ public class WorkOrder {
         this.actualMinutes = actualMinutes;
         this.status = WorkOrderStatus.SCHEDULED;
         this.completedAt = null;
+    }
+
+    public void syncScheduleSummary(LocalDateTime scheduledStart, LocalDateTime scheduledEnd, int totalMinutes) {
+        this.scheduledStart = scheduledStart;
+        this.scheduledEnd = scheduledEnd;
+        this.actualMinutes = totalMinutes;
+
+        if (this.status != WorkOrderStatus.DONE) {
+            this.status = WorkOrderStatus.SCHEDULED;
+            this.completedAt = null;
+        }
     }
 
     public void updateActualMinutes(int actualMinutes) {

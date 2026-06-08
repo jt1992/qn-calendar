@@ -38,6 +38,28 @@ export async function scheduleWorkOrder(id, scheduledStart, scheduledEnd) {
   return data
 }
 
+export async function updateWorkOrderSegment(segmentId, scheduledStart, scheduledEnd) {
+  const { data } = await http.patch(`/api/work-orders/segments/${segmentId}`, {
+    scheduledStart,
+    scheduledEnd
+  })
+
+  return data
+}
+
+export async function deleteWorkOrderSegment(segmentId) {
+  const { data } = await http.delete(`/api/work-orders/segments/${segmentId}`)
+  return data
+}
+
+export async function splitWorkOrderSegment(segmentId, splitAt) {
+  const { data } = await http.post(`/api/work-orders/segments/${segmentId}/split`, {
+    splitAt
+  })
+
+  return data
+}
+
 export async function updateWorkOrderDuration(id, actualMinutes) {
   const { data } = await http.patch(`/api/work-orders/${id}/duration`, {
     actualMinutes
@@ -53,6 +75,11 @@ export async function unscheduleWorkOrder(id) {
 
 export async function markWorkOrderAsDone(id) {
   const { data } = await http.patch(`/api/work-orders/${id}/done`)
+  return data
+}
+
+export async function markWorkOrderSegmentAsDone(segmentId) {
+  const { data } = await http.patch(`/api/work-orders/segments/${segmentId}/done`)
   return data
 }
 

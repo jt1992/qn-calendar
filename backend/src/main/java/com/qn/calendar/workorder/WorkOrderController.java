@@ -6,11 +6,15 @@ import java.util.List;
 import com.qn.calendar.workorder.dto.ImportWorkOrderResponse;
 import com.qn.calendar.workorder.dto.ScheduleEmailRequest;
 import com.qn.calendar.workorder.dto.ScheduleWorkOrderRequest;
+import com.qn.calendar.workorder.dto.SplitWorkOrderSegmentRequest;
 import com.qn.calendar.workorder.dto.UpdateWorkOrderDurationRequest;
 import com.qn.calendar.workorder.dto.WorkOrderResponse;
+import com.qn.calendar.workorder.dto.WorkOrderSegmentListResponse;
+import com.qn.calendar.workorder.dto.WorkOrderSegmentResponse;
 
 import jakarta.validation.Valid;
 
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -31,17 +35,20 @@ public class WorkOrderController {
     private final WorkOrderImportService importService;
     private final WorkOrderService workOrderService;
     private final WorkOrderScheduleService scheduleService;
+    private final WorkOrderSegmentService segmentService;
     private final WorkOrderEmailService emailService;
 
     public WorkOrderController(
             WorkOrderImportService importService,
             WorkOrderService workOrderService,
             WorkOrderScheduleService scheduleService,
+            WorkOrderSegmentService segmentService,
             WorkOrderEmailService emailService
     ) {
         this.importService = importService;
         this.workOrderService = workOrderService;
         this.scheduleService = scheduleService;
+        this.segmentService = segmentService;
         this.emailService = emailService;
     }
 
@@ -56,7 +63,7 @@ public class WorkOrderController {
     }
 
     @GetMapping("/calendar")
-    public List<WorkOrderResponse> calendarWorkOrders(
+    public List<WorkOrderSegmentResponse> calendarWorkOrders(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateFrom,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateTo
     ) {
@@ -64,11 +71,37 @@ public class WorkOrderController {
     }
 
     @PatchMapping("/{id}/schedule")
-    public WorkOrderResponse scheduleWorkOrder(
+    public WorkOrderSegmentListResponse scheduleWorkOrder(
             @PathVariable Long id,
             @Valid @RequestBody ScheduleWorkOrderRequest request
     ) {
-        return WorkOrderResponse.from(scheduleService.schedule(id, request));
+        return scheduleService.schedule(id, request);
+    }
+
+    @PatchMapping("/segments/{segmentId}")
+    public WorkOrderSegmentListResponse updateSegment(
+            @PathVariable Long segmentId,
+            @Valid @RequestBody ScheduleWorkOrderRequest request
+    ) {
+        return segmentService.updateSegment(segmentId, request);
+    }
+
+    @DeleteMapping("/segments/{segmentId}")
+    public WorkOrderSegmentListResponse deleteSegment(@PathVariable Long segmentId) {
+        return segmentService.deleteSegment(segmentId);
+    }
+
+    @PostMapping("/segments/{segmentId}/split")
+    public WorkOrderSegmentListResponse splitSegment(
+            @PathVariable Long segmentId,
+            @Valid @RequestBody SplitWorkOrderSegmentRequest request
+    ) {
+        return segmentService.splitSegment(segmentId, request);
+    }
+
+    @PatchMapping("/segments/{segmentId}/done")
+    public WorkOrderSegmentListResponse completeSegment(@PathVariable Long segmentId) {
+        return segmentService.completeSegment(segmentId);
     }
 
     @PatchMapping("/{id}/duration")

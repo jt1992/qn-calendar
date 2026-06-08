@@ -17,7 +17,7 @@ import java.util.Objects;
 import java.util.stream.IntStream;
 
 import com.qn.calendar.workorder.dto.ScheduleEmailRequest;
-import com.qn.calendar.workorder.dto.WorkOrderResponse;
+import com.qn.calendar.workorder.dto.WorkOrderSegmentResponse;
 
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
@@ -41,18 +41,18 @@ public class WorkOrderEmailService {
     private static final int SLOTS_PER_HOUR = 60 / SLOT_MINUTES;
     private static final int SLOTS_PER_DAY = 24 * SLOTS_PER_HOUR;
 
-    private final WorkOrderRepository repository;
+    private final WorkOrderSegmentRepository segmentRepository;
     private final JavaMailSender mailSender;
     private final TemplateEngine templateEngine;
     private final String mailFrom;
 
     public WorkOrderEmailService(
-            WorkOrderRepository repository,
+            WorkOrderSegmentRepository segmentRepository,
             JavaMailSender mailSender,
             TemplateEngine templateEngine,
             @Value("${SMTP_FROM:}") String mailFrom
     ) {
-        this.repository = repository;
+        this.segmentRepository = segmentRepository;
         this.mailSender = mailSender;
         this.templateEngine = templateEngine;
         this.mailFrom = mailFrom == null ? "" : mailFrom.trim();
@@ -62,16 +62,21 @@ public class WorkOrderEmailService {
     public void sendScheduleEmail(ScheduleEmailRequest request) {
         validateRequest(request);
 
-        List<WorkOrderResponse> orders = repository.findCalendarOrders(
+        List<WorkOrderSegmentResponse> segments = segmentRepository.findCalendarSegments(
                         List.of(WorkOrderStatus.SCHEDULED, WorkOrderStatus.DONE),
                         request.dateFrom().atStartOfDay(),
                         request.dateTo().plusDays(1).atStartOfDay()
                 )
                 .stream()
-                .map(WorkOrderResponse::from)
+                .map((segment) -> WorkOrderSegmentResponse.from(
+                        segment,
+                        totalMinutes(segmentRepository.findByWorkOrderIdOrderByScheduledStartAscScheduledEndAscIdAsc(
+                                segment.getWorkOrder().getId()
+                        ))
+                ))
                 .toList();
 
-        String html = renderHtml(request, orders);
+        String html = renderHtml(request, segments);
         send(request, html);
     }
 
@@ -89,8 +94,8 @@ public class WorkOrderEmailService {
         }
     }
 
-    private String renderHtml(ScheduleEmailRequest request, List<WorkOrderResponse> orders) {
-        EmailScheduleTable table = buildScheduleTable(request.dateFrom(), request.dateTo(), orders);
+    private String renderHtml(ScheduleEmailRequest request, List<WorkOrderSegmentResponse> segments) {
+        EmailScheduleTable table = buildScheduleTable(request.dateFrom(), request.dateTo(), segments);
         Context context = new Context(Locale.TAIWAN);
         context.setVariable("subject", request.subject());
         context.setVariable("days", table.days());
@@ -99,7 +104,7 @@ public class WorkOrderEmailService {
         return templateEngine.process("email/schedule-week", context);
     }
 
-    static EmailScheduleTable buildScheduleTable(LocalDate dateFrom, LocalDate dateTo, List<WorkOrderResponse> orders) {
+    static EmailScheduleTable buildScheduleTable(LocalDate dateFrom, LocalDate dateTo, List<WorkOrderSegmentResponse> segments) {
         List<EmailDay> days = new ArrayList<>();
         Map<LocalDate, List<EmailOrderSegment>> segmentsByDay = new LinkedHashMap<>();
         LocalDate cursor = dateFrom;
@@ -109,8 +114,8 @@ public class WorkOrderEmailService {
             cursor = cursor.plusDays(1);
         }
 
-        for (WorkOrderResponse order : orders) {
-            addOrderSegments(order, dateFrom, dateTo, segmentsByDay);
+        for (WorkOrderSegmentResponse segment : segments) {
+            addOrderSegments(segment, dateFrom, dateTo, segmentsByDay);
         }
 
         segmentsByDay.values().forEach(WorkOrderEmailService::assignLanes);
@@ -118,8 +123,8 @@ public class WorkOrderEmailService {
         int startSlot = findScheduleStartSlot(segmentsByDay);
         int endSlot = findScheduleEndSlot(segmentsByDay, startSlot);
 
-        segmentsByDay.forEach((date, segments) -> {
-            int laneCount = segments.stream()
+        segmentsByDay.forEach((date, daySegments) -> {
+            int laneCount = daySegments.stream()
                     .mapToInt(EmailOrderSegment::lane)
                     .max()
                     .orElse(0) + 1;
@@ -134,12 +139,12 @@ public class WorkOrderEmailService {
     }
 
     private static void addOrderSegments(
-            WorkOrderResponse order,
+            WorkOrderSegmentResponse segment,
             LocalDate dateFrom,
             LocalDate dateTo,
             Map<LocalDate, List<EmailOrderSegment>> segmentsByDay
     ) {
-        if (order.scheduledStart() == null || order.scheduledEnd() == null) {
+        if (segment.scheduledStart() == null || segment.scheduledEnd() == null) {
             return;
         }
 
@@ -148,8 +153,8 @@ public class WorkOrderEmailService {
         while (!cursor.isAfter(dateTo)) {
             LocalDateTime dayStart = cursor.atStartOfDay();
             LocalDateTime dayEnd = cursor.plusDays(1).atStartOfDay();
-            LocalDateTime segmentStart = max(order.scheduledStart(), dayStart);
-            LocalDateTime segmentEnd = min(order.scheduledEnd(), dayEnd);
+            LocalDateTime segmentStart = max(segment.scheduledStart(), dayStart);
+            LocalDateTime segmentEnd = min(segment.scheduledEnd(), dayEnd);
 
             if (segmentEnd.isAfter(segmentStart)) {
                 int startSlot = slotIndex(segmentStart.toLocalTime());
@@ -160,7 +165,7 @@ public class WorkOrderEmailService {
                 }
 
                 segmentsByDay.get(cursor).add(new EmailOrderSegment(
-                        order,
+                        segment,
                         segmentStart,
                         segmentEnd,
                         startSlot,
@@ -324,6 +329,15 @@ public class WorkOrderEmailService {
                 .toList();
     }
 
+    private static int totalMinutes(List<WorkOrderSegment> segments) {
+        return segments.stream()
+                .mapToInt((segment) -> Math.toIntExact(Duration.between(
+                        segment.getScheduledStart(),
+                        segment.getScheduledEnd()
+                ).toMinutes()))
+                .sum();
+    }
+
     public record EmailScheduleTable(List<EmailDay> days, List<EmailSlotRow> rows, int totalColumnCount) {
     }
 
@@ -340,10 +354,10 @@ public class WorkOrderEmailService {
     public record EmailTableCell(
             boolean rendered,
             int rowSpan,
-            WorkOrderResponse order
+            WorkOrderSegmentResponse order
     ) {
 
-        static EmailTableCell order(int rowSpan, WorkOrderResponse order) {
+        static EmailTableCell order(int rowSpan, WorkOrderSegmentResponse order) {
             return new EmailTableCell(true, rowSpan, order);
         }
 
@@ -357,7 +371,7 @@ public class WorkOrderEmailService {
     }
 
     private record EmailOrderSegment(
-            WorkOrderResponse order,
+            WorkOrderSegmentResponse order,
             LocalDateTime visibleStart,
             LocalDateTime visibleEnd,
             int startSlot,

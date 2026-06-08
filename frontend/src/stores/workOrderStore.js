@@ -1,13 +1,17 @@
 import { defineStore } from 'pinia'
 import {
+  deleteWorkOrderSegment,
   getCalendarWorkOrders,
   getPendingWorkOrders,
   importWorkOrders,
   markWorkOrderAsDone,
+  markWorkOrderSegmentAsDone,
   reopenWorkOrder,
   scheduleWorkOrder,
   sendScheduleEmail,
+  splitWorkOrderSegment,
   unscheduleWorkOrder,
+  updateWorkOrderSegment,
   updateWorkOrderDuration
 } from '../api/workOrders'
 
@@ -58,10 +62,29 @@ export const useWorkOrderStore = defineStore('workOrders', {
     },
 
     async scheduleWorkOrder(id, start, end) {
-      const workOrder = await scheduleWorkOrder(id, toLocalDateTime(start), toLocalDateTime(end))
+      const response = await scheduleWorkOrder(id, toLocalDateTime(start), toLocalDateTime(end))
       await this.fetchPendingWorkOrders()
       await this.refreshCalendarEvents()
-      return workOrder
+      return response
+    },
+
+    async updateWorkOrderSegment(segmentId, start, end) {
+      const response = await updateWorkOrderSegment(segmentId, toLocalDateTime(start), toLocalDateTime(end))
+      await this.refreshCalendarEvents()
+      return response
+    },
+
+    async deleteWorkOrderSegment(segmentId) {
+      const response = await deleteWorkOrderSegment(segmentId)
+      await this.fetchPendingWorkOrders()
+      await this.refreshCalendarEvents()
+      return response
+    },
+
+    async splitWorkOrderSegment(segmentId, splitAt) {
+      const response = await splitWorkOrderSegment(segmentId, toLocalDateTime(splitAt))
+      await this.refreshCalendarEvents()
+      return response
     },
 
     async updateWorkOrderDuration(id, actualMinutes) {
@@ -86,6 +109,11 @@ export const useWorkOrderStore = defineStore('workOrders', {
       await this.refreshCalendarEvents()
     },
 
+    async markSegmentAsDone(segmentId) {
+      await markWorkOrderSegmentAsDone(segmentId)
+      await this.refreshCalendarEvents()
+    },
+
     async reopen(id) {
       await reopenWorkOrder(id)
       await this.refreshCalendarEvents()
@@ -103,21 +131,23 @@ export const useWorkOrderStore = defineStore('workOrders', {
   }
 })
 
-function toCalendarEvent(workOrder) {
+function toCalendarEvent(segment) {
   return {
-    id: String(workOrder.id),
-    title: `${workOrder.urgent ? '加急 ' : ''}${workOrder.orderNo}`,
-    start: workOrder.scheduledStart,
-    end: workOrder.scheduledEnd,
+    id: String(segment.segmentId || segment.id),
+    title: `${segment.urgent ? '加急 ' : ''}${segment.orderNo}`,
+    start: segment.scheduledStart,
+    end: segment.scheduledEnd,
     extendedProps: {
-      workOrderId: workOrder.id,
-      orderNo: workOrder.orderNo,
-      urgent: workOrder.urgent,
-      status: workOrder.status,
-      latestShipTime: workOrder.latestShipTime,
-      price: workOrder.price,
-      estimatedMinutes: workOrder.estimatedMinutes,
-      actualMinutes: workOrder.actualMinutes
+      segmentId: segment.segmentId || segment.id,
+      workOrderId: segment.workOrderId,
+      orderNo: segment.orderNo,
+      urgent: segment.urgent,
+      status: segment.status,
+      latestShipTime: segment.latestShipTime,
+      price: segment.price,
+      estimatedMinutes: segment.estimatedMinutes,
+      actualMinutes: segment.actualMinutes,
+      totalMinutes: segment.totalMinutes
     }
   }
 }
