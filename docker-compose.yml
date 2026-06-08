@@ -1,14 +1,14 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:17
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-qn_calendar}
       POSTGRES_USER: ${POSTGRES_USER:-qn_calendar}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-qn_calendar}
     ports:
-      - "5432:5432"
+      - "15432:5432"
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - postgres17-data:/var/lib/postgresql/data
 
   backend:
     build:
@@ -33,4 +33,4 @@ services:
       - backend
 
 volumes:
-  postgres-data:
+  postgres17-data:
