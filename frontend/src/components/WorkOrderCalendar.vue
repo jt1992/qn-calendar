@@ -24,8 +24,10 @@ const calendarRef = ref(null)
 const visibleTitle = ref('')
 const currentView = ref('timeGridWeek')
 const pointerPosition = ref({ x: 0, y: 0 })
+const tooltipPosition = ref({ x: 0, y: 0 })
 const interactionPreview = ref(null)
 const interactionAction = ref('調整排程')
+const eventTooltip = ref(null)
 
 const calendarEvents = computed(() => {
   const marker = deadlineMarkerEvent.value
@@ -66,6 +68,18 @@ const interactionPreviewStyle = computed(() => {
   }
 })
 
+const eventTooltipStyle = computed(() => {
+  const width = 340
+  const height = 188
+  const x = Math.min(tooltipPosition.value.x + 14, Math.max(14, window.innerWidth - width - 14))
+  const y = Math.min(tooltipPosition.value.y + 14, Math.max(14, window.innerHeight - height - 14))
+
+  return {
+    left: `${x}px`,
+    top: `${y}px`
+  }
+})
+
 const calendarOptions = computed(() => ({
   plugins: [dayGridPlugin, timeGridPlugin, interactionPlugin],
   initialView: 'timeGridWeek',
@@ -89,8 +103,8 @@ const calendarOptions = computed(() => ({
   eventDurationEditable: currentView.value === 'timeGridWeek',
   eventStartEditable: true,
   droppable: true,
-  eventOverlap: true,
-  slotEventOverlap: true,
+  eventOverlap: canOverlapEvents,
+  slotEventOverlap: false,
   eventResizableFromStart: currentView.value === 'timeGridWeek',
   height: '100%',
   events: calendarEvents.value,
@@ -106,6 +120,7 @@ const calendarOptions = computed(() => ({
   eventResizeStop: clearInteractionPreview,
   eventResize: handleEventMove,
   eventClick: handleEventClick,
+  eventDidMount: bindEventTooltip,
   eventClassNames
 }))
 
@@ -122,16 +137,32 @@ onBeforeUnmount(() => {
 function eventAllow(dropInfo, draggedEvent) {
   const latestShipTime = draggedEvent.extendedProps.latestShipTime
   const { start, end } = resolveInteractionWindow(dropInfo, draggedEvent)
+  const overlapAllowed = !overlapsActiveWorkOrder(draggedEvent, start, end)
 
   if (!latestShipTime) {
-    updateInteractionPreview(interactionAction.value, start, end, null, true)
-    return true
+    updateInteractionPreview(interactionAction.value, start, end, null, overlapAllowed, overlapAllowed ? '' : '與未完成工單重疊')
+    return overlapAllowed
   }
 
   const latest = new Date(latestShipTime)
-  const allowed = end <= latest
-  updateInteractionPreview(interactionAction.value, start, end, latest, allowed)
+  const deadlineAllowed = end <= latest
+  const allowed = deadlineAllowed && overlapAllowed
+  updateInteractionPreview(
+    interactionAction.value,
+    start,
+    end,
+    latest,
+    allowed,
+    deadlineAllowed ? '與未完成工單重疊' : `超過最晚發貨時間 ${formatDateTime(latest)}`
+  )
   return allowed
+}
+
+function canOverlapEvents(stillEvent, movingEvent) {
+  return stillEvent.extendedProps.status === 'DONE'
+    || movingEvent.extendedProps.status === 'DONE'
+    || stillEvent.extendedProps.isDeadlineMarker
+    || movingEvent.extendedProps.isDeadlineMarker
 }
 
 async function handleDatesSet(info) {
@@ -180,8 +211,15 @@ function eventContent(info) {
   const doneButton = document.createElement('button')
   const removeButton = document.createElement('button')
   const latestShipTime = info.event.extendedProps.latestShipTime
+  const actualMinutes = info.event.extendedProps.actualMinutes || diffMinutes(info.event.start, info.event.end)
 
   root.className = 'calendar-event-card'
+  root.dataset.tooltipTitle = `${info.event.extendedProps.urgent ? '[加急] ' : ''}${info.event.extendedProps.orderNo || info.event.title}`
+  root.dataset.tooltipTimeRange = `${formatDateTime(info.event.start)} - ${formatDateTime(info.event.end)}`
+  root.dataset.tooltipDuration = formatDurationText(actualMinutes)
+  root.dataset.tooltipStatus = info.event.extendedProps.status === 'DONE' ? '完成' : '未完成'
+  root.dataset.tooltipLatest = formatDateTime(latestShipTime)
+  root.dataset.tooltipPrice = info.event.extendedProps.price ? `$${info.event.extendedProps.price}` : ''
   title.className = 'calendar-event-title'
   title.textContent = info.event.extendedProps.orderNo || info.event.title
   actions.className = 'calendar-event-actions'
@@ -223,6 +261,22 @@ function eventContent(info) {
   actions.append(doneButton, removeButton)
   root.append(actions, title, timeRange, duration, deadlineLabel, deadlineDate, deadlineTime)
   return { domNodes: [root] }
+}
+
+function bindEventTooltip(info) {
+  if (info.event.extendedProps.isDeadlineMarker) {
+    return
+  }
+
+  info.el.__workOrderCalendarEvent = info.event
+  info.el.addEventListener('mouseenter', (event) => showEventTooltip(info.event, event))
+  info.el.addEventListener('mousemove', moveEventTooltip)
+  info.el.addEventListener('mouseleave', hideEventTooltip)
+  info.el.addEventListener('pointerenter', (event) => showEventTooltip(info.event, event))
+  info.el.addEventListener('pointermove', moveEventTooltip)
+  info.el.addEventListener('pointerleave', hideEventTooltip)
+  info.el.addEventListener('focusin', (event) => showEventTooltip(info.event, event))
+  info.el.addEventListener('focusout', hideEventTooltip)
 }
 
 async function handleEventReceive(info) {
@@ -320,6 +374,8 @@ function handlePointerMove(event) {
     x: event.clientX,
     y: event.clientY
   }
+
+  updateEventTooltipFromPointer(event)
 }
 
 async function toggleEventDone(event) {
@@ -345,8 +401,17 @@ function handleInteractionStart(info, action) {
   const latest = info.event.extendedProps.latestShipTime
     ? new Date(info.event.extendedProps.latestShipTime)
     : null
+  const overlapAllowed = !overlapsActiveWorkOrder(info.event, start, end)
+  const deadlineAllowed = !latest || end <= latest
 
-  updateInteractionPreview(action, start, end, latest, !latest || end <= latest)
+  updateInteractionPreview(
+    action,
+    start,
+    end,
+    latest,
+    deadlineAllowed && overlapAllowed,
+    deadlineAllowed ? '與未完成工單重疊' : `超過最晚發貨時間 ${formatDateTime(latest)}`
+  )
 }
 
 function resolveInteractionWindow(dropInfo, draggedEvent) {
@@ -361,7 +426,7 @@ function resolveInteractionWindow(dropInfo, draggedEvent) {
   return { start, end }
 }
 
-function updateInteractionPreview(action, start, end, latest, valid) {
+function updateInteractionPreview(action, start, end, latest, valid, invalidReason = '') {
   if (!start || !end) {
     return
   }
@@ -372,13 +437,88 @@ function updateInteractionPreview(action, start, end, latest, valid) {
     startText: formatDateTime(start),
     endText: formatDateTime(end),
     durationText: formatDurationText(diffMinutes(start, end)),
-    latestText: latest ? formatDateTime(latest) : ''
+    latestText: latest ? formatDateTime(latest) : '',
+    invalidReason
   }
+}
+
+function overlapsActiveWorkOrder(draggedEvent, start, end) {
+  if (draggedEvent.extendedProps.status === 'DONE') {
+    return false
+  }
+
+  const draggedId = String(draggedEvent.extendedProps.workOrderId || draggedEvent.id)
+
+  return props.events.some((event) => {
+    if (event.extendedProps?.status === 'DONE') {
+      return false
+    }
+
+    const eventId = String(event.extendedProps?.workOrderId || event.id)
+
+    if (eventId === draggedId) {
+      return false
+    }
+
+    const eventStart = new Date(event.start)
+    const eventEnd = new Date(event.end)
+
+    return eventStart < end && eventEnd > start
+  })
 }
 
 function clearInteractionPreview() {
   interactionPreview.value = null
   interactionAction.value = '調整排程'
+}
+
+function showEventTooltip(event, pointerEvent) {
+  moveEventTooltip(pointerEvent)
+  const latestShipTime = event.extendedProps.latestShipTime
+  const actualMinutes = event.extendedProps.actualMinutes || diffMinutes(event.start, event.end)
+
+  eventTooltip.value = {
+    title: `${event.extendedProps.urgent ? '[加急] ' : ''}${event.extendedProps.orderNo || event.title}`,
+    timeRange: `${formatDateTime(event.start)} - ${formatDateTime(event.end)}`,
+    durationText: formatDurationText(actualMinutes),
+    statusText: event.extendedProps.status === 'DONE' ? '完成' : '未完成',
+    latestText: formatDateTime(latestShipTime),
+    priceText: event.extendedProps.price ? `$${event.extendedProps.price}` : ''
+  }
+}
+
+function moveEventTooltip(event) {
+  if (!event) {
+    return
+  }
+
+  const source = event.clientX === undefined ? event.currentTarget?.getBoundingClientRect() : null
+  tooltipPosition.value = source
+    ? { x: source.right, y: source.top }
+    : { x: event.clientX, y: event.clientY }
+}
+
+function hideEventTooltip() {
+  eventTooltip.value = null
+}
+
+function updateEventTooltipFromPointer(event) {
+  const eventCard = event.target?.closest?.('.calendar-event-card')
+
+  if (!eventCard) {
+    hideEventTooltip()
+    return
+  }
+
+  moveEventTooltip(event)
+  eventTooltip.value = {
+    title: eventCard.dataset.tooltipTitle,
+    timeRange: eventCard.dataset.tooltipTimeRange,
+    durationText: eventCard.dataset.tooltipDuration,
+    statusText: eventCard.dataset.tooltipStatus,
+    latestText: eventCard.dataset.tooltipLatest,
+    priceText: eventCard.dataset.tooltipPrice
+  }
 }
 
 function toDateOnly(date) {
@@ -536,8 +676,21 @@ function weekdayLabel(date) {
       <span>結束：{{ interactionPreview.endText }}</span>
       <span>{{ interactionPreview.durationText }}</span>
       <span v-if="!interactionPreview.valid" class="interaction-warning">
-        超過最晚發貨時間 {{ interactionPreview.latestText }}
+        {{ interactionPreview.invalidReason }}
       </span>
+    </div>
+
+    <div
+      v-if="eventTooltip"
+      class="event-tooltip"
+      :style="eventTooltipStyle"
+      role="tooltip"
+    >
+      <strong>{{ eventTooltip.title }}</strong>
+      <span>{{ eventTooltip.timeRange }}</span>
+      <span>{{ eventTooltip.durationText }}</span>
+      <span>{{ eventTooltip.statusText }} · 最晚 {{ eventTooltip.latestText }}</span>
+      <span v-if="eventTooltip.priceText">訂單價格 {{ eventTooltip.priceText }}</span>
     </div>
   </section>
 </template>
