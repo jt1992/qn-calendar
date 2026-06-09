@@ -21,6 +21,7 @@ const props = defineProps({
 const emit = defineEmits(['send-email', 'range-change', 'focus-order'])
 const store = useWorkOrderStore()
 const calendarViewStorageKey = 'qn-calendar-view'
+const allowPastSchedulingStorageKey = 'qn-calendar-allow-past-scheduling'
 const validCalendarViews = new Set(['timeGridWeek', 'dayGridMonth'])
 const initialCalendarView = getInitialCalendarView()
 const calendarRef = ref(null)
@@ -33,6 +34,7 @@ const interactionAction = ref('調整排程')
 const eventTooltip = ref(null)
 const ignoreNextCalendarClick = ref(false)
 const scheduleGranularityMinutes = 15
+const allowPastScheduling = ref(getInitialAllowPastScheduling())
 
 const focusedWorkOrderId = computed(() => props.focusedWorkOrder?.id || props.focusedWorkOrder?.workOrderId || null)
 
@@ -153,7 +155,7 @@ function eventAllow(dropInfo, draggedEvent) {
   const latestShipTime = draggedEvent.extendedProps.latestShipTime
   const { start, end } = resolveInteractionWindow(dropInfo, draggedEvent)
   const latest = latestShipTime ? new Date(latestShipTime) : null
-  const scheduleWindow = resolveNonOverlappingWindow(draggedEvent, start, end, latest, todayStart())
+  const scheduleWindow = resolveNonOverlappingWindow(draggedEvent, start, end, latest, minScheduleStart())
 
   updateInteractionPreview(
     interactionAction.value,
@@ -290,7 +292,7 @@ async function handleEventReceive(info) {
     const latest = info.event.extendedProps.latestShipTime
       ? new Date(info.event.extendedProps.latestShipTime)
       : null
-    const scheduleWindow = resolveNonOverlappingWindow(info.event, start, end, latest, todayStart())
+    const scheduleWindow = resolveNonOverlappingWindow(info.event, start, end, latest, minScheduleStart())
 
     if (!scheduleWindow.valid) {
       throw new Error(scheduleWindow.invalidReason || '排程時間不可用')
@@ -315,7 +317,7 @@ async function handleEventMove(info) {
     const latest = info.event.extendedProps.latestShipTime
       ? new Date(info.event.extendedProps.latestShipTime)
       : null
-    const scheduleWindow = resolveNonOverlappingWindow(info.event, start, end, latest, todayStart())
+    const scheduleWindow = resolveNonOverlappingWindow(info.event, start, end, latest, minScheduleStart())
 
     if (!scheduleWindow.valid) {
       throw new Error(scheduleWindow.invalidReason || '排程時間不可用')
@@ -394,7 +396,7 @@ function previousRange() {
     return
   }
 
-  if (currentView.value === 'timeGridWeek') {
+  if (!allowPastScheduling.value && currentView.value === 'timeGridWeek') {
     const previousStart = addDays(calendarApi.view.currentStart, -7)
 
     if (previousStart < todayStart()) {
@@ -425,6 +427,15 @@ function changeView(viewName) {
 function getInitialCalendarView() {
   const storedView = window.localStorage.getItem(calendarViewStorageKey)
   return validCalendarViews.has(storedView) ? storedView : 'timeGridWeek'
+}
+
+function getInitialAllowPastScheduling() {
+  return window.localStorage.getItem(allowPastSchedulingStorageKey) === 'true'
+}
+
+function toggleAllowPastScheduling(event) {
+  allowPastScheduling.value = event.target.checked
+  window.localStorage.setItem(allowPastSchedulingStorageKey, String(allowPastScheduling.value))
 }
 
 async function unscheduleEvent(event, options = {}) {
@@ -514,7 +525,7 @@ function handleInteractionStart(info, action) {
   const latest = info.event.extendedProps.latestShipTime
     ? new Date(info.event.extendedProps.latestShipTime)
     : null
-  const scheduleWindow = resolveNonOverlappingWindow(info.event, start, end, latest, todayStart())
+  const scheduleWindow = resolveNonOverlappingWindow(info.event, start, end, latest, minScheduleStart())
 
   updateInteractionPreview(
     action,
@@ -774,6 +785,10 @@ function todayStart() {
   return today
 }
 
+function minScheduleStart() {
+  return allowPastScheduling.value ? null : todayStart()
+}
+
 function startOfWeek(date) {
   const weekStart = new Date(date)
   weekStart.setDate(weekStart.getDate() - weekStart.getDay())
@@ -873,6 +888,14 @@ function weekdayLabel(date) {
       </div>
 
       <div class="calendar-header-actions">
+        <label class="schedule-toggle" title="測試用：允許排程到今天以前">
+          <input
+            type="checkbox"
+            :checked="allowPastScheduling"
+            @change="toggleAllowPastScheduling"
+          />
+          <span>允許過去</span>
+        </label>
         <button class="icon-button" type="button" @click="emit('send-email')">
           <Mail :size="17" />
           發送 Email

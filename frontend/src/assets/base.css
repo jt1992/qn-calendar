@@ -179,6 +179,7 @@ input:disabled {
 .calendar-header-actions,
 .calendar-nav,
 .view-switch,
+.schedule-toggle,
 .selected-actions,
 .dialog-actions,
 .dialog-heading,
@@ -227,6 +228,7 @@ input:disabled {
 .icon-only-button,
 .today-button,
 .text-button,
+.schedule-toggle,
 .view-switch button {
   display: inline-flex;
   align-items: center;
@@ -242,6 +244,25 @@ input:disabled {
 .icon-button {
   gap: 8px;
   padding: 0 10px;
+}
+
+.schedule-toggle {
+  flex: 0 0 auto;
+  gap: 6px;
+  padding: 0 10px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.schedule-toggle input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--primary);
+}
+
+.schedule-toggle span {
+  font-size: 0.86rem;
 }
 
 .upload-dropzone {
@@ -1156,10 +1177,11 @@ input:disabled {
     overflow: visible;
   }
 
-  .calendar-header-actions > .icon-button,
-  .view-switch,
-  .calendar-nav {
-    flex: 0 0 auto;
+.calendar-header-actions > .icon-button,
+.schedule-toggle,
+.view-switch,
+.calendar-nav {
+  flex: 0 0 auto;
   }
 
   .calendar-title-group {
@@ -1176,6 +1198,7 @@ input:disabled {
   }
 
   .calendar-header .icon-button,
+  .calendar-header .schedule-toggle,
   .calendar-header .today-button,
   .calendar-header .icon-only-button,
   .calendar-header .view-switch button {
@@ -1184,6 +1207,10 @@ input:disabled {
 
   .calendar-header .icon-button {
     gap: 6px;
+    padding: 0 8px;
+  }
+
+  .calendar-header .schedule-toggle {
     padding: 0 8px;
   }
 
