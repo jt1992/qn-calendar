@@ -15,10 +15,24 @@ const emit = defineEmits(['focus-order'])
 const store = useWorkOrderStore()
 const listRef = ref(null)
 const updatingDurations = ref(new Set())
+const orderTooltip = ref(null)
+const tooltipPosition = ref({ x: 0, y: 0 })
 const scheduleGranularityMinutes = 15
 let draggable = null
 
 const hasWorkOrders = computed(() => props.workOrders.length > 0)
+
+const orderTooltipStyle = computed(() => {
+  const width = 340
+  const height = 244
+  const x = Math.min(tooltipPosition.value.x + 14, Math.max(14, window.innerWidth - width - 14))
+  const y = Math.min(tooltipPosition.value.y + 14, Math.max(14, window.innerHeight - height - 14))
+
+  return {
+    left: `${x}px`,
+    top: `${y}px`
+  }
+})
 
 onMounted(() => {
   draggable = new Draggable(listRef.value, {
@@ -133,8 +147,41 @@ function statusLabel(status) {
   return status === 'DONE' ? '已完成' : status === 'SCHEDULED' ? '已排入' : '待排'
 }
 
-function orderRemarkTitle(workOrder) {
-  return `订单备注：${workOrder.remark || '无任何备注'}`
+function formatRemarkText(value) {
+  return value && value.trim() ? value : '无任何备注'
+}
+
+function showOrderTooltip(workOrder, event) {
+  moveOrderTooltip(event)
+  orderTooltip.value = {
+    title: `${workOrder.urgent ? '[加急] ' : ''}${workOrder.orderNo}`,
+    timeRange: '未排程',
+    durationText: `總排程 ${formatDurationText(durationMinutes(workOrder))}`,
+    statusText: statusLabel(workOrder.status),
+    latestText: formatShipTime(workOrder.latestShipTime),
+    priceText: formatMoney(workOrder.price),
+    remarkText: formatRemarkText(workOrder.remark)
+  }
+}
+
+function focusOrder(workOrder, event) {
+  emit('focus-order', workOrder)
+  showOrderTooltip(workOrder, event)
+}
+
+function moveOrderTooltip(event) {
+  if (!event) {
+    return
+  }
+
+  const source = event.clientX === undefined ? event.currentTarget?.getBoundingClientRect() : null
+  tooltipPosition.value = source
+    ? { x: source.right, y: source.top }
+    : { x: event.clientX, y: event.clientY }
+}
+
+function hideOrderTooltip() {
+  orderTooltip.value = null
 }
 </script>
 
@@ -152,10 +199,14 @@ function orderRemarkTitle(workOrder) {
         class="pending-order-card"
         :class="{ urgent: workOrder.urgent }"
         :data-event="JSON.stringify(toExternalEvent(workOrder))"
-        :title="orderRemarkTitle(workOrder)"
         tabindex="0"
-        @click="emit('focus-order', workOrder)"
-        @focus="emit('focus-order', workOrder)"
+        @click="(event) => focusOrder(workOrder, event)"
+        @focus="(event) => focusOrder(workOrder, event)"
+        @blur="hideOrderTooltip"
+        @mouseenter="(event) => showOrderTooltip(workOrder, event)"
+        @mouseover="(event) => showOrderTooltip(workOrder, event)"
+        @mousemove="moveOrderTooltip"
+        @mouseleave="hideOrderTooltip"
       >
         <div class="order-line">
           <div class="order-summary">
@@ -172,7 +223,7 @@ function orderRemarkTitle(workOrder) {
           <span class="order-price">訂單價格 {{ formatMoney(workOrder.price) }}</span>
           <div
             class="duration-control"
-            title="每次按鈕調整 15 分鐘"
+            aria-label="每次按鈕調整 15 分鐘"
             @mousedown.stop
             @pointerdown.stop
             @dragstart.stop
@@ -200,7 +251,6 @@ function orderRemarkTitle(workOrder) {
           <span
             class="ship-deadline"
             :aria-label="`最晚發貨時間 ${formatShipTime(workOrder.latestShipTime)}`"
-            :title="`最晚發貨時間 ${formatShipTime(workOrder.latestShipTime)}`"
           >
             <Clock :size="14" aria-hidden="true" />
             <span>{{ formatShipTime(workOrder.latestShipTime) }}</span>
@@ -209,6 +259,20 @@ function orderRemarkTitle(workOrder) {
       </article>
 
       <p v-if="!hasWorkOrders" class="empty-state">目前沒有待排工單</p>
+    </div>
+
+    <div
+      v-if="orderTooltip"
+      class="event-tooltip"
+      :style="orderTooltipStyle"
+      role="tooltip"
+    >
+      <strong>{{ orderTooltip.title }}</strong>
+      <span>{{ orderTooltip.timeRange }}</span>
+      <span>{{ orderTooltip.durationText }}</span>
+      <span>{{ orderTooltip.statusText }} · 最晚 {{ orderTooltip.latestText }}</span>
+      <span v-if="orderTooltip.priceText">訂單價格 {{ orderTooltip.priceText }}</span>
+      <span class="event-tooltip-remark">订单备注：{{ orderTooltip.remarkText }}</span>
     </div>
   </section>
 </template>
