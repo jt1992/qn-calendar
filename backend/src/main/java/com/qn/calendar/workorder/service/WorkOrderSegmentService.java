@@ -1,4 +1,4 @@
-package com.qn.calendar.workorder;
+package com.qn.calendar.workorder.service;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -6,9 +6,15 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
+import com.qn.calendar.workorder.constant.WorkOrderStatus;
 import com.qn.calendar.workorder.dto.ScheduleWorkOrderRequest;
 import com.qn.calendar.workorder.dto.SplitWorkOrderSegmentRequest;
 import com.qn.calendar.workorder.dto.WorkOrderSegmentListResponse;
+import com.qn.calendar.workorder.entity.WorkOrder;
+import com.qn.calendar.workorder.entity.WorkOrderSegment;
+import com.qn.calendar.workorder.repository.WorkOrderRepository;
+import com.qn.calendar.workorder.repository.WorkOrderSegmentRepository;
+import com.qn.calendar.workorder.util.WorkOrderTimeUtils;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -72,7 +78,7 @@ public class WorkOrderSegmentService {
                 workOrder.getId()
         );
         int totalMinutes = segments.stream()
-                .mapToInt(WorkOrderSegmentService::segmentMinutes)
+                .mapToInt(WorkOrderTimeUtils::segmentMinutes)
                 .sum();
         workOrder.syncScheduleSummary(
                 segments.getFirst().getScheduledStart(),
@@ -152,7 +158,7 @@ public class WorkOrderSegmentService {
         normalized.add(current);
 
         int totalMinutes = normalized.stream()
-                .mapToInt(WorkOrderSegmentService::segmentMinutes)
+                .mapToInt(WorkOrderTimeUtils::segmentMinutes)
                 .sum();
         workOrder.syncScheduleSummary(
                 normalized.getFirst().getScheduledStart(),
@@ -200,13 +206,6 @@ public class WorkOrderSegmentService {
         if (!splitAt.isAfter(segment.getScheduledStart()) || !splitAt.isBefore(segment.getScheduledEnd())) {
             throw new IllegalArgumentException("拆分時間必須位於片段內");
         }
-    }
-
-    private static int segmentMinutes(WorkOrderSegment segment) {
-        return Math.toIntExact(Duration.between(
-                segment.getScheduledStart(),
-                segment.getScheduledEnd()
-        ).toMinutes());
     }
 
     private boolean isFiveMinuteBoundary(LocalDateTime time) {

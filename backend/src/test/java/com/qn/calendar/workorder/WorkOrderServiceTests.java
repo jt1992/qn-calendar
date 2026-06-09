@@ -6,7 +6,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
+import com.qn.calendar.workorder.constant.WorkOrderStatus;
 import com.qn.calendar.workorder.dto.ScheduleWorkOrderRequest;
+import com.qn.calendar.workorder.entity.WorkOrder;
+import com.qn.calendar.workorder.repository.WorkOrderRepository;
+import com.qn.calendar.workorder.repository.WorkOrderSegmentRepository;
+import com.qn.calendar.workorder.service.WorkOrderScheduleService;
+import com.qn.calendar.workorder.service.WorkOrderService;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -182,6 +188,39 @@ class WorkOrderServiceTests {
 
         assertThat(reopened.getStatus()).isEqualTo(WorkOrderStatus.SCHEDULED);
         assertThat(reopened.getCompletedAt()).isNull();
+    }
+
+    @Test
+    void completedStatsIncludeEmptyReservedFieldsAndSumSegments() {
+        WorkOrder completed = repository.save(order("ORD-COMPLETED"));
+        scheduleService.schedule(
+                completed.getId(),
+                new ScheduleWorkOrderRequest(
+                        LocalDateTime.of(2026, 6, 8, 9, 0),
+                        LocalDateTime.of(2026, 6, 8, 10, 30)
+                )
+        );
+        scheduleService.schedule(
+                completed.getId(),
+                new ScheduleWorkOrderRequest(
+                        LocalDateTime.of(2026, 6, 9, 13, 0),
+                        LocalDateTime.of(2026, 6, 9, 14, 0)
+                )
+        );
+        completed.markDone(LocalDateTime.of(2026, 6, 9, 14, 0));
+        repository.saveAndFlush(completed);
+        repository.save(order("ORD-PENDING-STATS"));
+
+        var stats = service.getCompletedWorkOrderStats();
+
+        assertThat(stats).hasSize(1);
+        assertThat(stats.getFirst().orderNo()).isEqualTo("ORD-COMPLETED");
+        assertThat(stats.getFirst().buyerNickname()).isNull();
+        assertThat(stats.getFirst().remark()).isNull();
+        assertThat(stats.getFirst().estimatedMinutes()).isEqualTo(180);
+        assertThat(stats.getFirst().actualTotalMinutes()).isEqualTo(150);
+        assertThat(stats.getFirst().deltaMinutes()).isEqualTo(-30);
+        assertThat(stats.getFirst().hourlyRate()).isEqualByComparingTo("120.00");
     }
 
     private WorkOrder order(String orderNo) {

@@ -1,4 +1,4 @@
-package com.qn.calendar.workorder;
+package com.qn.calendar.workorder.constant;
 
 public enum WorkOrderStatus {
     PENDING,

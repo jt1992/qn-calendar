@@ -1,8 +1,9 @@
-package com.qn.calendar.workorder;
+package com.qn.calendar.workorder.controller;
 
 import java.time.LocalDate;
 import java.util.List;
 
+import com.qn.calendar.workorder.dto.CompletedWorkOrderStatsResponse;
 import com.qn.calendar.workorder.dto.ImportWorkOrderResponse;
 import com.qn.calendar.workorder.dto.ScheduleEmailRequest;
 import com.qn.calendar.workorder.dto.ScheduleWorkOrderRequest;
@@ -11,6 +12,11 @@ import com.qn.calendar.workorder.dto.UpdateWorkOrderDurationRequest;
 import com.qn.calendar.workorder.dto.WorkOrderResponse;
 import com.qn.calendar.workorder.dto.WorkOrderSegmentListResponse;
 import com.qn.calendar.workorder.dto.WorkOrderSegmentResponse;
+import com.qn.calendar.workorder.service.WorkOrderEmailService;
+import com.qn.calendar.workorder.service.WorkOrderImportService;
+import com.qn.calendar.workorder.service.WorkOrderScheduleService;
+import com.qn.calendar.workorder.service.WorkOrderSegmentService;
+import com.qn.calendar.workorder.service.WorkOrderService;
 
 import jakarta.validation.Valid;
 
@@ -68,6 +74,11 @@ public class WorkOrderController {
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateTo
     ) {
         return workOrderService.getCalendarWorkOrders(dateFrom, dateTo);
+    }
+
+    @GetMapping("/statistics/completed")
+    public List<CompletedWorkOrderStatsResponse> completedWorkOrderStats() {
+        return workOrderService.getCompletedWorkOrderStats();
     }
 
     @PatchMapping("/{id}/schedule")

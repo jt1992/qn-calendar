@@ -1,4 +1,4 @@
-package com.qn.calendar.workorder;
+package com.qn.calendar.workorder.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -7,6 +7,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import com.qn.calendar.workorder.constant.WorkOrderStatus;
 import com.qn.calendar.workorder.dto.WorkOrderSegmentResponse;
 
 import org.junit.jupiter.api.Test;
@@ -75,6 +76,8 @@ class WorkOrderEmailServiceTests {
                 1L,
                 1L,
                 orderNo,
+                null,
+                null,
                 BigDecimal.valueOf(300),
                 180,
                 minutes,

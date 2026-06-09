@@ -1,9 +1,11 @@
-package com.qn.calendar.workorder;
+package com.qn.calendar.workorder.entity;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+
+import com.qn.calendar.workorder.constant.WorkOrderStatus;
 
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
@@ -32,6 +34,12 @@ public class WorkOrder {
 
     @Column(name = "order_no", nullable = false, unique = true, length = 80)
     private String orderNo;
+
+    @Column(name = "buyer_nickname", length = 120)
+    private String buyerNickname;
+
+    @Column(name = "remark", length = 1000)
+    private String remark;
 
     @Column(name = "price", nullable = false, precision = 14, scale = 2)
     private BigDecimal price;
@@ -80,7 +88,21 @@ public class WorkOrder {
             boolean urgent,
             LocalDateTime latestShipTime
     ) {
+        this(orderNo, null, null, price, estimatedMinutes, urgent, latestShipTime);
+    }
+
+    public WorkOrder(
+            String orderNo,
+            String buyerNickname,
+            String remark,
+            BigDecimal price,
+            int estimatedMinutes,
+            boolean urgent,
+            LocalDateTime latestShipTime
+    ) {
         this.orderNo = orderNo;
+        this.buyerNickname = buyerNickname;
+        this.remark = remark;
         this.price = price;
         this.estimatedMinutes = estimatedMinutes;
         this.actualMinutes = estimatedMinutes;
@@ -147,6 +169,14 @@ public class WorkOrder {
 
     public String getOrderNo() {
         return orderNo;
+    }
+
+    public String getBuyerNickname() {
+        return buyerNickname;
+    }
+
+    public String getRemark() {
+        return remark;
     }
 
     public BigDecimal getPrice() {
