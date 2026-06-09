@@ -15,6 +15,7 @@ const emit = defineEmits(['focus-order'])
 const store = useWorkOrderStore()
 const listRef = ref(null)
 const updatingDurations = ref(new Set())
+const scheduleGranularityMinutes = 15
 let draggable = null
 
 const hasWorkOrders = computed(() => props.workOrders.length > 0)
@@ -43,6 +44,7 @@ function toExternalEvent(workOrder) {
       status: workOrder.status,
       latestShipTime: workOrder.latestShipTime,
       price: workOrder.price,
+      remark: workOrder.remark,
       estimatedMinutes: workOrder.estimatedMinutes,
       actualMinutes: workOrder.actualMinutes
     }
@@ -56,15 +58,18 @@ function minutesToDuration(minutes) {
 }
 
 function durationMinutes(workOrder) {
-  return workOrder.actualMinutes || workOrder.estimatedMinutes || 5
+  return workOrder.actualMinutes || workOrder.estimatedMinutes || scheduleGranularityMinutes
 }
 
 function normalizeMinutes(minutes) {
   if (!Number.isFinite(minutes)) {
-    return 5
+    return scheduleGranularityMinutes
   }
 
-  return Math.max(5, Math.round(minutes / 5) * 5)
+  return Math.max(
+    scheduleGranularityMinutes,
+    Math.round(minutes / scheduleGranularityMinutes) * scheduleGranularityMinutes
+  )
 }
 
 function setDurationUpdating(id, updating) {
@@ -127,6 +132,10 @@ function formatMoney(value) {
 function statusLabel(status) {
   return status === 'DONE' ? '已完成' : status === 'SCHEDULED' ? '已排入' : '待排'
 }
+
+function orderRemarkTitle(workOrder) {
+  return `订单备注：${workOrder.remark || '无任何备注'}`
+}
 </script>
 
 <template>
@@ -143,6 +152,7 @@ function statusLabel(status) {
         class="pending-order-card"
         :class="{ urgent: workOrder.urgent }"
         :data-event="JSON.stringify(toExternalEvent(workOrder))"
+        :title="orderRemarkTitle(workOrder)"
         tabindex="0"
         @click="emit('focus-order', workOrder)"
         @focus="emit('focus-order', workOrder)"
@@ -162,7 +172,7 @@ function statusLabel(status) {
           <span class="order-price">訂單價格 {{ formatMoney(workOrder.price) }}</span>
           <div
             class="duration-control"
-            title="每次按鈕調整 5 分鐘"
+            title="每次按鈕調整 15 分鐘"
             @mousedown.stop
             @pointerdown.stop
             @dragstart.stop
@@ -170,8 +180,8 @@ function statusLabel(status) {
             <button
               type="button"
               aria-label="減少工時"
-              :disabled="isDurationUpdating(workOrder.id) || durationMinutes(workOrder) <= 5"
-              @click.stop="adjustDuration(workOrder, -5)"
+              :disabled="isDurationUpdating(workOrder.id) || durationMinutes(workOrder) <= scheduleGranularityMinutes"
+              @click.stop="adjustDuration(workOrder, -scheduleGranularityMinutes)"
             >
               <Minus :size="14" />
             </button>
@@ -180,7 +190,7 @@ function statusLabel(status) {
               type="button"
               aria-label="增加工時"
               :disabled="isDurationUpdating(workOrder.id)"
-              @click.stop="adjustDuration(workOrder, 5)"
+              @click.stop="adjustDuration(workOrder, scheduleGranularityMinutes)"
             >
               <Plus :size="14" />
             </button>

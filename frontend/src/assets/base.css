@@ -923,6 +923,12 @@ input:disabled {
   color: var(--muted);
 }
 
+.event-tooltip .event-tooltip-remark {
+  max-height: 96px;
+  overflow: hidden;
+  white-space: pre-line;
+}
+
 .stats-layout {
   display: flex;
   flex-direction: column;
