@@ -21,9 +21,11 @@ const props = defineProps({
 const emit = defineEmits(['send-email', 'range-change', 'focus-order'])
 const store = useWorkOrderStore()
 const calendarViewStorageKey = 'qn-calendar-view'
+const calendarDateStorageKey = 'qn-calendar-date'
 const allowPastSchedulingStorageKey = 'qn-calendar-allow-past-scheduling'
 const validCalendarViews = new Set(['timeGridWeek', 'dayGridMonth'])
 const initialCalendarView = getInitialCalendarView()
+const initialCalendarDate = getInitialCalendarDate()
 const calendarRef = ref(null)
 const visibleTitle = ref('')
 const currentView = ref(initialCalendarView)
@@ -92,7 +94,7 @@ const eventTooltipStyle = computed(() => {
 const calendarOptions = computed(() => ({
   plugins: [dayGridPlugin, timeGridPlugin, interactionPlugin],
   initialView: initialCalendarView,
-  initialDate: todayStart(),
+  initialDate: initialCalendarDate,
   headerToolbar: false,
   allDaySlot: false,
   views: {
@@ -176,6 +178,7 @@ async function handleDatesSet(info) {
   visibleTitle.value = formatVisibleTitle(info)
   currentView.value = info.view.type
   window.localStorage.setItem(calendarViewStorageKey, info.view.type)
+  window.localStorage.setItem(calendarDateStorageKey, toDateOnly(resolveCalendarStorageDate(info)))
   emit('range-change', {
     dateFrom: info.view.type === 'timeGridWeek' ? dateFrom : toDateOnly(focusWeekStart),
     dateTo: info.view.type === 'timeGridWeek' ? dateTo : toDateOnly(focusWeekEnd),
@@ -427,6 +430,11 @@ function changeView(viewName) {
 function getInitialCalendarView() {
   const storedView = window.localStorage.getItem(calendarViewStorageKey)
   return validCalendarViews.has(storedView) ? storedView : 'timeGridWeek'
+}
+
+function getInitialCalendarDate() {
+  const storedDate = parseDateOnly(window.localStorage.getItem(calendarDateStorageKey))
+  return storedDate || todayStart()
 }
 
 function getInitialAllowPastScheduling() {
@@ -783,6 +791,25 @@ function todayStart() {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   return today
+}
+
+function parseDateOnly(value) {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return null
+  }
+
+  const [year, month, day] = value.split('-').map(Number)
+  const date = new Date(year, month - 1, day)
+
+  return date.getFullYear() === year
+    && date.getMonth() === month - 1
+    && date.getDate() === day
+    ? date
+    : null
+}
+
+function resolveCalendarStorageDate(info) {
+  return info.view.currentStart || info.start || info.view.calendar.getDate()
 }
 
 function minScheduleStart() {
