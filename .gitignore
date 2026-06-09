@@ -36,5 +36,9 @@ data/
 uploads/
 tmp/
 
+# Local XLSX import rehearsal files
+real_order.xlsx
+real_order.preview.md
+
 # Docker
 docker-compose.override.yml

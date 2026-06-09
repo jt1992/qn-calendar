@@ -21,8 +21,11 @@ const props = defineProps({
 const emit = defineEmits(['send-email', 'range-change', 'focus-order'])
 const store = useWorkOrderStore()
 const calendarViewStorageKey = 'qn-calendar-view'
+const calendarDateStorageKey = 'qn-calendar-date'
+const allowPastSchedulingStorageKey = 'qn-calendar-allow-past-scheduling'
 const validCalendarViews = new Set(['timeGridWeek', 'dayGridMonth'])
 const initialCalendarView = getInitialCalendarView()
+const initialCalendarDate = getInitialCalendarDate()
 const calendarRef = ref(null)
 const visibleTitle = ref('')
 const currentView = ref(initialCalendarView)
@@ -32,6 +35,8 @@ const interactionPreview = ref(null)
 const interactionAction = ref('調整排程')
 const eventTooltip = ref(null)
 const ignoreNextCalendarClick = ref(false)
+const scheduleGranularityMinutes = 15
+const allowPastScheduling = ref(getInitialAllowPastScheduling())
 
 const focusedWorkOrderId = computed(() => props.focusedWorkOrder?.id || props.focusedWorkOrder?.workOrderId || null)
 
@@ -54,7 +59,7 @@ const deadlineMarkerEvent = computed(() => {
   return {
     id: `deadline-${props.focusedWorkOrder.id || props.focusedWorkOrder.workOrderId || 'focused'}`,
     start,
-    end: addMinutes(start, 5),
+    end: addMinutes(start, scheduleGranularityMinutes),
     display: 'background',
     classNames: ['deadline-marker'],
     extendedProps: {
@@ -76,7 +81,7 @@ const interactionPreviewStyle = computed(() => {
 
 const eventTooltipStyle = computed(() => {
   const width = 340
-  const height = 188
+  const height = 244
   const x = Math.min(tooltipPosition.value.x + 14, Math.max(14, window.innerWidth - width - 14))
   const y = Math.min(tooltipPosition.value.y + 14, Math.max(14, window.innerHeight - height - 14))
 
@@ -89,7 +94,7 @@ const eventTooltipStyle = computed(() => {
 const calendarOptions = computed(() => ({
   plugins: [dayGridPlugin, timeGridPlugin, interactionPlugin],
   initialView: initialCalendarView,
-  initialDate: todayStart(),
+  initialDate: initialCalendarDate,
   headerToolbar: false,
   allDaySlot: false,
   views: {
@@ -100,7 +105,7 @@ const calendarOptions = computed(() => ({
   },
   slotDuration: '00:30:00',
   slotLabelInterval: '01:00:00',
-  snapDuration: '00:05:00',
+  snapDuration: '00:15:00',
   slotLabelFormat: {
     hour: '2-digit',
     minute: '2-digit',
@@ -152,7 +157,7 @@ function eventAllow(dropInfo, draggedEvent) {
   const latestShipTime = draggedEvent.extendedProps.latestShipTime
   const { start, end } = resolveInteractionWindow(dropInfo, draggedEvent)
   const latest = latestShipTime ? new Date(latestShipTime) : null
-  const scheduleWindow = resolveNonOverlappingWindow(draggedEvent, start, end, latest, todayStart())
+  const scheduleWindow = resolveNonOverlappingWindow(draggedEvent, start, end, latest, minScheduleStart())
 
   updateInteractionPreview(
     interactionAction.value,
@@ -173,6 +178,7 @@ async function handleDatesSet(info) {
   visibleTitle.value = formatVisibleTitle(info)
   currentView.value = info.view.type
   window.localStorage.setItem(calendarViewStorageKey, info.view.type)
+  window.localStorage.setItem(calendarDateStorageKey, toDateOnly(resolveCalendarStorageDate(info)))
   emit('range-change', {
     dateFrom: info.view.type === 'timeGridWeek' ? dateFrom : toDateOnly(focusWeekStart),
     dateTo: info.view.type === 'timeGridWeek' ? dateTo : toDateOnly(focusWeekEnd),
@@ -222,6 +228,7 @@ function eventContent(info) {
   root.dataset.tooltipStatus = info.event.extendedProps.status === 'DONE' ? '完成' : '未完成'
   root.dataset.tooltipLatest = formatDateTime(latestShipTime)
   root.dataset.tooltipPrice = info.event.extendedProps.price ? `$${info.event.extendedProps.price}` : ''
+  root.dataset.tooltipRemark = formatRemarkText(info.event.extendedProps.remark)
   title.className = 'calendar-event-title'
   title.textContent = info.event.extendedProps.orderNo || info.event.title
   actions.className = 'calendar-event-actions'
@@ -288,7 +295,7 @@ async function handleEventReceive(info) {
     const latest = info.event.extendedProps.latestShipTime
       ? new Date(info.event.extendedProps.latestShipTime)
       : null
-    const scheduleWindow = resolveNonOverlappingWindow(info.event, start, end, latest, todayStart())
+    const scheduleWindow = resolveNonOverlappingWindow(info.event, start, end, latest, minScheduleStart())
 
     if (!scheduleWindow.valid) {
       throw new Error(scheduleWindow.invalidReason || '排程時間不可用')
@@ -313,7 +320,7 @@ async function handleEventMove(info) {
     const latest = info.event.extendedProps.latestShipTime
       ? new Date(info.event.extendedProps.latestShipTime)
       : null
-    const scheduleWindow = resolveNonOverlappingWindow(info.event, start, end, latest, todayStart())
+    const scheduleWindow = resolveNonOverlappingWindow(info.event, start, end, latest, minScheduleStart())
 
     if (!scheduleWindow.valid) {
       throw new Error(scheduleWindow.invalidReason || '排程時間不可用')
@@ -344,6 +351,7 @@ function handleEventClick(info) {
     status: info.event.extendedProps.status,
     latestShipTime: info.event.extendedProps.latestShipTime,
     price: info.event.extendedProps.price,
+    remark: info.event.extendedProps.remark,
     actualMinutes: info.event.extendedProps.totalMinutes || info.event.extendedProps.actualMinutes,
     totalMinutes: info.event.extendedProps.totalMinutes
   })
@@ -391,7 +399,7 @@ function previousRange() {
     return
   }
 
-  if (currentView.value === 'timeGridWeek') {
+  if (!allowPastScheduling.value && currentView.value === 'timeGridWeek') {
     const previousStart = addDays(calendarApi.view.currentStart, -7)
 
     if (previousStart < todayStart()) {
@@ -424,6 +432,20 @@ function getInitialCalendarView() {
   return validCalendarViews.has(storedView) ? storedView : 'timeGridWeek'
 }
 
+function getInitialCalendarDate() {
+  const storedDate = parseDateOnly(window.localStorage.getItem(calendarDateStorageKey))
+  return storedDate || todayStart()
+}
+
+function getInitialAllowPastScheduling() {
+  return window.localStorage.getItem(allowPastSchedulingStorageKey) === 'true'
+}
+
+function toggleAllowPastScheduling(event) {
+  allowPastScheduling.value = event.target.checked
+  window.localStorage.setItem(allowPastSchedulingStorageKey, String(allowPastScheduling.value))
+}
+
 async function unscheduleEvent(event, options = {}) {
   const { removeImmediately = false } = options
 
@@ -448,7 +470,7 @@ async function splitEvent(event) {
   const splitAt = resolveSplitAt(event)
 
   if (!splitAt) {
-    store.error = '片段至少 10 分鐘才能拆分'
+    store.error = '片段至少 30 分鐘才能拆分'
     return
   }
 
@@ -511,7 +533,7 @@ function handleInteractionStart(info, action) {
   const latest = info.event.extendedProps.latestShipTime
     ? new Date(info.event.extendedProps.latestShipTime)
     : null
-  const scheduleWindow = resolveNonOverlappingWindow(info.event, start, end, latest, todayStart())
+  const scheduleWindow = resolveNonOverlappingWindow(info.event, start, end, latest, minScheduleStart())
 
   updateInteractionPreview(
     action,
@@ -538,12 +560,15 @@ function resolveInteractionWindow(dropInfo, draggedEvent) {
 function resolveSplitAt(event) {
   const minutes = diffMinutes(event.start, event.end)
 
-  if (minutes < 10) {
+  if (minutes < scheduleGranularityMinutes * 2) {
     return null
   }
 
-  const roundedHalf = Math.round((minutes / 2) / 5) * 5
-  const offsetMinutes = Math.min(minutes - 5, Math.max(5, roundedHalf))
+  const roundedHalf = Math.round((minutes / 2) / scheduleGranularityMinutes) * scheduleGranularityMinutes
+  const offsetMinutes = Math.min(
+    minutes - scheduleGranularityMinutes,
+    Math.max(scheduleGranularityMinutes, roundedHalf)
+  )
   return addMinutes(event.start, offsetMinutes)
 }
 
@@ -694,7 +719,8 @@ function showEventTooltip(event, pointerEvent) {
     durationText: `總排程 ${formatDurationText(totalMinutes)}`,
     statusText: event.extendedProps.status === 'DONE' ? '完成' : '未完成',
     latestText: formatDateTime(latestShipTime),
-    priceText: event.extendedProps.price ? `$${event.extendedProps.price}` : ''
+    priceText: event.extendedProps.price ? `$${event.extendedProps.price}` : '',
+    remarkText: formatRemarkText(event.extendedProps.remark)
   }
 }
 
@@ -728,7 +754,8 @@ function updateEventTooltipFromPointer(event) {
     durationText: eventCard.dataset.tooltipDuration,
     statusText: eventCard.dataset.tooltipStatus,
     latestText: eventCard.dataset.tooltipLatest,
-    priceText: eventCard.dataset.tooltipPrice
+    priceText: eventCard.dataset.tooltipPrice,
+    remarkText: eventCard.dataset.tooltipRemark
   }
 }
 
@@ -764,6 +791,29 @@ function todayStart() {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   return today
+}
+
+function parseDateOnly(value) {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return null
+  }
+
+  const [year, month, day] = value.split('-').map(Number)
+  const date = new Date(year, month - 1, day)
+
+  return date.getFullYear() === year
+    && date.getMonth() === month - 1
+    && date.getDate() === day
+    ? date
+    : null
+}
+
+function resolveCalendarStorageDate(info) {
+  return info.view.currentStart || info.start || info.view.calendar.getDate()
+}
+
+function minScheduleStart() {
+  return allowPastScheduling.value ? null : todayStart()
 }
 
 function startOfWeek(date) {
@@ -833,6 +883,10 @@ function formatDurationText(minutes) {
   return `${hours}小時${remainingMinutes}分鐘`
 }
 
+function formatRemarkText(value) {
+  return value && value.trim() ? value : '无任何备注'
+}
+
 function formatRangeTitle(start, end) {
   const startText = toDateOnly(start)
   const endText = toDateOnly(end)
@@ -857,10 +911,18 @@ function weekdayLabel(date) {
     <header class="calendar-header">
       <div class="calendar-title-group">
         <h2>{{ visibleTitle }}</h2>
-        <p>{{ currentView === 'dayGridMonth' ? '月檢視拖到日期，週檢視精準調整時間' : '半小時區間，5 分鐘粒度' }}</p>
+        <p>{{ currentView === 'dayGridMonth' ? '月檢視拖到日期，週檢視精準調整時間' : '半小時區間，15 分鐘粒度' }}</p>
       </div>
 
       <div class="calendar-header-actions">
+        <label class="schedule-toggle" title="測試用：允許排程到今天以前">
+          <input
+            type="checkbox"
+            :checked="allowPastScheduling"
+            @change="toggleAllowPastScheduling"
+          />
+          <span>允許過去</span>
+        </label>
         <button class="icon-button" type="button" @click="emit('send-email')">
           <Mail :size="17" />
           發送 Email
@@ -924,6 +986,7 @@ function weekdayLabel(date) {
       <span>{{ eventTooltip.durationText }}</span>
       <span>{{ eventTooltip.statusText }} · 最晚 {{ eventTooltip.latestText }}</span>
       <span v-if="eventTooltip.priceText">訂單價格 {{ eventTooltip.priceText }}</span>
+      <span class="event-tooltip-remark">订单备注：{{ eventTooltip.remarkText }}</span>
     </div>
   </section>
 </template>

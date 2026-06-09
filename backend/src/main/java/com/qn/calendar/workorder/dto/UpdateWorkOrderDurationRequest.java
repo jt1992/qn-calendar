@@ -5,7 +5,7 @@ import jakarta.validation.constraints.NotNull;
 
 public record UpdateWorkOrderDurationRequest(
         @NotNull(message = "工時不可為空")
-        @Min(value = 5, message = "工時不可小於 5 分鐘")
+        @Min(value = 15, message = "工時不可小於 15 分鐘")
         Integer actualMinutes
 ) {
 }

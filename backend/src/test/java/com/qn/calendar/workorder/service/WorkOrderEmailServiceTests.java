@@ -15,11 +15,11 @@ import org.junit.jupiter.api.Test;
 class WorkOrderEmailServiceTests {
 
     @Test
-    void scheduleTableSpansOrderAcrossFiveMinuteSlotsAndTrimsEmptyTimeRange() {
+    void scheduleTableSpansOrderAcrossFifteenMinuteSlotsAndTrimsEmptyTimeRange() {
         WorkOrderSegmentResponse order = order(
                 "ORD-001",
                 LocalDateTime.of(2026, 6, 8, 12, 0),
-                LocalDateTime.of(2026, 6, 8, 15, 5),
+                LocalDateTime.of(2026, 6, 8, 15, 15),
                 WorkOrderStatus.SCHEDULED
         );
 
@@ -29,13 +29,14 @@ class WorkOrderEmailServiceTests {
                 List.of(order)
         );
 
-        assertThat(table.rows()).hasSize(37);
+        assertThat(table.rows()).hasSize(13);
         assertThat(table.rows().getFirst().timeLabel()).isEqualTo("12:00:00");
         assertThat(table.rows().getLast().timeLabel()).isEqualTo("15:00:00");
 
         WorkOrderEmailService.EmailTableCell firstCell = table.rows().getFirst().cells().getFirst();
         assertThat(firstCell.order().orderNo()).isEqualTo("ORD-001");
-        assertThat(firstCell.rowSpan()).isEqualTo(37);
+        assertThat(firstCell.order().remark()).isEqualTo("买家留言：測試備註");
+        assertThat(firstCell.rowSpan()).isEqualTo(13);
         assertThat(table.rows().get(1).cells().getFirst().rendered()).isFalse();
     }
 
@@ -61,7 +62,7 @@ class WorkOrderEmailServiceTests {
         );
 
         assertThat(table.days().getFirst().laneCount()).isEqualTo(2);
-        assertThat(table.rows()).hasSize(36);
+        assertThat(table.rows()).hasSize(12);
     }
 
     private WorkOrderSegmentResponse order(
@@ -77,7 +78,7 @@ class WorkOrderEmailServiceTests {
                 1L,
                 orderNo,
                 null,
-                null,
+                "买家留言：測試備註",
                 BigDecimal.valueOf(300),
                 180,
                 minutes,
