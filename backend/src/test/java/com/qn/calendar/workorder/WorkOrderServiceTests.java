@@ -106,7 +106,7 @@ class WorkOrderServiceTests {
         assertThat(updated.getStatus()).isEqualTo(WorkOrderStatus.PENDING);
         assertThat(updated.getScheduledStart()).isNull();
         assertThat(updated.getScheduledEnd()).isNull();
-        assertThat(updated.getActualMinutes()).isEqualTo(90);
+        assertThat(updated.getActualMinutes()).isEqualTo(updated.getEstimatedMinutes());
     }
 
     @Test

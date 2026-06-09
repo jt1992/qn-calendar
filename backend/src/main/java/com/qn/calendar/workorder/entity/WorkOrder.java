@@ -149,6 +149,7 @@ public class WorkOrder {
     public void unschedule() {
         this.scheduledStart = null;
         this.scheduledEnd = null;
+        this.actualMinutes = this.estimatedMinutes;
         this.status = WorkOrderStatus.PENDING;
         this.completedAt = null;
     }

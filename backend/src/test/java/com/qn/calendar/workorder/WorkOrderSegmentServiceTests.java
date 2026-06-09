@@ -224,6 +224,7 @@ class WorkOrderSegmentServiceTests {
         assertThat(response.segments()).isEmpty();
         assertThat(response.totalMinutes()).isZero();
         assertThat(response.workOrder().status()).isEqualTo(WorkOrderStatus.PENDING);
+        assertThat(response.workOrder().actualMinutes()).isEqualTo(response.workOrder().estimatedMinutes());
     }
 
     private WorkOrder order(String orderNo) {
