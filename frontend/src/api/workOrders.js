@@ -29,6 +29,11 @@ export async function getCalendarWorkOrders(dateFrom, dateTo) {
   return data
 }
 
+export async function getCompletedWorkOrderStats() {
+  const { data } = await http.get('/api/work-orders/statistics/completed')
+  return data
+}
+
 export async function scheduleWorkOrder(id, scheduledStart, scheduledEnd) {
   const { data } = await http.patch(`/api/work-orders/${id}/schedule`, {
     scheduledStart,

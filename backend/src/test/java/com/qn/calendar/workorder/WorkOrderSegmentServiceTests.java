@@ -6,9 +6,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
+import com.qn.calendar.workorder.constant.WorkOrderStatus;
 import com.qn.calendar.workorder.dto.ScheduleWorkOrderRequest;
 import com.qn.calendar.workorder.dto.SplitWorkOrderSegmentRequest;
 import com.qn.calendar.workorder.dto.WorkOrderSegmentListResponse;
+import com.qn.calendar.workorder.entity.WorkOrder;
+import com.qn.calendar.workorder.repository.WorkOrderRepository;
+import com.qn.calendar.workorder.repository.WorkOrderSegmentRepository;
+import com.qn.calendar.workorder.service.WorkOrderSegmentService;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -219,6 +224,7 @@ class WorkOrderSegmentServiceTests {
         assertThat(response.segments()).isEmpty();
         assertThat(response.totalMinutes()).isZero();
         assertThat(response.workOrder().status()).isEqualTo(WorkOrderStatus.PENDING);
+        assertThat(response.workOrder().actualMinutes()).isEqualTo(response.workOrder().estimatedMinutes());
     }
 
     private WorkOrder order(String orderNo) {

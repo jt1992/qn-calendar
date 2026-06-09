@@ -3,7 +3,7 @@ package com.qn.calendar.workorder.dto;
 import java.time.LocalDate;
 import java.util.List;
 
-import com.qn.calendar.workorder.ScheduleEmailViewType;
+import com.qn.calendar.workorder.constant.ScheduleEmailViewType;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;

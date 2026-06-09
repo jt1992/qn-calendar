@@ -178,7 +178,7 @@ PATCH /api/work-orders/{id}/unschedule
 - 只允許已排入日曆的工單使用。
 - 清空 `scheduled_start`、`scheduled_end` 與 `completed_at`。
 - 更新 `status = PENDING`。
-- 保留 `actual_minutes`，讓工單回待排後仍使用目前工時長度。
+- 重設 `actual_minutes = estimated_minutes`，讓工單回待排後恢復原始預估工時。
 
 ## 完成工單規則
 

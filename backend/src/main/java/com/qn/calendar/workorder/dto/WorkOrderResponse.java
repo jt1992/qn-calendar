@@ -3,12 +3,14 @@ package com.qn.calendar.workorder.dto;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
-import com.qn.calendar.workorder.WorkOrder;
-import com.qn.calendar.workorder.WorkOrderStatus;
+import com.qn.calendar.workorder.entity.WorkOrder;
+import com.qn.calendar.workorder.constant.WorkOrderStatus;
 
 public record WorkOrderResponse(
         Long id,
         String orderNo,
+        String buyerNickname,
+        String remark,
         BigDecimal price,
         int estimatedMinutes,
         int actualMinutes,
@@ -24,6 +26,8 @@ public record WorkOrderResponse(
         return new WorkOrderResponse(
                 workOrder.getId(),
                 workOrder.getOrderNo(),
+                workOrder.getBuyerNickname(),
+                workOrder.getRemark(),
                 workOrder.getPrice(),
                 workOrder.getEstimatedMinutes(),
                 workOrder.getActualMinutes(),

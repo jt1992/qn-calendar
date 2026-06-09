@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import {
   deleteWorkOrderSegment,
   getCalendarWorkOrders,
+  getCompletedWorkOrderStats,
   getPendingWorkOrders,
   importWorkOrders,
   markWorkOrderAsDone,
@@ -19,6 +20,7 @@ export const useWorkOrderStore = defineStore('workOrders', {
   state: () => ({
     pendingWorkOrders: [],
     calendarEvents: [],
+    completedStats: [],
     importResult: null,
     activeRange: null,
     loading: false,
@@ -51,6 +53,10 @@ export const useWorkOrderStore = defineStore('workOrders', {
       this.activeRange = { dateFrom, dateTo }
       const workOrders = await getCalendarWorkOrders(dateFrom, dateTo)
       this.calendarEvents = workOrders.map(toCalendarEvent)
+    },
+
+    async fetchCompletedStats() {
+      this.completedStats = await getCompletedWorkOrderStats()
     },
 
     async refreshCalendarEvents() {
@@ -145,6 +151,8 @@ function toCalendarEvent(segment) {
       status: segment.status,
       latestShipTime: segment.latestShipTime,
       price: segment.price,
+      buyerNickname: segment.buyerNickname,
+      remark: segment.remark,
       estimatedMinutes: segment.estimatedMinutes,
       actualMinutes: segment.actualMinutes,
       totalMinutes: segment.totalMinutes

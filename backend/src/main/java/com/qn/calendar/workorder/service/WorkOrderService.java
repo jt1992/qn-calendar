@@ -1,11 +1,17 @@
-package com.qn.calendar.workorder;
+package com.qn.calendar.workorder.service;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import com.qn.calendar.workorder.constant.WorkOrderStatus;
+import com.qn.calendar.workorder.dto.CompletedWorkOrderStatsResponse;
 import com.qn.calendar.workorder.dto.WorkOrderSegmentResponse;
 import com.qn.calendar.workorder.dto.WorkOrderResponse;
+import com.qn.calendar.workorder.entity.WorkOrder;
+import com.qn.calendar.workorder.repository.WorkOrderRepository;
+import com.qn.calendar.workorder.repository.WorkOrderSegmentRepository;
+import com.qn.calendar.workorder.util.WorkOrderTimeUtils;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -49,9 +55,24 @@ public class WorkOrderService {
                 .stream()
                 .map((segment) -> WorkOrderSegmentResponse.from(
                         segment,
-                        totalMinutes(segmentRepository.findByWorkOrderIdOrderByScheduledStartAscScheduledEndAscIdAsc(
+                        WorkOrderTimeUtils.totalMinutes(segmentRepository.findByWorkOrderIdOrderByScheduledStartAscScheduledEndAscIdAsc(
                                 segment.getWorkOrder().getId()
                         ))
+                ))
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<CompletedWorkOrderStatsResponse> getCompletedWorkOrderStats() {
+        return repository.findByStatusOrderByCompletedAtDescLatestShipTimeAscCreatedAtAsc(WorkOrderStatus.DONE)
+                .stream()
+                .map((workOrder) -> CompletedWorkOrderStatsResponse.from(
+                        workOrder,
+                        WorkOrderTimeUtils.totalMinutes(
+                                segmentRepository.findByWorkOrderIdOrderByScheduledStartAscScheduledEndAscIdAsc(
+                                        workOrder.getId()
+                                )
+                        )
                 ))
                 .toList();
     }
@@ -112,12 +133,4 @@ public class WorkOrderService {
         }
     }
 
-    private int totalMinutes(List<WorkOrderSegment> segments) {
-        return segments.stream()
-                .mapToInt((segment) -> Math.toIntExact(java.time.Duration.between(
-                        segment.getScheduledStart(),
-                        segment.getScheduledEnd()
-                ).toMinutes()))
-                .sum();
-    }
 }

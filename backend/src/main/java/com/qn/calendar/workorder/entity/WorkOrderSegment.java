@@ -1,4 +1,4 @@
-package com.qn.calendar.workorder;
+package com.qn.calendar.workorder.entity;
 
 import java.time.LocalDateTime;
 

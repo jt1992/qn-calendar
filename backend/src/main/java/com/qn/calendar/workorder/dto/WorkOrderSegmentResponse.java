@@ -1,18 +1,20 @@
 package com.qn.calendar.workorder.dto;
 
 import java.math.BigDecimal;
-import java.time.Duration;
 import java.time.LocalDateTime;
 
-import com.qn.calendar.workorder.WorkOrder;
-import com.qn.calendar.workorder.WorkOrderSegment;
-import com.qn.calendar.workorder.WorkOrderStatus;
+import com.qn.calendar.workorder.entity.WorkOrder;
+import com.qn.calendar.workorder.entity.WorkOrderSegment;
+import com.qn.calendar.workorder.constant.WorkOrderStatus;
+import com.qn.calendar.workorder.util.WorkOrderTimeUtils;
 
 public record WorkOrderSegmentResponse(
         Long id,
         Long segmentId,
         Long workOrderId,
         String orderNo,
+        String buyerNickname,
+        String remark,
         BigDecimal price,
         int estimatedMinutes,
         int actualMinutes,
@@ -32,9 +34,11 @@ public record WorkOrderSegmentResponse(
                 segment.getId(),
                 workOrder.getId(),
                 workOrder.getOrderNo(),
+                workOrder.getBuyerNickname(),
+                workOrder.getRemark(),
                 workOrder.getPrice(),
                 workOrder.getEstimatedMinutes(),
-                segmentMinutes(segment),
+                WorkOrderTimeUtils.segmentMinutes(segment),
                 totalMinutes,
                 workOrder.isUrgent(),
                 workOrder.getLatestShipTime(),
@@ -45,10 +49,4 @@ public record WorkOrderSegmentResponse(
         );
     }
 
-    private static int segmentMinutes(WorkOrderSegment segment) {
-        return Math.toIntExact(Duration.between(
-                segment.getScheduledStart(),
-                segment.getScheduledEnd()
-        ).toMinutes());
-    }
 }

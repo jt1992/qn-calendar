@@ -2,8 +2,8 @@ package com.qn.calendar.workorder.dto;
 
 import java.util.List;
 
-import com.qn.calendar.workorder.WorkOrder;
-import com.qn.calendar.workorder.WorkOrderSegment;
+import com.qn.calendar.workorder.entity.WorkOrder;
+import com.qn.calendar.workorder.entity.WorkOrderSegment;
 
 public record WorkOrderSegmentListResponse(
         WorkOrderResponse workOrder,

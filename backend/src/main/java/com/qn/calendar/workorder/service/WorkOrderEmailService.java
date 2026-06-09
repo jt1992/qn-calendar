@@ -1,4 +1,4 @@
-package com.qn.calendar.workorder;
+package com.qn.calendar.workorder.service;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -16,8 +16,12 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.stream.IntStream;
 
+import com.qn.calendar.workorder.constant.ScheduleEmailViewType;
+import com.qn.calendar.workorder.constant.WorkOrderStatus;
 import com.qn.calendar.workorder.dto.ScheduleEmailRequest;
 import com.qn.calendar.workorder.dto.WorkOrderSegmentResponse;
+import com.qn.calendar.workorder.repository.WorkOrderSegmentRepository;
+import com.qn.calendar.workorder.util.WorkOrderTimeUtils;
 
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
@@ -70,7 +74,7 @@ public class WorkOrderEmailService {
                 .stream()
                 .map((segment) -> WorkOrderSegmentResponse.from(
                         segment,
-                        totalMinutes(segmentRepository.findByWorkOrderIdOrderByScheduledStartAscScheduledEndAscIdAsc(
+                        WorkOrderTimeUtils.totalMinutes(segmentRepository.findByWorkOrderIdOrderByScheduledStartAscScheduledEndAscIdAsc(
                                 segment.getWorkOrder().getId()
                         ))
                 ))
@@ -327,15 +331,6 @@ public class WorkOrderEmailService {
                 .map(String::trim)
                 .filter(StringUtils::hasText)
                 .toList();
-    }
-
-    private static int totalMinutes(List<WorkOrderSegment> segments) {
-        return segments.stream()
-                .mapToInt((segment) -> Math.toIntExact(Duration.between(
-                        segment.getScheduledStart(),
-                        segment.getScheduledEnd()
-                ).toMinutes()))
-                .sum();
     }
 
     public record EmailScheduleTable(List<EmailDay> days, List<EmailSlotRow> rows, int totalColumnCount) {

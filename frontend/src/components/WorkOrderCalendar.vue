@@ -31,6 +31,7 @@ const tooltipPosition = ref({ x: 0, y: 0 })
 const interactionPreview = ref(null)
 const interactionAction = ref('調整排程')
 const eventTooltip = ref(null)
+const ignoreNextCalendarClick = ref(false)
 
 const focusedWorkOrderId = computed(() => props.focusedWorkOrder?.id || props.focusedWorkOrder?.workOrderId || null)
 
@@ -130,7 +131,7 @@ const calendarOptions = computed(() => ({
   eventReceive: handleEventReceive,
   eventDrop: handleEventMove,
   eventResizeStart: (info) => handleInteractionStart(info, '調整工時'),
-  eventResizeStop: clearInteractionPreview,
+  eventResizeStop: handleInteractionStop,
   eventResize: handleEventMove,
   eventClick: handleEventClick,
   eventDidMount: bindEventTooltip,
@@ -348,6 +349,19 @@ function handleEventClick(info) {
   })
 }
 
+function handleCalendarBackgroundClick(event) {
+  if (ignoreNextCalendarClick.value) {
+    ignoreNextCalendarClick.value = false
+    return
+  }
+
+  if (event.target?.closest?.('.fc-event, .fc-event-mirror, .fc-event-resizer')) {
+    return
+  }
+
+  emit('focus-order', null)
+}
+
 function eventClassNames(info, focusedId) {
   if (info.event.extendedProps.isDeadlineMarker) {
     return ['deadline-marker']
@@ -454,6 +468,14 @@ function handleEventDragStop(info) {
     unscheduleEvent(info.event, { removeImmediately: true })
   }
 
+  handleInteractionStop()
+}
+
+function handleInteractionStop() {
+  ignoreNextCalendarClick.value = true
+  window.setTimeout(() => {
+    ignoreNextCalendarClick.value = false
+  }, 150)
   clearInteractionPreview()
 }
 
@@ -871,7 +893,9 @@ function weekdayLabel(date) {
       </div>
     </header>
 
-    <FullCalendar ref="calendarRef" class="calendar-shell" :options="calendarOptions" />
+    <div class="calendar-click-area" @click="handleCalendarBackgroundClick">
+      <FullCalendar ref="calendarRef" class="calendar-shell" :options="calendarOptions" />
+    </div>
 
     <div
       v-if="interactionPreview"

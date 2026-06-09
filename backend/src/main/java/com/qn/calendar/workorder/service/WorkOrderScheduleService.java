@@ -1,4 +1,4 @@
-package com.qn.calendar.workorder;
+package com.qn.calendar.workorder.service;
 
 import com.qn.calendar.workorder.dto.ScheduleWorkOrderRequest;
 import com.qn.calendar.workorder.dto.WorkOrderSegmentListResponse;
