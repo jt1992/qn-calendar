@@ -100,7 +100,7 @@ public class WorkOrderSegmentService {
         WorkOrder workOrder = segment.getWorkOrder();
         LocalDateTime roundedCompletedAt = WorkOrderTimeUtils.roundUpToScheduleBoundary(completedAt);
 
-        if (roundedCompletedAt.isAfter(segment.getScheduledEnd())) {
+        if (isSameScheduleDay(segment, roundedCompletedAt) && roundedCompletedAt.isAfter(segment.getScheduledEnd())) {
             validateSchedule(workOrder, segment.getScheduledStart(), roundedCompletedAt);
             segment.updateSchedule(segment.getScheduledStart(), roundedCompletedAt);
         }
@@ -167,6 +167,10 @@ public class WorkOrderSegmentService {
         );
 
         return WorkOrderSegmentListResponse.from(workOrder, normalized, totalMinutes);
+    }
+
+    private boolean isSameScheduleDay(WorkOrderSegment segment, LocalDateTime completedAt) {
+        return segment.getScheduledStart().toLocalDate().isEqual(completedAt.toLocalDate());
     }
 
     private void validateSchedule(WorkOrder workOrder, LocalDateTime scheduledStart, LocalDateTime scheduledEnd) {

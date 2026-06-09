@@ -158,6 +158,30 @@ class WorkOrderSegmentServiceTests {
     }
 
     @Test
+    void completingSegmentOnDifferentDayDoesNotExtendEndToCurrentTime() {
+        WorkOrder workOrder = workOrderRepository.save(order(
+                "ORD-COMPLETE-OTHER-DAY",
+                LocalDateTime.of(2026, 6, 9, 2, 0)
+        ));
+        WorkOrderSegmentListResponse created = service.createSegment(workOrder.getId(), request(
+                LocalDateTime.of(2026, 6, 8, 0, 0),
+                LocalDateTime.of(2026, 6, 8, 1, 0)
+        ));
+
+        WorkOrderSegmentListResponse response = service.completeSegment(
+                created.segments().getFirst().segmentId(),
+                LocalDateTime.of(2026, 6, 9, 1, 26, 1)
+        );
+
+        assertThat(response.workOrder().status()).isEqualTo(WorkOrderStatus.DONE);
+        assertThat(response.workOrder().completedAt()).isEqualTo(LocalDateTime.of(2026, 6, 9, 1, 30));
+        assertThat(response.segments()).hasSize(1);
+        assertThat(response.segments().getFirst().scheduledStart()).isEqualTo(LocalDateTime.of(2026, 6, 8, 0, 0));
+        assertThat(response.segments().getFirst().scheduledEnd()).isEqualTo(LocalDateTime.of(2026, 6, 8, 1, 0));
+        assertThat(response.totalMinutes()).isEqualTo(60);
+    }
+
+    @Test
     void splitsSegmentAtFifteenMinuteBoundary() {
         WorkOrder workOrder = workOrderRepository.save(order("ORD-SPLIT"));
         WorkOrderSegmentListResponse created = service.createSegment(workOrder.getId(), request(
