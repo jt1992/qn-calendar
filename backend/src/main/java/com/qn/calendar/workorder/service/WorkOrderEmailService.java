@@ -41,7 +41,7 @@ public class WorkOrderEmailService {
 
     private static final DateTimeFormatter DAY_LABEL_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd E", Locale.TAIWAN);
     private static final DateTimeFormatter TIME_LABEL_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
-    private static final int SLOT_MINUTES = 5;
+    private static final int SLOT_MINUTES = WorkOrderTimeUtils.SCHEDULE_GRANULARITY_MINUTES;
     private static final int SLOTS_PER_HOUR = 60 / SLOT_MINUTES;
     private static final int SLOTS_PER_DAY = 24 * SLOTS_PER_HOUR;
 

@@ -58,22 +58,22 @@ class WorkOrderServiceTests {
     }
 
     @Test
-    void updatesPendingDurationInFiveMinuteUnits() {
+    void updatesPendingDurationInFifteenMinuteUnits() {
         WorkOrder workOrder = repository.save(order("ORD-DURATION"));
 
-        WorkOrder updated = service.updateDuration(workOrder.getId(), 95);
+        WorkOrder updated = service.updateDuration(workOrder.getId(), 90);
 
-        assertThat(updated.getActualMinutes()).isEqualTo(95);
-        assertThat(repository.findById(workOrder.getId()).orElseThrow().getActualMinutes()).isEqualTo(95);
+        assertThat(updated.getActualMinutes()).isEqualTo(90);
+        assertThat(repository.findById(workOrder.getId()).orElseThrow().getActualMinutes()).isEqualTo(90);
     }
 
     @Test
-    void rejectsDurationThatIsNotFiveMinuteMultiple() {
+    void rejectsDurationThatIsNotFifteenMinuteMultiple() {
         WorkOrder workOrder = repository.save(order("ORD-INVALID-DURATION"));
 
         assertThatThrownBy(() -> service.updateDuration(workOrder.getId(), 92))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("工時必須是 5 分鐘的倍數");
+                .hasMessage("工時必須是 15 分鐘的倍數");
     }
 
     @Test

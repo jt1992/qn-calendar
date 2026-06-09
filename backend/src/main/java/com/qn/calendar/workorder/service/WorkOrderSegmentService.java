@@ -98,7 +98,7 @@ public class WorkOrderSegmentService {
         WorkOrderSegment segment = segmentRepository.findById(segmentId)
                 .orElseThrow(() -> new IllegalArgumentException("找不到工單片段"));
         WorkOrder workOrder = segment.getWorkOrder();
-        LocalDateTime roundedCompletedAt = roundUpToFiveMinuteBoundary(completedAt);
+        LocalDateTime roundedCompletedAt = WorkOrderTimeUtils.roundUpToScheduleBoundary(completedAt);
 
         if (roundedCompletedAt.isAfter(segment.getScheduledEnd())) {
             validateSchedule(workOrder, segment.getScheduledStart(), roundedCompletedAt);
@@ -176,12 +176,13 @@ public class WorkOrderSegmentService {
             throw new IllegalArgumentException("排程結束時間必須晚於開始時間");
         }
 
-        if (minutes % 5 != 0) {
-            throw new IllegalArgumentException("工時必須是 5 分鐘的倍數");
+        if (minutes % WorkOrderTimeUtils.SCHEDULE_GRANULARITY_MINUTES != 0) {
+            throw new IllegalArgumentException("工時必須是 15 分鐘的倍數");
         }
 
-        if (!isFiveMinuteBoundary(scheduledStart) || !isFiveMinuteBoundary(scheduledEnd)) {
-            throw new IllegalArgumentException("排程時間必須符合 5 分鐘粒度");
+        if (!WorkOrderTimeUtils.isScheduleBoundary(scheduledStart)
+                || !WorkOrderTimeUtils.isScheduleBoundary(scheduledEnd)) {
+            throw new IllegalArgumentException("排程時間必須符合 15 分鐘粒度");
         }
 
         if (scheduledEnd.isAfter(workOrder.getLatestShipTime())) {
@@ -199,8 +200,8 @@ public class WorkOrderSegmentService {
     }
 
     private void validateSplit(WorkOrderSegment segment, LocalDateTime splitAt) {
-        if (!isFiveMinuteBoundary(splitAt)) {
-            throw new IllegalArgumentException("拆分時間必須符合 5 分鐘粒度");
+        if (!WorkOrderTimeUtils.isScheduleBoundary(splitAt)) {
+            throw new IllegalArgumentException("拆分時間必須符合 15 分鐘粒度");
         }
 
         if (!splitAt.isAfter(segment.getScheduledStart()) || !splitAt.isBefore(segment.getScheduledEnd())) {
@@ -208,20 +209,4 @@ public class WorkOrderSegmentService {
         }
     }
 
-    private boolean isFiveMinuteBoundary(LocalDateTime time) {
-        return time.getSecond() == 0
-                && time.getNano() == 0
-                && time.getMinute() % 5 == 0;
-    }
-
-    private LocalDateTime roundUpToFiveMinuteBoundary(LocalDateTime time) {
-        LocalDateTime truncated = time.withSecond(0).withNano(0);
-        int remainder = truncated.getMinute() % 5;
-
-        if (remainder == 0 && time.getSecond() == 0 && time.getNano() == 0) {
-            return truncated;
-        }
-
-        return truncated.plusMinutes(remainder == 0 ? 5 : 5 - remainder);
-    }
 }

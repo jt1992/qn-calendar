@@ -128,8 +128,8 @@ public class WorkOrderService {
             throw new IllegalArgumentException("工時必須大於 0");
         }
 
-        if (actualMinutes % 5 != 0) {
-            throw new IllegalArgumentException("工時必須是 5 分鐘的倍數");
+        if (actualMinutes % WorkOrderTimeUtils.SCHEDULE_GRANULARITY_MINUTES != 0) {
+            throw new IllegalArgumentException("工時必須是 15 分鐘的倍數");
         }
     }
 

@@ -128,14 +128,14 @@ class WorkOrderSegmentServiceTests {
 
         assertThatThrownBy(() -> service.createSegment(workOrder.getId(), request(
                 LocalDateTime.of(2026, 6, 8, 9, 0),
-                LocalDateTime.of(2026, 6, 8, 10, 5)
+                LocalDateTime.of(2026, 6, 8, 10, 15)
         )))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("排程結束時間不可超過最晚發貨時間");
     }
 
     @Test
-    void completingSegmentExtendsEndToCurrentTimeRoundedUpToFiveMinutes() {
+    void completingSegmentExtendsEndToCurrentTimeRoundedUpToFifteenMinutes() {
         WorkOrder workOrder = workOrderRepository.save(order(
                 "ORD-COMPLETE-EXTEND",
                 LocalDateTime.of(2026, 6, 9, 2, 0)
@@ -158,7 +158,7 @@ class WorkOrderSegmentServiceTests {
     }
 
     @Test
-    void splitsSegmentAtFiveMinuteBoundary() {
+    void splitsSegmentAtFifteenMinuteBoundary() {
         WorkOrder workOrder = workOrderRepository.save(order("ORD-SPLIT"));
         WorkOrderSegmentListResponse created = service.createSegment(workOrder.getId(), request(
                 LocalDateTime.of(2026, 6, 8, 9, 0),
@@ -177,7 +177,7 @@ class WorkOrderSegmentServiceTests {
     }
 
     @Test
-    void rejectsSplitOutsideFiveMinuteBoundary() {
+    void rejectsSplitOutsideFifteenMinuteBoundary() {
         WorkOrder workOrder = workOrderRepository.save(order("ORD-SPLIT-INVALID"));
         WorkOrderSegmentListResponse created = service.createSegment(workOrder.getId(), request(
                 LocalDateTime.of(2026, 6, 8, 9, 0),
@@ -186,10 +186,10 @@ class WorkOrderSegmentServiceTests {
 
         assertThatThrownBy(() -> service.splitSegment(
                 created.segments().getFirst().segmentId(),
-                new SplitWorkOrderSegmentRequest(LocalDateTime.of(2026, 6, 8, 10, 2))
+                new SplitWorkOrderSegmentRequest(LocalDateTime.of(2026, 6, 8, 10, 5))
         ))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("拆分時間必須符合 5 分鐘粒度");
+                .hasMessage("拆分時間必須符合 15 分鐘粒度");
     }
 
     @Test

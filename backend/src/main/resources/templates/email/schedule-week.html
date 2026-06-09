@@ -55,6 +55,13 @@
                 · 最晚
                 <span th:text="${#temporals.format(order.latestShipTime, 'yyyy-MM-dd HH:mm:ss')}">2026-06-08 18:00:00</span>
               </div>
+              <div
+                th:if="${order.remark != null and !#strings.isEmpty(order.remark)}"
+                style="margin-top:4px;font-size:12px;color:#4b5a69;white-space:pre-line;"
+                th:text="${order.remark}"
+              >
+                订单备注：无任何备注
+              </div>
             </div>
           </td>
         </tr>
