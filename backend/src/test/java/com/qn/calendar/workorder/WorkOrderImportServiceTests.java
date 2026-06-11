@@ -73,6 +73,34 @@ class WorkOrderImportServiceTests {
     }
 
     @Test
+    void backfillsMissingOrderTimeWhenExistingOrderIsImportedAgain() throws Exception {
+        repository.save(new WorkOrder(
+                "ORD-BACKFILL",
+                BigDecimal.valueOf(100),
+                60,
+                false,
+                LocalDateTime.of(2026, 6, 10, 18, 0)
+        ));
+        MockMultipartFile file = xlsxWithRows(
+                List.of("订单编号", "买家实付金额", "订单付款时间", "应发货时间"),
+                List.of(List.of(
+                        "ORD-BACKFILL",
+                        "100.00",
+                        "2026-04-21 12:30:00",
+                        "2026-04-23 23:59:59"
+                ))
+        );
+
+        ImportWorkOrderResponse response = importService.importXlsx(file);
+
+        assertThat(response.createdCount()).isZero();
+        assertThat(response.skippedCount()).isEqualTo(1);
+        assertThat(repository.findAll()).hasSize(1);
+        assertThat(repository.findAll().getFirst().getOrderTime())
+                .isEqualTo(LocalDateTime.of(2026, 4, 21, 12, 30));
+    }
+
+    @Test
     void importsRealOrderColumnsByHeaderNameAndCombinesRemarks() throws Exception {
         MockMultipartFile file = xlsxWithRows(
                 List.of("商家备注", "应发货时间", "订单付款时间", "买家留言", "订单编号", "备注标签", "买家实付金额"),
@@ -96,6 +124,7 @@ class WorkOrderImportServiceTests {
         assertThat(workOrder.getPrice()).isEqualByComparingTo("280.00");
         assertThat(workOrder.getEstimatedMinutes()).isEqualTo(180);
         assertThat(workOrder.isUrgent()).isTrue();
+        assertThat(workOrder.getOrderTime()).isEqualTo(LocalDateTime.of(2026, 5, 27, 22, 17, 38));
         assertThat(workOrder.getRemark()).isEqualTo("""
                 买家留言：買家要保留裙襬
                 商家备注：29号发！！！蛋糕裙恢复尺寸200+加急100""");

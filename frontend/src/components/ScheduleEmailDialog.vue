@@ -1,7 +1,8 @@
 <script setup>
-import { computed, reactive, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { Mail, X } from '@lucide/vue'
 import { useWorkOrderStore } from '../stores/workOrderStore'
+import MonthPicker from './MonthPicker.vue'
 
 const props = defineProps({
   dateFrom: {
@@ -32,6 +33,7 @@ const props = defineProps({
 
 const emit = defineEmits(['close'])
 const store = useWorkOrderStore()
+const sending = ref(false)
 
 const form = reactive({
   recipients: '',
@@ -50,6 +52,14 @@ const recipients = computed(() =>
     .filter(Boolean)
 )
 
+const availableCompletedStatsMonths = computed(() => {
+  return [...new Set(
+    store.completedStats
+      .map((row) => row.orderTime?.slice?.(0, 7))
+      .filter(Boolean)
+  )]
+})
+
 watch(
   () => [
     props.open,
@@ -59,36 +69,58 @@ watch(
     props.defaultEmailType,
     props.completedStatsMonth
   ],
-  ([open]) => {
+  async ([open]) => {
     if (!open) {
       return
     }
 
+    sending.value = false
     form.viewType = resolveInitialViewType()
     form.subject = defaultSubject(form.viewType)
     form.dateFrom = props.dateFrom || ''
     form.dateTo = props.dateTo || ''
     form.month = monthFromDate(props.dateFrom) || currentMonth()
-    form.completedStatsMonth = props.completedStatsMonth || currentMonth()
+    form.completedStatsMonth = props.completedStatsMonth || ''
+
+    await refreshCompletedStatsOptions()
   },
   { immediate: true }
 )
 
 async function submit() {
-  const dateRange = resolveDateRange()
+  if (sending.value) {
+    return
+  }
 
-  await store.sendScheduleEmail({
-    to: recipients.value,
-    subject: form.subject,
-    ...dateRange,
-    viewType: form.viewType
-  })
+  sending.value = true
 
-  emit('close')
+  try {
+    const dateRange = resolveDateRange()
+
+    await store.sendScheduleEmail({
+      to: recipients.value,
+      subject: form.subject,
+      ...dateRange,
+      viewType: form.viewType
+    })
+
+    emit('close')
+  } catch (error) {
+    store.error = error.message
+  } finally {
+    sending.value = false
+  }
 }
 
 function resolveDateRange() {
   if (form.viewType === 'COMPLETED_STATS') {
+    if (!form.completedStatsMonth) {
+      return {
+        dateFrom: null,
+        dateTo: null
+      }
+    }
+
     return monthRange(form.completedStatsMonth)
   }
 
@@ -122,12 +154,16 @@ function currentMonth() {
   return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
 }
 
-function setViewType(viewType) {
+async function setViewType(viewType) {
   const previousSubject = form.subject
   form.viewType = viewType
 
   if (isDefaultSubject(previousSubject)) {
     form.subject = defaultSubject(viewType)
+  }
+
+  if (viewType === 'COMPLETED_STATS') {
+    await refreshCompletedStatsOptions()
   }
 }
 
@@ -146,11 +182,19 @@ function defaultSubject(viewType) {
 function isDefaultSubject(subject) {
   return ['工單排程表', '完工統計表'].includes(subject)
 }
+
+async function refreshCompletedStatsOptions() {
+  try {
+    await store.fetchCompletedStats()
+  } catch (error) {
+    store.error = error.message
+  }
+}
 </script>
 
 <template>
-  <div v-if="open" class="dialog-backdrop" role="presentation">
-    <form class="dialog" aria-label="發送排程 Email" @submit.prevent="submit">
+  <div v-if="open" class="dialog-backdrop" role="presentation" @click="emit('close')">
+    <form class="dialog" aria-label="發送排程 Email" @click.stop @submit.prevent="submit">
       <div class="dialog-heading">
         <h2>發送排程 Email</h2>
         <button class="icon-only-button" type="button" aria-label="關閉" @click="emit('close')">
@@ -205,19 +249,33 @@ function isDefaultSubject(subject) {
 
       <label v-else-if="form.viewType === 'MONTH'">
         月份
-        <input v-model="form.month" type="month" required />
+        <MonthPicker v-model="form.month" required aria-label="月份" />
       </label>
 
       <label v-else-if="form.viewType === 'COMPLETED_STATS'">
-        完工月份
-        <input v-model="form.completedStatsMonth" type="month" required />
+        訂單月份
+        <div class="month-filter-row">
+          <MonthPicker
+            v-model="form.completedStatsMonth"
+            :available-months="availableCompletedStatsMonths"
+            aria-label="訂單月份"
+          />
+          <button
+            class="text-button"
+            type="button"
+            :class="{ active: !form.completedStatsMonth }"
+            @click="form.completedStatsMonth = ''"
+          >
+            全部
+          </button>
+        </div>
       </label>
 
       <div class="dialog-actions">
-        <button class="text-button" type="button" @click="emit('close')">取消</button>
-        <button class="icon-button primary-action" type="submit">
-          <Mail :size="18" />
-          發送
+        <button class="icon-button primary-action" type="submit" :disabled="sending">
+          <span v-if="sending" class="loading-spinner" aria-hidden="true"></span>
+          <Mail v-else :size="18" />
+          {{ sending ? '發送中' : '發送' }}
         </button>
       </div>
     </form>

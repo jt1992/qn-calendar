@@ -221,6 +221,7 @@ class WorkOrderServiceTests {
         assertThat(stats.getFirst().actualTotalMinutes()).isEqualTo(150);
         assertThat(stats.getFirst().deltaMinutes()).isEqualTo(-30);
         assertThat(stats.getFirst().hourlyRate()).isEqualByComparingTo("120.00");
+        assertThat(stats.getFirst().orderTime()).isNull();
     }
 
     private WorkOrder order(String orderNo) {

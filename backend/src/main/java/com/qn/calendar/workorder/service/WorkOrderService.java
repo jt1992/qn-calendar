@@ -64,7 +64,7 @@ public class WorkOrderService {
 
     @Transactional(readOnly = true)
     public List<CompletedWorkOrderStatsResponse> getCompletedWorkOrderStats() {
-        return repository.findByStatusOrderByCompletedAtDescLatestShipTimeAscCreatedAtAsc(WorkOrderStatus.DONE)
+        return repository.findCompletedStats(WorkOrderStatus.DONE)
                 .stream()
                 .map((workOrder) -> CompletedWorkOrderStatsResponse.from(
                         workOrder,

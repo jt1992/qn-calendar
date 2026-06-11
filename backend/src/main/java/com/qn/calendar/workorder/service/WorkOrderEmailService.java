@@ -68,14 +68,14 @@ public class WorkOrderEmailService {
     public void sendScheduleEmail(ScheduleEmailRequest request) {
         validateRequest(request);
 
-        LocalDate dateFrom = resolveDateFrom(request);
-        LocalDate dateTo = resolveDateTo(request, dateFrom);
-
         if (request.viewType() == ScheduleEmailViewType.COMPLETED_STATS) {
-            String html = renderCompletedStatsHtml(request, dateFrom, findCompletedStats(dateFrom, dateTo));
+            String html = renderCompletedStatsHtml(request);
             send(request, html);
             return;
         }
+
+        LocalDate dateFrom = resolveDateFrom(request);
+        LocalDate dateTo = resolveDateTo(request, dateFrom);
 
         List<WorkOrderSegmentResponse> segments = segmentRepository.findCalendarSegments(
                         List.of(WorkOrderStatus.SCHEDULED, WorkOrderStatus.DONE),
@@ -95,6 +95,20 @@ public class WorkOrderEmailService {
         send(request, html);
     }
 
+    private String renderCompletedStatsHtml(ScheduleEmailRequest request) {
+        if (request.dateFrom() == null) {
+            return renderCompletedStatsHtml(request, "全部", findCompletedStats());
+        }
+
+        LocalDate dateFrom = resolveDateFrom(request);
+        LocalDate dateTo = resolveDateTo(request, dateFrom);
+        return renderCompletedStatsHtml(
+                request,
+                MONTH_LABEL_FORMATTER.format(dateFrom),
+                findCompletedStats(dateFrom, dateTo)
+        );
+    }
+
     private void validateRequest(ScheduleEmailRequest request) {
         if (request.viewType() == null) {
             throw new IllegalArgumentException("Email 類型不可為空");
@@ -102,6 +116,12 @@ public class WorkOrderEmailService {
 
         if (parseRecipients(request.to()).isEmpty()) {
             throw new IllegalArgumentException("Email 收件者不可為空");
+        }
+
+        if (request.viewType() == ScheduleEmailViewType.COMPLETED_STATS
+                && request.dateFrom() == null
+                && request.dateTo() == null) {
+            return;
         }
 
         if (request.dateFrom() == null || request.dateTo() == null) {
@@ -146,17 +166,31 @@ public class WorkOrderEmailService {
 
     private String renderCompletedStatsHtml(
             ScheduleEmailRequest request,
-            LocalDate dateFrom,
+            String monthLabel,
             List<CompletedWorkOrderStatsResponse> stats
     ) {
         Context context = new Context(Locale.TAIWAN);
         context.setVariable("subject", request.subject());
-        context.setVariable("document", buildCompletedStatsDocument(stats, dateFrom));
+        context.setVariable("document", buildCompletedStatsDocument(stats, monthLabel));
         return templateEngine.process("email/completed-stats", context);
     }
 
+    private List<CompletedWorkOrderStatsResponse> findCompletedStats() {
+        return workOrderRepository.findCompletedStats(WorkOrderStatus.DONE)
+                .stream()
+                .map((workOrder) -> CompletedWorkOrderStatsResponse.from(
+                        workOrder,
+                        WorkOrderTimeUtils.totalMinutes(
+                                segmentRepository.findByWorkOrderIdOrderByScheduledStartAscScheduledEndAscIdAsc(
+                                        workOrder.getId()
+                                )
+                        )
+                ))
+                .toList();
+    }
+
     private List<CompletedWorkOrderStatsResponse> findCompletedStats(LocalDate dateFrom, LocalDate dateTo) {
-        return workOrderRepository.findByStatusAndCompletedAtGreaterThanEqualAndCompletedAtLessThanOrderByCompletedAtDescLatestShipTimeAscCreatedAtAsc(
+        return workOrderRepository.findCompletedStatsByOrderTimeRange(
                         WorkOrderStatus.DONE,
                         dateFrom.atStartOfDay(),
                         dateTo.plusDays(1).atStartOfDay()
@@ -198,8 +232,15 @@ public class WorkOrderEmailService {
             List<CompletedWorkOrderStatsResponse> stats,
             LocalDate month
     ) {
+        return buildCompletedStatsDocument(stats, MONTH_LABEL_FORMATTER.format(month));
+    }
+
+    static CompletedStatsEmailDocument buildCompletedStatsDocument(
+            List<CompletedWorkOrderStatsResponse> stats,
+            String monthLabel
+    ) {
         return new CompletedStatsEmailDocument(
-                MONTH_LABEL_FORMATTER.format(month),
+                monthLabel,
                 stats.stream()
                         .map(WorkOrderEmailService::toCompletedStatsEmailRow)
                         .toList()
@@ -209,7 +250,6 @@ public class WorkOrderEmailService {
     private static CompletedStatsEmailRow toCompletedStatsEmailRow(CompletedWorkOrderStatsResponse stats) {
         return new CompletedStatsEmailRow(
                 stats.orderNo(),
-                displayText(stats.buyerNickname()),
                 displayText(stats.remark()),
                 formatCurrency(stats.price()),
                 formatStatsDurationText(stats.estimatedMinutes()),
@@ -497,7 +537,6 @@ public class WorkOrderEmailService {
 
     public record CompletedStatsEmailRow(
             String orderNo,
-            String buyerNickname,
             String remark,
             String price,
             String estimatedDuration,

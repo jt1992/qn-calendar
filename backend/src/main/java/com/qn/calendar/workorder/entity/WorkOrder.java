@@ -56,6 +56,9 @@ public class WorkOrder {
     @Column(name = "latest_ship_time", nullable = false)
     private LocalDateTime latestShipTime;
 
+    @Column(name = "order_time")
+    private LocalDateTime orderTime;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
     private WorkOrderStatus status = WorkOrderStatus.PENDING;
@@ -100,6 +103,19 @@ public class WorkOrder {
             boolean urgent,
             LocalDateTime latestShipTime
     ) {
+        this(orderNo, buyerNickname, remark, price, estimatedMinutes, urgent, latestShipTime, null);
+    }
+
+    public WorkOrder(
+            String orderNo,
+            String buyerNickname,
+            String remark,
+            BigDecimal price,
+            int estimatedMinutes,
+            boolean urgent,
+            LocalDateTime latestShipTime,
+            LocalDateTime orderTime
+    ) {
         this.orderNo = orderNo;
         this.buyerNickname = buyerNickname;
         this.remark = remark;
@@ -108,6 +124,7 @@ public class WorkOrder {
         this.actualMinutes = estimatedMinutes;
         this.urgent = urgent;
         this.latestShipTime = latestShipTime;
+        this.orderTime = orderTime;
         this.status = WorkOrderStatus.PENDING;
     }
 
@@ -144,6 +161,12 @@ public class WorkOrder {
 
     public void updateActualMinutes(int actualMinutes) {
         this.actualMinutes = actualMinutes;
+    }
+
+    public void updateOrderTimeIfMissing(LocalDateTime orderTime) {
+        if (this.orderTime == null && orderTime != null) {
+            this.orderTime = orderTime;
+        }
     }
 
     public void unschedule() {
@@ -198,6 +221,10 @@ public class WorkOrder {
 
     public LocalDateTime getLatestShipTime() {
         return latestShipTime;
+    }
+
+    public LocalDateTime getOrderTime() {
+        return orderTime;
     }
 
     public WorkOrderStatus getStatus() {

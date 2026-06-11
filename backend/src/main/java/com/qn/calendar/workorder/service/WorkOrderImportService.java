@@ -116,7 +116,15 @@ public class WorkOrderImportService {
                         throw new IllegalArgumentException("訂單編號不可為空");
                     }
 
-                    if (!seenOrderNumbers.add(orderNo) || repository.existsByOrderNo(orderNo)) {
+                    if (!seenOrderNumbers.add(orderNo)) {
+                        skippedCount++;
+                        continue;
+                    }
+
+                    Optional<WorkOrder> existingWorkOrder = repository.findByOrderNo(orderNo);
+
+                    if (existingWorkOrder.isPresent()) {
+                        existingWorkOrder.get().updateOrderTimeIfMissing(readOrderTime(row, headers, evaluator));
                         skippedCount++;
                         continue;
                     }
@@ -127,10 +135,12 @@ public class WorkOrderImportService {
                     String buyerMessage = readStringIfPresent(row, headers.get("buyerMessage"), evaluator);
                     String merchantRemark = readStringIfPresent(row, headers.get("merchantRemark"), evaluator);
                     String remark = buildRemark(buyerMessage, merchantRemark);
+                    LocalDateTime orderTime = readOrderTime(row, headers, evaluator);
                     LocalDateTime latestShipTime = readLatestShipTime(
                             row,
                             headers,
-                            evaluator
+                            evaluator,
+                            orderTime
                     );
                     int estimatedMinutes = calculateEstimatedMinutes(price);
 
@@ -141,7 +151,8 @@ public class WorkOrderImportService {
                             price,
                             estimatedMinutes,
                             urgent,
-                            latestShipTime
+                            latestShipTime,
+                            orderTime
                     ));
                     createdCount++;
                 } catch (DataIntegrityViolationException exception) {
@@ -202,7 +213,9 @@ public class WorkOrderImportService {
             case "urgent", "isurgent", "加急", "急件", "備註標籤", "备注标签" -> "urgent";
             case "buyermessage", "buyerremark", "買家留言", "买家留言" -> "buyerMessage";
             case "merchantremark", "sellerremark", "商家備註", "商家备注" -> "merchantRemark";
-            case "paidat", "paymenttime", "orderpaidtime", "訂單付款時間", "订单付款时间" -> "paidAt";
+            case "paidat", "paymenttime", "orderpaidtime", "ordertime", "ordercreatedtime",
+                    "訂單付款時間", "订单付款时间", "訂單時間", "订单时间", "下單時間", "下单时间",
+                    "下單日期", "下单日期", "付款時間", "付款时间", "支付時間", "支付时间" -> "paidAt";
             case "latestshipdate", "latestshiptime", "latestshippingtime", "deadline", "應發貨時間", "应发货时间", "最晚發貨日期", "最晚发货日期", "最晚發貨時間", "最晚发货时间" -> "latestShipTime";
             default -> "";
         };
@@ -287,12 +300,20 @@ public class WorkOrderImportService {
         return parts.isEmpty() ? "无任何备注" : String.join("\n", parts);
     }
 
-    private LocalDateTime readLatestShipTime(Row row, Map<String, Integer> headers, FormulaEvaluator evaluator) {
-        String merchantRemark = readStringIfPresent(row, headers.get("merchantRemark"), evaluator);
-        LocalDateTime paidAt = headers.containsKey("paidAt")
+    private LocalDateTime readOrderTime(Row row, Map<String, Integer> headers, FormulaEvaluator evaluator) {
+        return headers.containsKey("paidAt")
                 ? readOptionalDateTime(row, headers.get("paidAt"), evaluator)
                 : null;
-        Optional<LocalDate> merchantShipDate = parseMerchantShipDate(merchantRemark, paidAt);
+    }
+
+    private LocalDateTime readLatestShipTime(
+            Row row,
+            Map<String, Integer> headers,
+            FormulaEvaluator evaluator,
+            LocalDateTime orderTime
+    ) {
+        String merchantRemark = readStringIfPresent(row, headers.get("merchantRemark"), evaluator);
+        Optional<LocalDate> merchantShipDate = parseMerchantShipDate(merchantRemark, orderTime);
 
         if (merchantShipDate.isPresent()) {
             return merchantShipDate.get().atTime(END_OF_DAY);

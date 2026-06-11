@@ -172,7 +172,7 @@ input:disabled {
 
 .side-panel {
   display: grid;
-  grid-template-rows: auto auto auto auto 1fr;
+  grid-template-rows: auto auto auto 1fr;
   gap: 14px;
   min-width: 0;
   border-radius: 10px 0 0 10px;
@@ -203,7 +203,13 @@ input:disabled {
 }
 
 .side-heading > div {
+  flex: 0 0 auto;
   min-width: 0;
+}
+
+.side-heading .upload-dropzone {
+  flex: 1 1 180px;
+  min-width: 160px;
 }
 
 .side-heading .icon-only-button {
@@ -287,6 +293,17 @@ input:disabled {
   color: var(--muted);
   cursor: pointer;
   text-align: left;
+}
+
+.icon-button:disabled,
+.icon-button:disabled:hover,
+.text-button:disabled,
+.text-button:disabled:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-strong);
+  color: var(--muted);
+  cursor: not-allowed;
+  opacity: 0.72;
 }
 
 .upload-dropzone:hover,
@@ -1005,14 +1022,30 @@ input:disabled {
   white-space: nowrap;
 }
 
-.stats-month-filter input {
-  width: 148px;
+.month-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.month-picker-select {
   min-height: 34px;
   border: 1px solid var(--line-strong);
   border-radius: 8px;
   padding: 0 8px;
   background: var(--surface-strong);
   color: var(--text);
+  font: inherit;
+  font-weight: 800;
+}
+
+.month-picker-select.year-select {
+  width: 96px;
+}
+
+.month-picker-select.month-select {
+  width: 70px;
 }
 
 .stats-heading h1,
@@ -1037,7 +1070,7 @@ input:disabled {
 
 .stats-table {
   width: 100%;
-  min-width: 980px;
+  min-width: 860px;
   border-collapse: collapse;
   color: var(--text);
 }
@@ -1144,6 +1177,22 @@ input:disabled {
   color: var(--text);
 }
 
+.dialog .month-picker {
+  width: 100%;
+}
+
+.dialog .month-picker-select {
+  min-height: 42px;
+  border-radius: 10px;
+  font-size: 0.94rem;
+}
+
+.dialog .month-picker-select.year-select,
+.dialog .month-picker-select.month-select {
+  flex: 1;
+  width: auto;
+}
+
 .date-fields {
   align-items: stretch;
 }
@@ -1164,10 +1213,36 @@ input:disabled {
 
 .email-type-switch button {
   min-width: 72px;
+  padding: 0 16px;
 }
 
 .dialog-actions {
   justify-content: flex-end;
+}
+
+.month-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.month-filter-row .month-picker {
+  flex: 1;
+}
+
+.loading-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 999px;
+  animation: loading-spin 0.72s linear infinite;
+}
+
+@keyframes loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .work-order-done {
@@ -1307,6 +1382,15 @@ input:disabled {
 
   .upload-dropzone {
     min-height: 46px;
+  }
+
+  .side-heading {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .side-heading .upload-dropzone {
+    flex-basis: 100%;
   }
 
   .order-line {

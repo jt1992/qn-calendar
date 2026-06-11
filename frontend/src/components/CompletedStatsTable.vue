@@ -1,4 +1,6 @@
 <script setup>
+import MonthPicker from './MonthPicker.vue'
+
 defineProps({
   monthFilter: {
     type: String,
@@ -7,6 +9,10 @@ defineProps({
   stats: {
     type: Array,
     required: true
+  },
+  availableMonths: {
+    type: Array,
+    default: () => []
   }
 })
 
@@ -68,11 +74,12 @@ function formatHourlyRate(value) {
       </div>
       <div class="stats-heading-actions">
         <label class="stats-month-filter">
-          月份
-          <input
-            :value="monthFilter"
-            type="month"
-            @input="emit('update-month-filter', $event.target.value)"
+          訂單月份
+          <MonthPicker
+            :model-value="monthFilter"
+            :available-months="availableMonths"
+            aria-label="訂單月份"
+            @update:model-value="emit('update-month-filter', $event)"
           />
         </label>
         <button
@@ -92,7 +99,6 @@ function formatHourlyRate(value) {
         <thead>
           <tr>
             <th>訂單編號</th>
-            <th>買家暱稱</th>
             <th>訂單備注</th>
             <th>訂單價格</th>
             <th>原本預估時長</th>
@@ -106,7 +112,6 @@ function formatHourlyRate(value) {
             <td>
               <strong>{{ row.orderNo }}</strong>
             </td>
-            <td>{{ displayText(row.buyerNickname) }}</td>
             <td class="stats-remark">{{ displayText(row.remark) }}</td>
             <td>{{ formatCurrency(row.price) }}</td>
             <td>{{ formatDurationText(row.estimatedMinutes) }}</td>
@@ -119,7 +124,7 @@ function formatHourlyRate(value) {
             <td>{{ formatHourlyRate(row.hourlyRate) }}</td>
           </tr>
           <tr v-if="stats.length === 0">
-            <td class="empty-state" colspan="8">尚無已完成工單</td>
+            <td class="empty-state" colspan="7">尚無已完成工單</td>
           </tr>
         </tbody>
       </table>

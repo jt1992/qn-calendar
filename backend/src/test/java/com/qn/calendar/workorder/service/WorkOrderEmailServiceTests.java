@@ -158,7 +158,6 @@ class WorkOrderEmailServiceTests {
         WorkOrderEmailService.CompletedStatsEmailRow row = document.rows().getFirst();
 
         assertThat(row.orderNo()).isEqualTo("ORD-DONE");
-        assertThat(row.buyerNickname()).isEqualTo("測試買家");
         assertThat(row.remark()).isEqualTo("測試備註");
         assertThat(row.price()).isEqualTo("$300");
         assertThat(row.estimatedDuration()).isEqualTo("3小時0分鐘");
@@ -180,7 +179,6 @@ class WorkOrderEmailServiceTests {
 
         assertThat(html)
                 .contains("訂單編號")
-                .contains("買家暱稱")
                 .contains("訂單備注")
                 .contains("訂單價格")
                 .contains("原本預估時長")
@@ -190,7 +188,18 @@ class WorkOrderEmailServiceTests {
                 .contains("2026-06")
                 .contains("ORD-DONE")
                 .contains("超出 0小時15分鐘")
-                .contains("$92.31 / 小時");
+                .contains("$92.31 / 小時")
+                .doesNotContain("買家暱稱");
+    }
+
+    @Test
+    void completedStatsDocumentCanUseAllMonthLabel() {
+        WorkOrderEmailService.CompletedStatsEmailDocument document = WorkOrderEmailService.buildCompletedStatsDocument(
+                List.of(completedStats("ORD-DONE", 180, 150, BigDecimal.valueOf(120))),
+                "全部"
+        );
+
+        assertThat(document.monthLabel()).isEqualTo("全部");
     }
 
     private WorkOrderSegmentResponse order(
@@ -236,6 +245,7 @@ class WorkOrderEmailServiceTests {
                 actualTotalMinutes,
                 actualTotalMinutes - estimatedMinutes,
                 hourlyRate,
+                LocalDateTime.of(2026, 6, 1, 12, 0),
                 LocalDateTime.of(2026, 6, 20, 18, 0),
                 LocalDateTime.of(2026, 6, 20, 12, 0)
         );

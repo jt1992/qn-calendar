@@ -14,10 +14,11 @@
     "@fullcalendar/interaction": "^6.1.17",
     "@fullcalendar/timegrid": "^6.1.17",
     "@fullcalendar/vue3": "^6.1.17",
-    "axios": "1.17.0",
     "@lucide/vue": "^1.17.0",
+    "axios": "1.17.0",
     "pinia": "3.0.4",
-    "vue": "3.5.35"
+    "vue": "3.5.35",
+    "vue-router": "^4.6.4"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.0",
