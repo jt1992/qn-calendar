@@ -1,19 +1,39 @@
 package com.qn.calendar.workorder.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Locale;
+import java.util.Properties;
 
 import com.qn.calendar.workorder.constant.ScheduleEmailViewType;
 import com.qn.calendar.workorder.constant.WorkOrderStatus;
 import com.qn.calendar.workorder.dto.CompletedWorkOrderStatsResponse;
+import com.qn.calendar.workorder.dto.ScheduleEmailRequest;
 import com.qn.calendar.workorder.dto.WorkOrderSegmentResponse;
+import com.qn.calendar.workorder.repository.WorkOrderRepository;
+import com.qn.calendar.workorder.repository.WorkOrderSegmentRepository;
 
+import jakarta.mail.MessagingException;
+import jakarta.mail.Session;
+import jakarta.mail.internet.MimeMessage;
 import org.junit.jupiter.api.Test;
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.springframework.mail.MailException;
+import org.springframework.mail.SimpleMailMessage;
+import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.mail.javamail.MimeMessagePreparator;
 import org.thymeleaf.TemplateEngine;
 import org.thymeleaf.context.Context;
 import org.thymeleaf.spring6.SpringTemplateEngine;
@@ -50,7 +70,46 @@ class WorkOrderEmailServiceTests {
         assertThat(row.endTime()).isEqualTo("15:15");
         assertThat(row.durationText()).isEqualTo("3小时15分钟");
         assertThat(row.shipDate()).isEqualTo("2026-06-09 15:15:00");
+        assertThat(row.shipDateText()).isEqualTo("2026-06-09");
+        assertThat(row.shipTimeText()).isEqualTo("15:15:00");
         assertThat(row.remark()).isEqualTo("买家留言：测试备注");
+    }
+
+    @Test
+    void weeklyDocumentKeepsTimeAxisAndTrimsEmptyHours() {
+        WorkOrderSegmentResponse earlyOrder = order(
+                "ORD-EARLY",
+                LocalDateTime.of(2026, 4, 1, 7, 30),
+                LocalDateTime.of(2026, 4, 1, 13, 30),
+                WorkOrderStatus.SCHEDULED
+        );
+        WorkOrderSegmentResponse lateOrder = order(
+                "ORD-LATE",
+                LocalDateTime.of(2026, 4, 6, 8, 30),
+                LocalDateTime.of(2026, 4, 6, 18, 30),
+                WorkOrderStatus.SCHEDULED
+        );
+
+        WorkOrderEmailService.EmailScheduleDocument document = WorkOrderEmailService.buildScheduleDocument(
+                ScheduleEmailViewType.WEEK,
+                LocalDate.of(2026, 4, 1),
+                LocalDate.of(2026, 4, 7),
+                List.of(earlyOrder, lateOrder)
+        );
+        WorkOrderEmailService.EmailScheduleSection section = document.sections().getFirst();
+        List<String> tickLabels = section.timeTicks()
+                .stream()
+                .map(WorkOrderEmailService.EmailTimeTick::label)
+                .toList();
+
+        assertThat(tickLabels).startsWith("07:00");
+        assertThat(tickLabels).endsWith("19:00");
+        assertThat(tickLabels).doesNotContain("06:00", "20:00");
+        assertThat(section.timeGridHeightStyle()).startsWith("height:");
+        assertThat(firstRow(document).timeGridStyle())
+                .contains("position:absolute")
+                .contains("top:")
+                .contains("height:");
     }
 
     @Test
@@ -112,6 +171,35 @@ class WorkOrderEmailServiceTests {
     }
 
     @Test
+    void monthlyDocumentStopsAfterLastScheduledWeekAndAddsNoMoreMessage() {
+        WorkOrderSegmentResponse order = order(
+                "ORD-MONTH",
+                LocalDateTime.of(2026, 4, 6, 8, 30),
+                LocalDateTime.of(2026, 4, 6, 14, 30),
+                WorkOrderStatus.SCHEDULED
+        );
+
+        WorkOrderEmailService.EmailScheduleDocument document = WorkOrderEmailService.buildScheduleDocument(
+                ScheduleEmailViewType.MONTH,
+                LocalDate.of(2026, 4, 1),
+                LocalDate.of(2026, 4, 30),
+                List.of(order)
+        );
+
+        WorkOrderEmailService.EmailScheduleSection section = document.sections().getFirst();
+        List<String> dayLabels = section.days()
+                .stream()
+                .map(WorkOrderEmailService.EmailDaySchedule::label)
+                .toList();
+
+        assertThat(section.weeks()).hasSize(2);
+        assertThat(section.noMoreRowsMessage()).isEqualTo("2026-04-06 之后暂时没有排工单");
+        assertThat(dayLabels).anyMatch((label) -> label.startsWith("2026-04-06"));
+        assertThat(dayLabels).anyMatch((label) -> label.startsWith("2026-04-11"));
+        assertThat(dayLabels).noneMatch((label) -> label.startsWith("2026-04-12"));
+    }
+
+    @Test
     void emailTemplateRendersWeeklyAndMonthlyDocuments() {
         WorkOrderSegmentResponse order = order(
                 "ORD-RENDER",
@@ -138,14 +226,43 @@ class WorkOrderEmailServiceTests {
 
         assertThat(weeklyHtml)
                 .contains("ORD-RENDER")
+                .contains("A4 landscape")
+                .contains("week-timegrid")
+                .contains("time-axis")
+                .contains("10:00")
+                .contains("12:00")
+                .contains("weekly-remark")
                 .contains("最晚发货")
+                .contains("display:block;\">最晚发货：")
+                .contains("white-space:nowrap;")
+                .contains("2026-06-21")
+                .contains("12:00:00")
                 .contains("备注")
-                .contains("买家留言：测试备注");
+                .contains("买家留言：测试备注")
+                .doesNotContain("<h1")
+                .doesNotContain("<h2")
+                .doesNotContain("周排程表 ｜")
+                .doesNotContain("2026-06-21 12:00:00")
+                .doesNotContain("max-height")
+                .doesNotContain("break-inside: avoid");
         assertThat(monthlyHtml)
                 .contains("ORD-RENDER")
+                .contains("月排程表 ｜ 2026-06")
                 .contains("最晚发货")
+                .doesNotContain("week-timegrid")
+                .doesNotContain("time-axis")
+                .contains("display:block;\">最晚发货：")
+                .contains("white-space:nowrap;")
+                .contains("2026-06-21")
+                .contains("12:00:00")
+                .contains("2026-06-20 之后暂时没有排工单")
+                .contains("height: auto !important")
                 .doesNotContain("备注")
-                .doesNotContain("买家留言：测试备注");
+                .doesNotContain("买家留言：测试备注")
+                .doesNotContain("<h1")
+                .doesNotContain("<h2")
+                .doesNotContain("2026-06-21 12:00:00")
+                .doesNotContain("break-inside: avoid");
     }
 
     private WorkOrderEmailService.EmailOrderRow firstRow(WorkOrderEmailService.EmailScheduleDocument document) {
@@ -188,6 +305,11 @@ class WorkOrderEmailServiceTests {
         String html = renderCompletedStats(templateEngine, document);
 
         assertThat(html)
+                .contains("A4 landscape")
+                .contains("完工统计表｜2026-06｜1 笔")
+                .contains("width=\"100%\"")
+                .contains("table-layout:fixed")
+                .contains("Noto Sans SC")
                 .contains("订单编号")
                 .contains("订单备注")
                 .contains("订单价格")
@@ -199,7 +321,80 @@ class WorkOrderEmailServiceTests {
                 .contains("ORD-DONE")
                 .contains("超出 0小时15分钟")
                 .contains("$92.31 / 小时")
+                .doesNotContain("<h1")
                 .doesNotContain("买家昵称");
+    }
+
+    @Test
+    void emailTemplatesCanRenderLandscapePdf() throws Exception {
+        WorkOrderSegmentResponse order = order(
+                "ORD-PDF",
+                LocalDateTime.of(2026, 6, 20, 10, 30),
+                LocalDateTime.of(2026, 6, 20, 12, 0),
+                WorkOrderStatus.SCHEDULED
+        );
+        TemplateEngine templateEngine = templateEngine();
+        WorkOrderEmailService.EmailScheduleDocument scheduleDocument = WorkOrderEmailService.buildScheduleDocument(
+                ScheduleEmailViewType.WEEK,
+                LocalDate.of(2026, 6, 20),
+                LocalDate.of(2026, 6, 26),
+                List.of(order)
+        );
+        WorkOrderEmailService.CompletedStatsEmailDocument statsDocument = WorkOrderEmailService.buildCompletedStatsDocument(
+                List.of(completedStats("ORD-DONE", 180, 195, BigDecimal.valueOf(92.31))),
+                LocalDate.of(2026, 6, 1)
+        );
+
+        String scheduleHtml = render(templateEngine, scheduleDocument);
+        String statsHtml = renderCompletedStats(templateEngine, statsDocument);
+
+        assertThat(scheduleHtml).doesNotContain("&nbsp;");
+
+        byte[] schedulePdf = WorkOrderEmailService.renderLandscapePdf(scheduleHtml);
+        byte[] statsPdf = WorkOrderEmailService.renderLandscapePdf(statsHtml);
+
+        assertThat(schedulePdf).startsWith("%PDF".getBytes(StandardCharsets.US_ASCII));
+        assertThat(statsPdf).startsWith("%PDF".getBytes(StandardCharsets.US_ASCII));
+        assertPdfPagesAreLandscape(schedulePdf);
+        assertPdfPagesAreLandscape(statsPdf);
+    }
+
+    @Test
+    void sendScheduleEmailUsesPdfAttachmentWithoutHtmlBody() throws Exception {
+        WorkOrderRepository workOrderRepository = mock(WorkOrderRepository.class);
+        WorkOrderSegmentRepository segmentRepository = mock(WorkOrderSegmentRepository.class);
+        when(segmentRepository.findCalendarSegments(anyList(), any(), any())).thenReturn(List.of());
+        CapturingMailSender mailSender = new CapturingMailSender();
+        WorkOrderEmailService service = new WorkOrderEmailService(
+                workOrderRepository,
+                segmentRepository,
+                mailSender,
+                templateEngine(),
+                ""
+        );
+        ScheduleEmailRequest request = new ScheduleEmailRequest(
+                List.of("receiver@example.com"),
+                "周排程表 - 2026-06-20 - 2026-06-26",
+                LocalDate.of(2026, 6, 20),
+                LocalDate.of(2026, 6, 26),
+                ScheduleEmailViewType.WEEK
+        );
+
+        service.sendScheduleEmail(request);
+
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        mailSender.sentMessage.writeTo(outputStream);
+        String rawMessage = outputStream.toString(StandardCharsets.UTF_8);
+
+        assertThat(rawMessage)
+                .contains("application/pdf")
+                .contains("Content-Disposition: attachment")
+                .contains("filename*=UTF-8''%E5%91%A8%E6%8E%92%E7%A8%8B%E8%A1%A8%20-%202026-06-20%20-%202026-06-26.pdf")
+                .doesNotContain("????")
+                .contains("text/plain")
+                .doesNotContain("text/html")
+                .doesNotContain("<table")
+                .doesNotContain("calendar-card");
     }
 
     @Test
@@ -239,6 +434,15 @@ class WorkOrderEmailServiceTests {
         );
     }
 
+    private void assertPdfPagesAreLandscape(byte[] pdf) throws Exception {
+        try (PDDocument document = PDDocument.load(new ByteArrayInputStream(pdf))) {
+            assertThat(document.getNumberOfPages()).isPositive();
+            document.getPages().forEach((page) -> {
+                assertThat(page.getMediaBox().getWidth()).isGreaterThan(page.getMediaBox().getHeight());
+            });
+        }
+    }
+
     private CompletedWorkOrderStatsResponse completedStats(
             String orderNo,
             int estimatedMinutes,
@@ -274,7 +478,7 @@ class WorkOrderEmailServiceTests {
     }
 
     private String render(TemplateEngine templateEngine, WorkOrderEmailService.EmailScheduleDocument document) {
-        Context context = new Context(Locale.TAIWAN);
+        Context context = new Context(Locale.CHINA);
         context.setVariable("subject", "工单排程表");
         context.setVariable("document", document);
         return templateEngine.process("email/schedule-week", context);
@@ -284,9 +488,68 @@ class WorkOrderEmailServiceTests {
             TemplateEngine templateEngine,
             WorkOrderEmailService.CompletedStatsEmailDocument document
     ) {
-        Context context = new Context(Locale.TAIWAN);
+        Context context = new Context(Locale.CHINA);
         context.setVariable("subject", "完工统计表");
         context.setVariable("document", document);
         return templateEngine.process("email/completed-stats", context);
+    }
+
+    private static final class CapturingMailSender implements JavaMailSender {
+
+        private MimeMessage sentMessage;
+
+        @Override
+        public MimeMessage createMimeMessage() {
+            return new MimeMessage(Session.getInstance(new Properties()));
+        }
+
+        @Override
+        public MimeMessage createMimeMessage(InputStream contentStream) throws MailException {
+            try {
+                return new MimeMessage(Session.getInstance(new Properties()), contentStream);
+            } catch (MessagingException exception) {
+                throw new IllegalStateException(exception);
+            }
+        }
+
+        @Override
+        public void send(MimeMessage mimeMessage) throws MailException {
+            this.sentMessage = mimeMessage;
+        }
+
+        @Override
+        public void send(MimeMessage... mimeMessages) throws MailException {
+            if (mimeMessages.length > 0) {
+                this.sentMessage = mimeMessages[0];
+            }
+        }
+
+        @Override
+        public void send(MimeMessagePreparator mimeMessagePreparator) throws MailException {
+            MimeMessage message = createMimeMessage();
+            try {
+                mimeMessagePreparator.prepare(message);
+            } catch (Exception exception) {
+                throw new IllegalStateException(exception);
+            }
+            send(message);
+        }
+
+        @Override
+        public void send(MimeMessagePreparator... mimeMessagePreparators) throws MailException {
+            for (MimeMessagePreparator mimeMessagePreparator : mimeMessagePreparators) {
+                send(mimeMessagePreparator);
+            }
+        }
+
+        @Override
+        public void send(SimpleMailMessage simpleMessage) throws MailException {
+            throw new UnsupportedOperationException("SimpleMailMessage is not used by this test");
+        }
+
+        @Override
+        public void send(SimpleMailMessage... simpleMessages) throws MailException {
+            throw new UnsupportedOperationException("SimpleMailMessage is not used by this test");
+        }
     }
 }

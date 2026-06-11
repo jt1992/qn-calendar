@@ -1219,6 +1219,17 @@ input:disabled {
 
 .dialog-actions {
   justify-content: flex-end;
+  min-width: 0;
+}
+
+.dialog-status {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  flex: 0 1 auto;
+  white-space: nowrap;
+  font-weight: 800;
+  color: var(--primary);
 }
 
 .month-filter-row {

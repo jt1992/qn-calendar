@@ -129,7 +129,6 @@ export const useWorkOrderStore = defineStore('workOrders', {
 
     async sendScheduleEmail(payload) {
       await sendScheduleEmail(payload)
-      this.setNotice('排程 Email 已发送')
     },
 
     setNotice(message) {

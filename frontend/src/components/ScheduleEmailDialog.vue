@@ -1,5 +1,5 @@
 <script setup>
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { Mail, X } from '@lucide/vue'
 import { useWorkOrderStore } from '../stores/workOrderStore'
 import MonthPicker from './MonthPicker.vue'
@@ -34,10 +34,12 @@ const props = defineProps({
 const emit = defineEmits(['close'])
 const store = useWorkOrderStore()
 const sending = ref(false)
+const sentMessage = ref('')
+let sentMessageTimer = null
 
 const form = reactive({
   recipients: '',
-  subject: '工单排程表',
+  subject: '',
   viewType: 'WEEK',
   dateFrom: '',
   dateTo: '',
@@ -75,16 +77,30 @@ watch(
     }
 
     sending.value = false
+    clearSentMessage()
     form.viewType = resolveInitialViewType()
-    form.subject = defaultSubject(form.viewType)
     form.dateFrom = props.dateFrom || ''
     form.dateTo = props.dateTo || ''
     form.month = monthFromDate(props.dateFrom) || currentMonth()
     form.completedStatsMonth = props.completedStatsMonth || ''
+    form.subject = defaultSubject()
 
     await refreshCompletedStatsOptions()
   },
   { immediate: true }
+)
+
+watch(
+  () => [
+    form.viewType,
+    form.dateFrom,
+    form.dateTo,
+    form.month,
+    form.completedStatsMonth
+  ],
+  () => {
+    form.subject = defaultSubject()
+  }
 )
 
 async function submit() {
@@ -99,12 +115,13 @@ async function submit() {
 
     await store.sendScheduleEmail({
       to: recipients.value,
-      subject: form.subject,
+      subject: defaultSubject(),
       ...dateRange,
       viewType: form.viewType
     })
 
-    emit('close')
+    store.error = ''
+    showSentMessage('Email 已发送')
   } catch (error) {
     store.error = error.message
   } finally {
@@ -155,12 +172,7 @@ function currentMonth() {
 }
 
 async function setViewType(viewType) {
-  const previousSubject = form.subject
   form.viewType = viewType
-
-  if (isDefaultSubject(previousSubject)) {
-    form.subject = defaultSubject(viewType)
-  }
 
   if (viewType === 'COMPLETED_STATS') {
     await refreshCompletedStatsOptions()
@@ -175,12 +187,16 @@ function resolveInitialViewType() {
   return props.calendarViewType === 'dayGridMonth' ? 'MONTH' : 'WEEK'
 }
 
-function defaultSubject(viewType) {
-  return viewType === 'COMPLETED_STATS' ? '完工统计表' : '工单排程表'
-}
+function defaultSubject() {
+  if (form.viewType === 'COMPLETED_STATS') {
+    return `完工统计表 - ${form.completedStatsMonth || '全部'}`
+  }
 
-function isDefaultSubject(subject) {
-  return ['工单排程表', '完工统计表'].includes(subject)
+  if (form.viewType === 'MONTH') {
+    return `月排程表 - ${form.month || currentMonth()}`
+  }
+
+  return `周排程表 - ${form.dateFrom || ''} - ${form.dateTo || ''}`
 }
 
 async function refreshCompletedStatsOptions() {
@@ -190,6 +206,32 @@ async function refreshCompletedStatsOptions() {
     store.error = error.message
   }
 }
+
+function showSentMessage(message) {
+  sentMessage.value = message
+
+  if (sentMessageTimer) {
+    window.clearTimeout(sentMessageTimer)
+  }
+
+  sentMessageTimer = window.setTimeout(() => {
+    sentMessage.value = ''
+    sentMessageTimer = null
+  }, 5000)
+}
+
+function clearSentMessage() {
+  sentMessage.value = ''
+
+  if (sentMessageTimer) {
+    window.clearTimeout(sentMessageTimer)
+    sentMessageTimer = null
+  }
+}
+
+onBeforeUnmount(() => {
+  clearSentMessage()
+})
 </script>
 
 <template>
@@ -209,7 +251,7 @@ async function refreshCompletedStatsOptions() {
 
       <label>
         主题
-        <input v-model="form.subject" type="text" required />
+        <input v-model="form.subject" type="text" required readonly />
       </label>
 
       <div class="email-type-switch" aria-label="Email 类型">
@@ -272,6 +314,9 @@ async function refreshCompletedStatsOptions() {
       </label>
 
       <div class="dialog-actions">
+        <span v-if="sentMessage" class="dialog-status" role="status">
+          {{ sentMessage }}
+        </span>
         <button class="icon-button primary-action" type="submit" :disabled="sending">
           <span v-if="sending" class="loading-spinner" aria-hidden="true"></span>
           <Mail v-else :size="18" />
