@@ -115,6 +115,16 @@ public class WorkOrderController {
         return segmentService.completeSegment(segmentId);
     }
 
+    @PatchMapping("/segments/{segmentId}/pause")
+    public WorkOrderSegmentListResponse pauseSegment(@PathVariable Long segmentId) {
+        return segmentService.pauseSegment(segmentId);
+    }
+
+    @PatchMapping("/segments/{segmentId}/resume")
+    public WorkOrderSegmentListResponse resumeSegment(@PathVariable Long segmentId) {
+        return segmentService.resumeSegment(segmentId);
+    }
+
     @PatchMapping("/{id}/duration")
     public WorkOrderResponse updateDuration(
             @PathVariable Long id,

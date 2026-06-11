@@ -23,6 +23,7 @@ import com.qn.calendar.workorder.dto.CompletedWorkOrderStatsResponse;
 import com.qn.calendar.workorder.dto.ScheduleEmailRequest;
 import com.qn.calendar.workorder.dto.WorkOrderSegmentResponse;
 import com.qn.calendar.workorder.repository.WorkOrderRepository;
+import com.qn.calendar.workorder.repository.WorkOrderSegmentPauseRepository;
 import com.qn.calendar.workorder.repository.WorkOrderSegmentRepository;
 
 import jakarta.mail.MessagingException;
@@ -289,6 +290,7 @@ class WorkOrderEmailServiceTests {
         assertThat(row.price()).isEqualTo("$300");
         assertThat(row.estimatedDuration()).isEqualTo("3小时0分钟");
         assertThat(row.actualDuration()).isEqualTo("2小时30分钟");
+        assertThat(row.pausedDuration()).isEqualTo("0小时0分钟");
         assertThat(row.deltaText()).isEqualTo("提前 0小时30分钟");
         assertThat(row.deltaTone()).isEqualTo("early");
         assertThat(row.hourlyRate()).isEqualTo("$120 / 小时");
@@ -363,11 +365,13 @@ class WorkOrderEmailServiceTests {
     void sendScheduleEmailUsesPdfAttachmentWithoutHtmlBody() throws Exception {
         WorkOrderRepository workOrderRepository = mock(WorkOrderRepository.class);
         WorkOrderSegmentRepository segmentRepository = mock(WorkOrderSegmentRepository.class);
+        WorkOrderSegmentPauseRepository pauseRepository = mock(WorkOrderSegmentPauseRepository.class);
         when(segmentRepository.findCalendarSegments(anyList(), any(), any())).thenReturn(List.of());
         CapturingMailSender mailSender = new CapturingMailSender();
         WorkOrderEmailService service = new WorkOrderEmailService(
                 workOrderRepository,
                 segmentRepository,
+                pauseRepository,
                 mailSender,
                 templateEngine(),
                 ""
@@ -430,7 +434,12 @@ class WorkOrderEmailServiceTests {
                 status,
                 scheduledStart,
                 scheduledEnd,
-                status == WorkOrderStatus.DONE ? scheduledEnd : null
+                status == WorkOrderStatus.DONE ? scheduledEnd : null,
+                false,
+                0,
+                false,
+                false,
+                null
         );
     }
 
@@ -456,6 +465,7 @@ class WorkOrderEmailServiceTests {
                 BigDecimal.valueOf(300),
                 estimatedMinutes,
                 actualTotalMinutes,
+                0,
                 actualTotalMinutes - estimatedMinutes,
                 hourlyRate,
                 LocalDateTime.of(2026, 6, 1, 12, 0),

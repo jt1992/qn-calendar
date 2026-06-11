@@ -27,7 +27,7 @@ async function handleFileChange(event) {
 
 async function uploadFile(file) {
   if (!file.name.toLowerCase().endsWith('.xlsx')) {
-    store.error = '请上传 XLSX 文件'
+    store.setError('请上传 XLSX 文件')
     return
   }
 

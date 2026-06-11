@@ -5,6 +5,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import com.qn.calendar.workorder.entity.WorkOrderSegment;
+import com.qn.calendar.workorder.entity.WorkOrderSegmentPause;
 
 public final class WorkOrderTimeUtils {
 
@@ -24,6 +25,22 @@ public final class WorkOrderTimeUtils {
         return segments.stream()
                 .mapToInt(WorkOrderTimeUtils::segmentMinutes)
                 .sum();
+    }
+
+    public static int pauseMinutes(List<WorkOrderSegmentPause> pauses, LocalDateTime fallbackEnd) {
+        return pauses.stream()
+                .mapToInt((pause) -> pauseMinutes(pause, fallbackEnd))
+                .sum();
+    }
+
+    public static int pauseMinutes(WorkOrderSegmentPause pause, LocalDateTime fallbackEnd) {
+        LocalDateTime end = pause.getResumedAt() == null ? fallbackEnd : pause.getResumedAt();
+
+        if (end == null || !end.isAfter(pause.getPausedAt())) {
+            return 0;
+        }
+
+        return Math.toIntExact(Duration.between(pause.getPausedAt(), end).toMinutes());
     }
 
     public static boolean isScheduleBoundary(LocalDateTime time) {

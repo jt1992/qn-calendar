@@ -120,10 +120,10 @@ async function submit() {
       viewType: form.viewType
     })
 
-    store.error = ''
+    store.clearError()
     showSentMessage('Email 已发送')
   } catch (error) {
-    store.error = error.message
+    store.setError(error.message)
   } finally {
     sending.value = false
   }
@@ -203,7 +203,7 @@ async function refreshCompletedStatsOptions() {
   try {
     await store.fetchCompletedStats()
   } catch (error) {
-    store.error = error.message
+    store.setError(error.message)
   }
 }
 

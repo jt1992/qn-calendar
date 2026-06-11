@@ -13,6 +13,7 @@ public record CompletedWorkOrderStatsResponse(
         BigDecimal price,
         int estimatedMinutes,
         int actualTotalMinutes,
+        int pausedMinutes,
         int deltaMinutes,
         BigDecimal hourlyRate,
         LocalDateTime orderTime,
@@ -21,6 +22,11 @@ public record CompletedWorkOrderStatsResponse(
 ) {
 
     public static CompletedWorkOrderStatsResponse from(WorkOrder workOrder, int actualTotalMinutes) {
+        return from(workOrder, actualTotalMinutes, 0);
+    }
+
+    public static CompletedWorkOrderStatsResponse from(WorkOrder workOrder, int scheduledTotalMinutes, int pausedMinutes) {
+        int actualTotalMinutes = Math.max(0, scheduledTotalMinutes - pausedMinutes);
         return new CompletedWorkOrderStatsResponse(
                 workOrder.getId(),
                 workOrder.getOrderNo(),
@@ -28,6 +34,7 @@ public record CompletedWorkOrderStatsResponse(
                 workOrder.getPrice(),
                 workOrder.getEstimatedMinutes(),
                 actualTotalMinutes,
+                pausedMinutes,
                 actualTotalMinutes - workOrder.getEstimatedMinutes(),
                 calculateHourlyRate(workOrder.getPrice(), actualTotalMinutes),
                 workOrder.getOrderTime(),

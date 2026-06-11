@@ -3,13 +3,17 @@ package com.qn.calendar.workorder.service;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 import com.qn.calendar.workorder.constant.WorkOrderStatus;
 import com.qn.calendar.workorder.dto.CompletedWorkOrderStatsResponse;
 import com.qn.calendar.workorder.dto.WorkOrderSegmentResponse;
 import com.qn.calendar.workorder.dto.WorkOrderResponse;
 import com.qn.calendar.workorder.entity.WorkOrder;
+import com.qn.calendar.workorder.entity.WorkOrderSegment;
+import com.qn.calendar.workorder.entity.WorkOrderSegmentPause;
 import com.qn.calendar.workorder.repository.WorkOrderRepository;
+import com.qn.calendar.workorder.repository.WorkOrderSegmentPauseRepository;
 import com.qn.calendar.workorder.repository.WorkOrderSegmentRepository;
 import com.qn.calendar.workorder.util.WorkOrderTimeUtils;
 
@@ -21,13 +25,16 @@ public class WorkOrderService {
 
     private final WorkOrderRepository repository;
     private final WorkOrderSegmentRepository segmentRepository;
+    private final WorkOrderSegmentPauseRepository pauseRepository;
 
     public WorkOrderService(
             WorkOrderRepository repository,
-            WorkOrderSegmentRepository segmentRepository
+            WorkOrderSegmentRepository segmentRepository,
+            WorkOrderSegmentPauseRepository pauseRepository
     ) {
         this.repository = repository;
         this.segmentRepository = segmentRepository;
+        this.pauseRepository = pauseRepository;
     }
 
     @Transactional(readOnly = true)
@@ -53,12 +60,19 @@ public class WorkOrderService {
                         toExclusive
                 )
                 .stream()
-                .map((segment) -> WorkOrderSegmentResponse.from(
-                        segment,
-                        WorkOrderTimeUtils.totalMinutes(segmentRepository.findByWorkOrderIdOrderByScheduledStartAscScheduledEndAscIdAsc(
-                                segment.getWorkOrder().getId()
-                        ))
-                ))
+                .map((segment) -> {
+                    Optional<WorkOrderSegmentPause> latestPause = latestPause(segment.getId());
+                    return WorkOrderSegmentResponse.from(
+                            segment,
+                            WorkOrderTimeUtils.totalMinutes(segmentRepository.findByWorkOrderIdOrderByScheduledStartAscScheduledEndAscIdAsc(
+                                    segment.getWorkOrder().getId()
+                            )),
+                            pauseRepository.existsBySegmentIdAndResumedAtIsNull(segment.getId()),
+                            pausedMinutes(segment.getWorkOrder()),
+                            isScheduleStartLocked(segment, latestPause),
+                            latestPause.map(WorkOrderSegmentPause::getPausedAt).orElse(null)
+                    );
+                })
                 .toList();
     }
 
@@ -72,7 +86,8 @@ public class WorkOrderService {
                                 segmentRepository.findByWorkOrderIdOrderByScheduledStartAscScheduledEndAscIdAsc(
                                         workOrder.getId()
                                 )
-                        )
+                        ),
+                        pausedMinutes(workOrder)
                 ))
                 .toList();
     }
@@ -119,8 +134,30 @@ public class WorkOrderService {
         WorkOrder workOrder = repository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("找不到工单"));
 
+        if (workOrder.getStatus() == WorkOrderStatus.DONE) {
+            throw new IllegalStateException("完成工单不可复原");
+        }
+
         workOrder.reopen();
         return workOrder;
+    }
+
+    private int pausedMinutes(WorkOrder workOrder) {
+        LocalDateTime fallbackEnd = workOrder.getCompletedAt() == null ? LocalDateTime.now() : workOrder.getCompletedAt();
+        return WorkOrderTimeUtils.pauseMinutes(pauseRepository.findByWorkOrderId(workOrder.getId()), fallbackEnd);
+    }
+
+    private boolean isScheduleStartLocked(
+            WorkOrderSegment segment,
+            Optional<WorkOrderSegmentPause> latestPause
+    ) {
+        return latestPause.isPresent()
+                && segment.getWorkOrder().getStatus() != WorkOrderStatus.DONE
+                && segment.getScheduledStart().toLocalDate().isEqual(LocalDate.now());
+    }
+
+    private Optional<WorkOrderSegmentPause> latestPause(Long segmentId) {
+        return pauseRepository.findFirstBySegmentIdOrderByPausedAtDescIdDesc(segmentId);
     }
 
     private void validateDuration(int actualMinutes) {

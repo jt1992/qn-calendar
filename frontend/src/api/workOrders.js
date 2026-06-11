@@ -88,6 +88,16 @@ export async function markWorkOrderSegmentAsDone(segmentId) {
   return data
 }
 
+export async function pauseWorkOrderSegment(segmentId) {
+  const { data } = await http.patch(`/api/work-orders/segments/${segmentId}/pause`)
+  return data
+}
+
+export async function resumeWorkOrderSegment(segmentId) {
+  const { data } = await http.patch(`/api/work-orders/segments/${segmentId}/resume`)
+  return data
+}
+
 export async function reopenWorkOrder(id) {
   const { data } = await http.patch(`/api/work-orders/${id}/reopen`)
   return data
