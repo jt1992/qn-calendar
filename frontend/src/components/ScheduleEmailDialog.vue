@@ -12,6 +12,18 @@ const props = defineProps({
     type: String,
     default: ''
   },
+  calendarViewType: {
+    type: String,
+    default: 'timeGridWeek'
+  },
+  defaultEmailType: {
+    type: String,
+    default: ''
+  },
+  completedStatsMonth: {
+    type: String,
+    default: ''
+  },
   open: {
     type: Boolean,
     default: false
@@ -24,8 +36,11 @@ const store = useWorkOrderStore()
 const form = reactive({
   recipients: '',
   subject: '工單排程表',
+  viewType: 'WEEK',
   dateFrom: '',
-  dateTo: ''
+  dateTo: '',
+  month: '',
+  completedStatsMonth: ''
 })
 
 const recipients = computed(() =>
@@ -36,28 +51,100 @@ const recipients = computed(() =>
 )
 
 watch(
-  () => [props.open, props.dateFrom, props.dateTo],
+  () => [
+    props.open,
+    props.dateFrom,
+    props.dateTo,
+    props.calendarViewType,
+    props.defaultEmailType,
+    props.completedStatsMonth
+  ],
   ([open]) => {
     if (!open) {
       return
     }
 
+    form.viewType = resolveInitialViewType()
+    form.subject = defaultSubject(form.viewType)
     form.dateFrom = props.dateFrom || ''
     form.dateTo = props.dateTo || ''
+    form.month = monthFromDate(props.dateFrom) || currentMonth()
+    form.completedStatsMonth = props.completedStatsMonth || currentMonth()
   },
   { immediate: true }
 )
 
 async function submit() {
+  const dateRange = resolveDateRange()
+
   await store.sendScheduleEmail({
     to: recipients.value,
     subject: form.subject,
-    dateFrom: form.dateFrom,
-    dateTo: form.dateTo,
-    viewType: 'WEEK'
+    ...dateRange,
+    viewType: form.viewType
   })
 
   emit('close')
+}
+
+function resolveDateRange() {
+  if (form.viewType === 'COMPLETED_STATS') {
+    return monthRange(form.completedStatsMonth)
+  }
+
+  if (form.viewType === 'MONTH') {
+    return monthRange(form.month)
+  }
+
+  return {
+    dateFrom: form.dateFrom,
+    dateTo: form.dateTo
+  }
+}
+
+function monthRange(monthValue) {
+  const safeMonthValue = monthValue || currentMonth()
+  const [year, month] = safeMonthValue.split('-').map(Number)
+  const lastDay = new Date(year, month, 0).getDate()
+
+  return {
+    dateFrom: `${safeMonthValue}-01`,
+    dateTo: `${safeMonthValue}-${String(lastDay).padStart(2, '0')}`
+  }
+}
+
+function monthFromDate(value) {
+  return value?.slice?.(0, 7) || ''
+}
+
+function currentMonth() {
+  const today = new Date()
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
+}
+
+function setViewType(viewType) {
+  const previousSubject = form.subject
+  form.viewType = viewType
+
+  if (isDefaultSubject(previousSubject)) {
+    form.subject = defaultSubject(viewType)
+  }
+}
+
+function resolveInitialViewType() {
+  if (props.defaultEmailType) {
+    return props.defaultEmailType
+  }
+
+  return props.calendarViewType === 'dayGridMonth' ? 'MONTH' : 'WEEK'
+}
+
+function defaultSubject(viewType) {
+  return viewType === 'COMPLETED_STATS' ? '完工統計表' : '工單排程表'
+}
+
+function isDefaultSubject(subject) {
+  return ['工單排程表', '完工統計表'].includes(subject)
 }
 </script>
 
@@ -81,16 +168,50 @@ async function submit() {
         <input v-model="form.subject" type="text" required />
       </label>
 
-      <div class="date-fields">
+      <div class="email-type-switch" aria-label="Email 類型">
+        <button
+          type="button"
+          :class="{ active: form.viewType === 'WEEK' }"
+          @click="setViewType('WEEK')"
+        >
+          週表
+        </button>
+        <button
+          type="button"
+          :class="{ active: form.viewType === 'MONTH' }"
+          @click="setViewType('MONTH')"
+        >
+          月表
+        </button>
+        <button
+          type="button"
+          :class="{ active: form.viewType === 'COMPLETED_STATS' }"
+          @click="setViewType('COMPLETED_STATS')"
+        >
+          完工統計
+        </button>
+      </div>
+
+      <div v-if="form.viewType === 'WEEK'" class="date-fields">
         <label>
           開始日期
           <input v-model="form.dateFrom" type="date" required />
         </label>
         <label>
           結束日期
-          <input v-model="form.dateTo" type="date" required />
+          <input v-model="form.dateTo" type="date" :min="form.dateFrom" required />
         </label>
       </div>
+
+      <label v-else-if="form.viewType === 'MONTH'">
+        月份
+        <input v-model="form.month" type="month" required />
+      </label>
+
+      <label v-else-if="form.viewType === 'COMPLETED_STATS'">
+        完工月份
+        <input v-model="form.completedStatsMonth" type="month" required />
+      </label>
 
       <div class="dialog-actions">
         <button class="text-button" type="button" @click="emit('close')">取消</button>

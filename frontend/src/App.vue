@@ -1,6 +1,6 @@
 <script setup>
-import { onMounted, ref } from 'vue'
-import { CalendarDays, Moon, Sun, Table2 } from '@lucide/vue'
+import { computed, onMounted, ref } from 'vue'
+import { CalendarDays, Mail, Moon, Sun, Table2 } from '@lucide/vue'
 import WorkOrderImportButton from './components/WorkOrderImportButton.vue'
 import PendingWorkOrderList from './components/PendingWorkOrderList.vue'
 import WorkOrderCalendar from './components/WorkOrderCalendar.vue'
@@ -13,9 +13,19 @@ const emailDialogOpen = ref(false)
 const activeView = ref('schedule')
 const themeMode = ref(window.localStorage.getItem('qn-calendar-theme') || 'dark')
 const focusedWorkOrder = ref(null)
+const completedStatsMonth = ref('')
 const emailDateRange = ref({
   dateFrom: '',
-  dateTo: ''
+  dateTo: '',
+  viewType: 'timeGridWeek'
+})
+
+const filteredCompletedStats = computed(() => {
+  if (!completedStatsMonth.value) {
+    return store.completedStats
+  }
+
+  return store.completedStats.filter((row) => row.completedAt?.slice?.(0, 7) === completedStatsMonth.value)
 })
 
 onMounted(async () => {
@@ -47,7 +57,8 @@ async function changeMainView(view) {
 function updateEmailDateRange(range) {
   emailDateRange.value = {
     dateFrom: range.dateFrom,
-    dateTo: range.dateTo
+    dateTo: range.dateTo,
+    viewType: range.viewType
   }
 }
 
@@ -78,10 +89,16 @@ function focusWorkOrder(workOrder) {
         </button>
       </nav>
 
-      <button class="icon-only-button" type="button" aria-label="切換深淺色模式" @click="toggleTheme">
-        <Sun v-if="themeMode === 'dark'" :size="18" />
-        <Moon v-else :size="18" />
-      </button>
+      <div class="top-nav-actions">
+        <button class="icon-button" type="button" @click="emailDialogOpen = true">
+          <Mail :size="18" />
+          發送 Email
+        </button>
+        <button class="icon-only-button" type="button" aria-label="切換深淺色模式" @click="toggleTheme">
+          <Sun v-if="themeMode === 'dark'" :size="18" />
+          <Moon v-else :size="18" />
+        </button>
+      </div>
     </header>
 
     <section v-if="activeView === 'schedule'" class="schedule-layout" aria-label="待排工單">
@@ -122,7 +139,6 @@ function focusWorkOrder(workOrder) {
         :focused-work-order="focusedWorkOrder"
         @focus-order="focusWorkOrder"
         @range-change="updateEmailDateRange"
-        @send-email="emailDialogOpen = true"
       />
     </section>
 
@@ -130,12 +146,19 @@ function focusWorkOrder(workOrder) {
       <div v-if="store.error" class="message error-message">
         {{ store.error }}
       </div>
-      <CompletedStatsTable :stats="store.completedStats" />
+      <CompletedStatsTable
+        :month-filter="completedStatsMonth"
+        :stats="filteredCompletedStats"
+        @update-month-filter="completedStatsMonth = $event"
+      />
     </section>
 
     <ScheduleEmailDialog
       :date-from="emailDateRange.dateFrom"
       :date-to="emailDateRange.dateTo"
+      :calendar-view-type="emailDateRange.viewType"
+      :completed-stats-month="completedStatsMonth"
+      :default-email-type="activeView === 'completed-stats' ? 'COMPLETED_STATS' : ''"
       :open="emailDialogOpen"
       @close="emailDialogOpen = false"
     />

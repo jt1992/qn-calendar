@@ -110,7 +110,10 @@ input:disabled {
 
 .top-nav,
 .main-tabs,
-.stats-heading {
+.top-nav-actions,
+.stats-heading,
+.stats-heading-actions,
+.stats-month-filter {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -128,6 +131,10 @@ input:disabled {
 .main-tabs {
   min-width: 0;
   overflow-x: auto;
+}
+
+.top-nav-actions {
+  flex: 0 0 auto;
 }
 
 .main-tabs button {
@@ -229,7 +236,8 @@ input:disabled {
 .today-button,
 .text-button,
 .schedule-toggle,
-.view-switch button {
+.view-switch button,
+.email-type-switch button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -302,7 +310,8 @@ input:disabled {
 .icon-only-button:hover,
 .today-button:hover,
 .text-button:hover,
-.view-switch button:hover {
+.view-switch button:hover,
+.email-type-switch button:hover {
   border-color: var(--primary);
 }
 
@@ -321,8 +330,15 @@ input:disabled {
   padding: 0 14px;
 }
 
+.text-button.active {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
 .primary-action,
-.view-switch button.active {
+.view-switch button.active,
+.email-type-switch button.active {
   border-color: var(--primary);
   background: var(--primary);
   color: #ffffff;
@@ -634,7 +650,8 @@ input:disabled {
   overflow: hidden;
 }
 
-.view-switch button {
+.view-switch button,
+.email-type-switch button {
   min-width: 38px;
   border: 0;
   border-radius: 0;
@@ -976,6 +993,28 @@ input:disabled {
   padding: 12px 16px;
 }
 
+.stats-heading-actions {
+  flex: 0 0 auto;
+}
+
+.stats-month-filter {
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.stats-month-filter input {
+  width: 148px;
+  min-height: 34px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  padding: 0 8px;
+  background: var(--surface-strong);
+  color: var(--text);
+}
+
 .stats-heading h1,
 .stats-heading p {
   margin: 0;
@@ -1113,6 +1152,20 @@ input:disabled {
   flex: 1;
 }
 
+.email-type-switch {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  width: fit-content;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.email-type-switch button {
+  min-width: 72px;
+}
+
 .dialog-actions {
   justify-content: flex-end;
 }
@@ -1240,6 +1293,16 @@ input:disabled {
   .date-fields {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .stats-heading {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .stats-heading-actions {
+    width: 100%;
+    overflow-x: auto;
   }
 
   .upload-dropzone {

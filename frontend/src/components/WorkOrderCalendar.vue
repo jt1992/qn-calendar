@@ -4,7 +4,7 @@ import FullCalendar from '@fullcalendar/vue3'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
 import interactionPlugin from '@fullcalendar/interaction'
-import { ChevronLeft, ChevronRight, Mail } from '@lucide/vue'
+import { ChevronLeft, ChevronRight } from '@lucide/vue'
 import { useWorkOrderStore } from '../stores/workOrderStore'
 
 const props = defineProps({
@@ -18,7 +18,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['send-email', 'range-change', 'focus-order'])
+const emit = defineEmits(['range-change', 'focus-order'])
 const store = useWorkOrderStore()
 const calendarViewStorageKey = 'qn-calendar-view'
 const calendarDateStorageKey = 'qn-calendar-date'
@@ -923,10 +923,6 @@ function weekdayLabel(date) {
           />
           <span>允許過去</span>
         </label>
-        <button class="icon-button" type="button" @click="emit('send-email')">
-          <Mail :size="17" />
-          發送 Email
-        </button>
         <div class="view-switch" aria-label="日曆檢視">
           <button
             type="button"

@@ -1,5 +1,7 @@
 package com.qn.calendar.workorder.constant;
 
 public enum ScheduleEmailViewType {
-    WEEK
+    WEEK,
+    MONTH,
+    COMPLETED_STATS
 }

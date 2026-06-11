@@ -1,25 +1,25 @@
 package com.qn.calendar.workorder.service;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.text.NumberFormat;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
-import java.util.stream.IntStream;
 
 import com.qn.calendar.workorder.constant.ScheduleEmailViewType;
 import com.qn.calendar.workorder.constant.WorkOrderStatus;
+import com.qn.calendar.workorder.dto.CompletedWorkOrderStatsResponse;
 import com.qn.calendar.workorder.dto.ScheduleEmailRequest;
 import com.qn.calendar.workorder.dto.WorkOrderSegmentResponse;
+import com.qn.calendar.workorder.repository.WorkOrderRepository;
 import com.qn.calendar.workorder.repository.WorkOrderSegmentRepository;
 import com.qn.calendar.workorder.util.WorkOrderTimeUtils;
 
@@ -39,23 +39,25 @@ import org.thymeleaf.context.Context;
 @Service
 public class WorkOrderEmailService {
 
+    private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
     private static final DateTimeFormatter DAY_LABEL_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd E", Locale.TAIWAN);
-    private static final DateTimeFormatter TIME_LABEL_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
-    private static final int SLOT_MINUTES = WorkOrderTimeUtils.SCHEDULE_GRANULARITY_MINUTES;
-    private static final int SLOTS_PER_HOUR = 60 / SLOT_MINUTES;
-    private static final int SLOTS_PER_DAY = 24 * SLOTS_PER_HOUR;
+    private static final DateTimeFormatter MONTH_LABEL_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM");
+    private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
 
+    private final WorkOrderRepository workOrderRepository;
     private final WorkOrderSegmentRepository segmentRepository;
     private final JavaMailSender mailSender;
     private final TemplateEngine templateEngine;
     private final String mailFrom;
 
     public WorkOrderEmailService(
+            WorkOrderRepository workOrderRepository,
             WorkOrderSegmentRepository segmentRepository,
             JavaMailSender mailSender,
             TemplateEngine templateEngine,
             @Value("${SMTP_FROM:}") String mailFrom
     ) {
+        this.workOrderRepository = workOrderRepository;
         this.segmentRepository = segmentRepository;
         this.mailSender = mailSender;
         this.templateEngine = templateEngine;
@@ -66,10 +68,19 @@ public class WorkOrderEmailService {
     public void sendScheduleEmail(ScheduleEmailRequest request) {
         validateRequest(request);
 
+        LocalDate dateFrom = resolveDateFrom(request);
+        LocalDate dateTo = resolveDateTo(request, dateFrom);
+
+        if (request.viewType() == ScheduleEmailViewType.COMPLETED_STATS) {
+            String html = renderCompletedStatsHtml(request, dateFrom, findCompletedStats(dateFrom, dateTo));
+            send(request, html);
+            return;
+        }
+
         List<WorkOrderSegmentResponse> segments = segmentRepository.findCalendarSegments(
                         List.of(WorkOrderStatus.SCHEDULED, WorkOrderStatus.DONE),
-                        request.dateFrom().atStartOfDay(),
-                        request.dateTo().plusDays(1).atStartOfDay()
+                        dateFrom.atStartOfDay(),
+                        dateTo.plusDays(1).atStartOfDay()
                 )
                 .stream()
                 .map((segment) -> WorkOrderSegmentResponse.from(
@@ -80,73 +91,165 @@ public class WorkOrderEmailService {
                 ))
                 .toList();
 
-        String html = renderHtml(request, segments);
+        String html = renderHtml(request, dateFrom, dateTo, segments);
         send(request, html);
     }
 
     private void validateRequest(ScheduleEmailRequest request) {
-        if (request.viewType() != ScheduleEmailViewType.WEEK) {
-            throw new IllegalArgumentException("Email 目前只支援 WEEK 視圖");
-        }
-
-        if (request.dateTo().isBefore(request.dateFrom())) {
-            throw new IllegalArgumentException("Email 日期區間不可無效");
+        if (request.viewType() == null) {
+            throw new IllegalArgumentException("Email 類型不可為空");
         }
 
         if (parseRecipients(request.to()).isEmpty()) {
             throw new IllegalArgumentException("Email 收件者不可為空");
         }
+
+        if (request.dateFrom() == null || request.dateTo() == null) {
+            throw new IllegalArgumentException("Email 日期區間不可為空");
+        }
+
+        if (request.dateTo().isBefore(request.dateFrom())) {
+            throw new IllegalArgumentException("Email 日期區間不可無效");
+        }
     }
 
-    private String renderHtml(ScheduleEmailRequest request, List<WorkOrderSegmentResponse> segments) {
-        EmailScheduleTable table = buildScheduleTable(request.dateFrom(), request.dateTo(), segments);
+    private LocalDate resolveDateFrom(ScheduleEmailRequest request) {
+        if (request.viewType() == ScheduleEmailViewType.MONTH
+                || request.viewType() == ScheduleEmailViewType.COMPLETED_STATS) {
+            return request.dateFrom().withDayOfMonth(1);
+        }
+
+        return request.dateFrom();
+    }
+
+    private LocalDate resolveDateTo(ScheduleEmailRequest request, LocalDate dateFrom) {
+        if (request.viewType() == ScheduleEmailViewType.MONTH
+                || request.viewType() == ScheduleEmailViewType.COMPLETED_STATS) {
+            return dateFrom.withDayOfMonth(dateFrom.lengthOfMonth());
+        }
+
+        return request.dateTo();
+    }
+
+    private String renderHtml(
+            ScheduleEmailRequest request,
+            LocalDate dateFrom,
+            LocalDate dateTo,
+            List<WorkOrderSegmentResponse> segments
+    ) {
+        EmailScheduleDocument document = buildScheduleDocument(request.viewType(), dateFrom, dateTo, segments);
         Context context = new Context(Locale.TAIWAN);
         context.setVariable("subject", request.subject());
-        context.setVariable("days", table.days());
-        context.setVariable("rows", table.rows());
-        context.setVariable("totalColumnCount", table.totalColumnCount());
+        context.setVariable("document", document);
         return templateEngine.process("email/schedule-week", context);
     }
 
-    static EmailScheduleTable buildScheduleTable(LocalDate dateFrom, LocalDate dateTo, List<WorkOrderSegmentResponse> segments) {
-        List<EmailDay> days = new ArrayList<>();
-        Map<LocalDate, List<EmailOrderSegment>> segmentsByDay = new LinkedHashMap<>();
+    private String renderCompletedStatsHtml(
+            ScheduleEmailRequest request,
+            LocalDate dateFrom,
+            List<CompletedWorkOrderStatsResponse> stats
+    ) {
+        Context context = new Context(Locale.TAIWAN);
+        context.setVariable("subject", request.subject());
+        context.setVariable("document", buildCompletedStatsDocument(stats, dateFrom));
+        return templateEngine.process("email/completed-stats", context);
+    }
+
+    private List<CompletedWorkOrderStatsResponse> findCompletedStats(LocalDate dateFrom, LocalDate dateTo) {
+        return workOrderRepository.findByStatusAndCompletedAtGreaterThanEqualAndCompletedAtLessThanOrderByCompletedAtDescLatestShipTimeAscCreatedAtAsc(
+                        WorkOrderStatus.DONE,
+                        dateFrom.atStartOfDay(),
+                        dateTo.plusDays(1).atStartOfDay()
+                )
+                .stream()
+                .map((workOrder) -> CompletedWorkOrderStatsResponse.from(
+                        workOrder,
+                        WorkOrderTimeUtils.totalMinutes(
+                                segmentRepository.findByWorkOrderIdOrderByScheduledStartAscScheduledEndAscIdAsc(
+                                        workOrder.getId()
+                                )
+                        )
+                ))
+                .toList();
+    }
+
+    static EmailScheduleDocument buildScheduleDocument(
+            ScheduleEmailViewType viewType,
+            LocalDate dateFrom,
+            LocalDate dateTo,
+            List<WorkOrderSegmentResponse> segments
+    ) {
+        Map<LocalDate, List<EmailOrderRow>> rowsByDate = buildRowsByDate(dateFrom, dateTo, segments);
+        List<EmailScheduleSection> sections = viewType == ScheduleEmailViewType.MONTH
+                ? buildMonthSections(dateFrom, rowsByDate)
+                : buildWeekSections(dateFrom, dateTo, rowsByDate);
+
+        return new EmailScheduleDocument(
+                viewType == ScheduleEmailViewType.MONTH ? "月排程表" : "週排程表",
+                viewType == ScheduleEmailViewType.MONTH
+                        ? MONTH_LABEL_FORMATTER.format(dateFrom)
+                        : formatDateRange(dateFrom, dateTo),
+                viewType == ScheduleEmailViewType.WEEK,
+                sections
+        );
+    }
+
+    static CompletedStatsEmailDocument buildCompletedStatsDocument(
+            List<CompletedWorkOrderStatsResponse> stats,
+            LocalDate month
+    ) {
+        return new CompletedStatsEmailDocument(
+                MONTH_LABEL_FORMATTER.format(month),
+                stats.stream()
+                        .map(WorkOrderEmailService::toCompletedStatsEmailRow)
+                        .toList()
+        );
+    }
+
+    private static CompletedStatsEmailRow toCompletedStatsEmailRow(CompletedWorkOrderStatsResponse stats) {
+        return new CompletedStatsEmailRow(
+                stats.orderNo(),
+                displayText(stats.buyerNickname()),
+                displayText(stats.remark()),
+                formatCurrency(stats.price()),
+                formatStatsDurationText(stats.estimatedMinutes()),
+                formatStatsDurationText(stats.actualTotalMinutes()),
+                formatStatsDeltaText(stats.deltaMinutes()),
+                deltaTone(stats.deltaMinutes()),
+                formatHourlyRate(stats.hourlyRate())
+        );
+    }
+
+    private static Map<LocalDate, List<EmailOrderRow>> buildRowsByDate(
+            LocalDate dateFrom,
+            LocalDate dateTo,
+            List<WorkOrderSegmentResponse> segments
+    ) {
+        Map<LocalDate, List<EmailOrderRow>> rowsByDate = new LinkedHashMap<>();
         LocalDate cursor = dateFrom;
 
         while (!cursor.isAfter(dateTo)) {
-            segmentsByDay.put(cursor, new ArrayList<>());
+            rowsByDate.put(cursor, new ArrayList<>());
             cursor = cursor.plusDays(1);
         }
 
         for (WorkOrderSegmentResponse segment : segments) {
-            addOrderSegments(segment, dateFrom, dateTo, segmentsByDay);
+            addSegmentRows(segment, dateFrom, dateTo, rowsByDate);
         }
 
-        segmentsByDay.values().forEach(WorkOrderEmailService::assignLanes);
+        rowsByDate.values().forEach((rows) -> rows.sort(Comparator
+                .comparing(EmailOrderRow::sortStart)
+                .thenComparing((row) -> !row.urgent())
+                .thenComparing(EmailOrderRow::orderNo)));
 
-        int startSlot = findScheduleStartSlot(segmentsByDay);
-        int endSlot = findScheduleEndSlot(segmentsByDay, startSlot);
-
-        segmentsByDay.forEach((date, daySegments) -> {
-            int laneCount = daySegments.stream()
-                    .mapToInt(EmailOrderSegment::lane)
-                    .max()
-                    .orElse(0) + 1;
-            days.add(new EmailDay(date, DAY_LABEL_FORMATTER.format(date), Math.max(1, laneCount)));
-        });
-
-        List<EmailSlotRow> rows = buildRows(days, segmentsByDay, startSlot, endSlot);
-        int totalColumnCount = 1 + days.stream()
-                .mapToInt(EmailDay::laneCount)
-                .sum();
-        return new EmailScheduleTable(days, rows, totalColumnCount);
+        return rowsByDate;
     }
 
-    private static void addOrderSegments(
+    private static void addSegmentRows(
             WorkOrderSegmentResponse segment,
             LocalDate dateFrom,
             LocalDate dateTo,
-            Map<LocalDate, List<EmailOrderSegment>> segmentsByDay
+            Map<LocalDate, List<EmailOrderRow>> rowsByDate
     ) {
         if (segment.scheduledStart() == null || segment.scheduledEnd() == null) {
             return;
@@ -157,139 +260,163 @@ public class WorkOrderEmailService {
         while (!cursor.isAfter(dateTo)) {
             LocalDateTime dayStart = cursor.atStartOfDay();
             LocalDateTime dayEnd = cursor.plusDays(1).atStartOfDay();
-            LocalDateTime segmentStart = max(segment.scheduledStart(), dayStart);
-            LocalDateTime segmentEnd = min(segment.scheduledEnd(), dayEnd);
+            LocalDateTime visibleStart = max(segment.scheduledStart(), dayStart);
+            LocalDateTime visibleEnd = min(segment.scheduledEnd(), dayEnd);
 
-            if (segmentEnd.isAfter(segmentStart)) {
-                int startSlot = slotIndex(segmentStart.toLocalTime());
-                int endSlot = slotIndex(segmentEnd.toLocalTime());
-
-                if (segmentEnd.equals(dayEnd)) {
-                    endSlot = SLOTS_PER_DAY;
-                }
-
-                segmentsByDay.get(cursor).add(new EmailOrderSegment(
-                        segment,
-                        segmentStart,
-                        segmentEnd,
-                        startSlot,
-                        Math.max(startSlot + 1, endSlot),
-                        0
-                ));
+            if (visibleEnd.isAfter(visibleStart)) {
+                rowsByDate.get(cursor).add(toEmailOrderRow(segment, visibleStart, visibleEnd));
             }
 
             cursor = cursor.plusDays(1);
         }
     }
 
-    private static void assignLanes(List<EmailOrderSegment> segments) {
-        segments.sort(Comparator
-                .comparing(EmailOrderSegment::visibleStart)
-                .thenComparing((segment) -> !segment.order().urgent())
-                .thenComparing((segment) -> segment.order().orderNo()));
-
-        List<LocalDateTime> laneEnds = new ArrayList<>();
-
-        for (int segmentIndex = 0; segmentIndex < segments.size(); segmentIndex++) {
-            EmailOrderSegment segment = segments.get(segmentIndex);
-            int lane = firstAvailableLane(laneEnds, segment.visibleStart());
-
-            if (lane == laneEnds.size()) {
-                laneEnds.add(segment.visibleEnd());
-            } else {
-                laneEnds.set(lane, segment.visibleEnd());
-            }
-
-            segments.set(segmentIndex, segment.withLane(lane));
-        }
-    }
-
-    private static int firstAvailableLane(List<LocalDateTime> laneEnds, LocalDateTime start) {
-        for (int lane = 0; lane < laneEnds.size(); lane++) {
-            if (!laneEnds.get(lane).isAfter(start)) {
-                return lane;
-            }
-        }
-
-        return laneEnds.size();
-    }
-
-    private static List<EmailSlotRow> buildRows(
-            List<EmailDay> days,
-            Map<LocalDate, List<EmailOrderSegment>> segmentsByDay,
-            int startSlot,
-            int endSlot
+    private static EmailOrderRow toEmailOrderRow(
+            WorkOrderSegmentResponse segment,
+            LocalDateTime visibleStart,
+            LocalDateTime visibleEnd
     ) {
-        Map<EmailCellKey, EmailOrderSegment> startsByCell = new HashMap<>();
-        Map<EmailCellKey, Boolean> coveredByCell = new HashMap<>();
-
-        segmentsByDay.forEach((date, segments) -> segments.forEach((segment) -> {
-            startsByCell.put(new EmailCellKey(date, segment.startSlot(), segment.lane()), segment);
-
-            for (int slot = segment.startSlot() + 1; slot < segment.endSlot(); slot++) {
-                coveredByCell.put(new EmailCellKey(date, slot, segment.lane()), true);
-            }
-        }));
-
-        return IntStream.range(startSlot, endSlot)
-                .mapToObj((slot) -> new EmailSlotRow(
-                        timeLabel(slot),
-                        slot % SLOTS_PER_HOUR == 0,
-                        buildCells(days, startsByCell, coveredByCell, slot)
-                ))
-                .toList();
+        int minutes = Math.toIntExact(Duration.between(visibleStart, visibleEnd).toMinutes());
+        return new EmailOrderRow(
+                segment.orderNo(),
+                TIME_FORMATTER.format(visibleStart),
+                TIME_FORMATTER.format(visibleEnd),
+                formatDurationText(minutes),
+                DATE_FORMATTER.format(segment.latestShipTime()),
+                segment.remark(),
+                segment.urgent(),
+                segment.status() == WorkOrderStatus.DONE,
+                visibleStart
+        );
     }
 
-    private static int findScheduleStartSlot(Map<LocalDate, List<EmailOrderSegment>> segmentsByDay) {
-        return segmentsByDay.values()
-                .stream()
-                .flatMap(List::stream)
-                .mapToInt(EmailOrderSegment::startSlot)
-                .min()
-                .orElse(0);
-    }
-
-    private static int findScheduleEndSlot(Map<LocalDate, List<EmailOrderSegment>> segmentsByDay, int startSlot) {
-        return segmentsByDay.values()
-                .stream()
-                .flatMap(List::stream)
-                .mapToInt(EmailOrderSegment::endSlot)
-                .max()
-                .orElse(startSlot);
-    }
-
-    private static List<EmailTableCell> buildCells(
-            List<EmailDay> days,
-            Map<EmailCellKey, EmailOrderSegment> startsByCell,
-            Map<EmailCellKey, Boolean> coveredByCell,
-            int slot
+    private static List<EmailScheduleSection> buildWeekSections(
+            LocalDate dateFrom,
+            LocalDate dateTo,
+            Map<LocalDate, List<EmailOrderRow>> rowsByDate
     ) {
-        List<EmailTableCell> cells = new ArrayList<>();
+        List<EmailScheduleSection> sections = new ArrayList<>();
+        LocalDate sectionStart = dateFrom;
 
-        for (EmailDay day : days) {
-            for (int lane = 0; lane < day.laneCount(); lane++) {
-                EmailCellKey key = new EmailCellKey(day.date(), slot, lane);
-                EmailOrderSegment segment = startsByCell.get(key);
+        while (!sectionStart.isAfter(dateTo)) {
+            LocalDate sectionEnd = min(sectionStart.plusDays(6), dateTo);
+            List<EmailDaySchedule> days = buildDaySchedules(sectionStart, sectionEnd, rowsByDate);
 
-                if (segment != null) {
-                    cells.add(EmailTableCell.order(segment.endSlot() - segment.startSlot(), segment.order()));
-                } else if (coveredByCell.containsKey(key)) {
-                    cells.add(EmailTableCell.covered());
-                } else {
-                    cells.add(EmailTableCell.empty());
-                }
+            if (!days.isEmpty() || sections.isEmpty()) {
+                sections.add(new EmailScheduleSection(
+                        formatDateRange(sectionStart, sectionEnd),
+                        !sections.isEmpty(),
+                        days
+                ));
             }
+
+            sectionStart = sectionEnd.plusDays(1);
         }
 
-        return cells;
+        return sections;
     }
 
-    private static int slotIndex(LocalTime time) {
-        return Math.toIntExact(Duration.between(LocalTime.MIDNIGHT, time).toMinutes() / SLOT_MINUTES);
+    private static List<EmailScheduleSection> buildMonthSections(
+            LocalDate dateFrom,
+            Map<LocalDate, List<EmailOrderRow>> rowsByDate
+    ) {
+        return List.of(new EmailScheduleSection(
+                MONTH_LABEL_FORMATTER.format(dateFrom),
+                false,
+                buildDaySchedules(dateFrom, dateFrom.withDayOfMonth(dateFrom.lengthOfMonth()), rowsByDate)
+        ));
     }
 
-    private static String timeLabel(int slot) {
-        return TIME_LABEL_FORMATTER.format(LocalTime.MIDNIGHT.plusMinutes((long) slot * SLOT_MINUTES));
+    private static List<EmailDaySchedule> buildDaySchedules(
+            LocalDate dateFrom,
+            LocalDate dateTo,
+            Map<LocalDate, List<EmailOrderRow>> rowsByDate
+    ) {
+        List<EmailDaySchedule> days = new ArrayList<>();
+        LocalDate cursor = dateFrom;
+
+        while (!cursor.isAfter(dateTo)) {
+            List<EmailOrderRow> rows = rowsByDate.getOrDefault(cursor, List.of());
+
+            if (!rows.isEmpty()) {
+                days.add(new EmailDaySchedule(DAY_LABEL_FORMATTER.format(cursor), rows));
+            }
+
+            cursor = cursor.plusDays(1);
+        }
+
+        return days;
+    }
+
+    private static String formatDateRange(LocalDate dateFrom, LocalDate dateTo) {
+        if (dateFrom.equals(dateTo)) {
+            return DATE_FORMATTER.format(dateFrom);
+        }
+
+        return DATE_FORMATTER.format(dateFrom) + " - " + DATE_FORMATTER.format(dateTo);
+    }
+
+    private static String formatDurationText(int minutes) {
+        int hours = minutes / 60;
+        int remainingMinutes = minutes % 60;
+
+        if (hours <= 0) {
+            return remainingMinutes + "分鐘";
+        }
+
+        if (remainingMinutes == 0) {
+            return hours + "小時";
+        }
+
+        return hours + "小時" + remainingMinutes + "分鐘";
+    }
+
+    private static String formatStatsDurationText(int minutes) {
+        int normalizedMinutes = Math.max(0, minutes);
+        return (normalizedMinutes / 60) + "小時" + (normalizedMinutes % 60) + "分鐘";
+    }
+
+    private static String formatStatsDeltaText(int minutes) {
+        if (minutes == 0) {
+            return "符合預期";
+        }
+
+        return (minutes > 0 ? "超出 " : "提前 ") + formatStatsDurationText(Math.abs(minutes));
+    }
+
+    private static String deltaTone(int minutes) {
+        if (minutes > 0) {
+            return "late";
+        }
+
+        if (minutes < 0) {
+            return "early";
+        }
+
+        return "normal";
+    }
+
+    private static String formatHourlyRate(BigDecimal value) {
+        if (value == null) {
+            return "-";
+        }
+
+        return formatCurrency(value) + " / 小時";
+    }
+
+    private static String formatCurrency(BigDecimal value) {
+        if (value == null) {
+            return "-";
+        }
+
+        NumberFormat formatter = NumberFormat.getNumberInstance(Locale.TAIWAN);
+        formatter.setMinimumFractionDigits(0);
+        formatter.setMaximumFractionDigits(2);
+        return "$" + formatter.format(value);
+    }
+
+    private static String displayText(String value) {
+        return StringUtils.hasText(value) ? value : "-";
     }
 
     private static LocalDateTime max(LocalDateTime first, LocalDateTime second) {
@@ -300,7 +427,8 @@ public class WorkOrderEmailService {
         return first.isBefore(second) ? first : second;
     }
 
-    private record EmailCellKey(LocalDate date, int slot, int lane) {
+    private static LocalDate min(LocalDate first, LocalDate second) {
+        return first.isBefore(second) ? first : second;
     }
 
     private void send(ScheduleEmailRequest request, String html) {
@@ -333,55 +461,50 @@ public class WorkOrderEmailService {
                 .toList();
     }
 
-    public record EmailScheduleTable(List<EmailDay> days, List<EmailSlotRow> rows, int totalColumnCount) {
-    }
-
-    public record EmailDay(LocalDate date, String label, int laneCount) {
-    }
-
-    public record EmailSlotRow(
-            String timeLabel,
-            boolean hourStart,
-            List<EmailTableCell> cells
+    public record EmailScheduleDocument(
+            String viewLabel,
+            String rangeLabel,
+            boolean weekView,
+            List<EmailScheduleSection> sections
     ) {
     }
 
-    public record EmailTableCell(
-            boolean rendered,
-            int rowSpan,
-            WorkOrderSegmentResponse order
+    public record EmailScheduleSection(
+            String title,
+            boolean pageBreakBefore,
+            List<EmailDaySchedule> days
     ) {
-
-        static EmailTableCell order(int rowSpan, WorkOrderSegmentResponse order) {
-            return new EmailTableCell(true, rowSpan, order);
-        }
-
-        static EmailTableCell empty() {
-            return new EmailTableCell(true, 1, null);
-        }
-
-        static EmailTableCell covered() {
-            return new EmailTableCell(false, 1, null);
-        }
     }
 
-    private record EmailOrderSegment(
-            WorkOrderSegmentResponse order,
-            LocalDateTime visibleStart,
-            LocalDateTime visibleEnd,
-            int startSlot,
-            int endSlot,
-            int lane
+    public record EmailDaySchedule(String label, List<EmailOrderRow> rows) {
+    }
+
+    public record EmailOrderRow(
+            String orderNo,
+            String startTime,
+            String endTime,
+            String durationText,
+            String shipDate,
+            String remark,
+            boolean urgent,
+            boolean done,
+            LocalDateTime sortStart
     ) {
+    }
 
-        EmailOrderSegment {
-            Objects.requireNonNull(order);
-            Objects.requireNonNull(visibleStart);
-            Objects.requireNonNull(visibleEnd);
-        }
+    public record CompletedStatsEmailDocument(String monthLabel, List<CompletedStatsEmailRow> rows) {
+    }
 
-        EmailOrderSegment withLane(int lane) {
-            return new EmailOrderSegment(order, visibleStart, visibleEnd, startSlot, endSlot, lane);
-        }
+    public record CompletedStatsEmailRow(
+            String orderNo,
+            String buyerNickname,
+            String remark,
+            String price,
+            String estimatedDuration,
+            String actualDuration,
+            String deltaText,
+            String deltaTone,
+            String hourlyRate
+    ) {
     }
 }

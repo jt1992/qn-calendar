@@ -13,8 +13,8 @@ import jakarta.validation.constraints.NotNull;
 public record ScheduleEmailRequest(
         @NotEmpty List<@NotBlank @Email String> to,
         @NotBlank String subject,
-        @NotNull LocalDate dateFrom,
-        @NotNull LocalDate dateTo,
+        LocalDate dateFrom,
+        LocalDate dateTo,
         @NotNull ScheduleEmailViewType viewType
 ) {
 }

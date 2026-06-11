@@ -1,10 +1,16 @@
 <script setup>
 defineProps({
+  monthFilter: {
+    type: String,
+    default: ''
+  },
   stats: {
     type: Array,
     required: true
   }
 })
+
+const emit = defineEmits(['update-month-filter'])
 
 function displayText(value) {
   return value === null || value === undefined || value === '' ? '-' : value
@@ -60,7 +66,25 @@ function formatHourlyRate(value) {
         <h1>完工統計表</h1>
         <p>已完成工單的預估與實際工時對照</p>
       </div>
-      <span class="count-badge">{{ stats.length }}</span>
+      <div class="stats-heading-actions">
+        <label class="stats-month-filter">
+          月份
+          <input
+            :value="monthFilter"
+            type="month"
+            @input="emit('update-month-filter', $event.target.value)"
+          />
+        </label>
+        <button
+          class="text-button"
+          type="button"
+          :class="{ active: !monthFilter }"
+          @click="emit('update-month-filter', '')"
+        >
+          全部
+        </button>
+        <span class="count-badge">{{ stats.length }}</span>
+      </div>
     </header>
 
     <div class="stats-table-scroll">
