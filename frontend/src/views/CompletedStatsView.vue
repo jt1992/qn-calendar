@@ -33,7 +33,7 @@ onMounted(async () => {
   try {
     await store.fetchCompletedStats()
   } catch (error) {
-    store.error = error.message
+    store.setError(error.message)
   }
 })
 </script>

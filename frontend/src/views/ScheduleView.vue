@@ -13,7 +13,7 @@ onMounted(async () => {
   try {
     await store.fetchPendingWorkOrders()
   } catch (error) {
-    store.error = error.message
+    store.setError(error.message)
   }
 })
 

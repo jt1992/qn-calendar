@@ -7,7 +7,9 @@ import {
   importWorkOrders,
   markWorkOrderAsDone,
   markWorkOrderSegmentAsDone,
+  pauseWorkOrderSegment,
   reopenWorkOrder,
+  resumeWorkOrderSegment,
   scheduleWorkOrder,
   sendScheduleEmail,
   splitWorkOrderSegment,
@@ -16,6 +18,7 @@ import {
   updateWorkOrderDuration
 } from '../api/workOrders'
 
+let errorTimer = null
 let noticeTimer = null
 
 export const useWorkOrderStore = defineStore('workOrders', {
@@ -33,14 +36,14 @@ export const useWorkOrderStore = defineStore('workOrders', {
   actions: {
     async importXlsx(file) {
       this.loading = true
-      this.error = ''
+      this.clearError()
 
       try {
         this.importResult = await importWorkOrders(file)
         this.setNotice(`新增 ${this.importResult.createdCount} 笔，跳过 ${this.importResult.skippedCount} 笔`)
         await this.fetchPendingWorkOrders()
       } catch (error) {
-        this.error = error.message
+        this.setError(error.message)
         throw error
       } finally {
         this.loading = false
@@ -122,6 +125,16 @@ export const useWorkOrderStore = defineStore('workOrders', {
       await this.refreshCalendarEvents()
     },
 
+    async pauseSegment(segmentId) {
+      await pauseWorkOrderSegment(segmentId)
+      await this.refreshCalendarEvents()
+    },
+
+    async resumeSegment(segmentId) {
+      await resumeWorkOrderSegment(segmentId)
+      await this.refreshCalendarEvents()
+    },
+
     async reopen(id) {
       await reopenWorkOrder(id)
       await this.refreshCalendarEvents()
@@ -131,8 +144,23 @@ export const useWorkOrderStore = defineStore('workOrders', {
       await sendScheduleEmail(payload)
     },
 
+    setError(message) {
+      this.error = message
+      this.notice = ''
+
+      if (errorTimer) {
+        window.clearTimeout(errorTimer)
+      }
+
+      errorTimer = window.setTimeout(() => {
+        this.error = ''
+        errorTimer = null
+      }, 5000)
+    },
+
     setNotice(message) {
       this.notice = message
+      this.error = ''
 
       if (noticeTimer) {
         window.clearTimeout(noticeTimer)
@@ -144,9 +172,23 @@ export const useWorkOrderStore = defineStore('workOrders', {
       }, 5000)
     },
 
+    clearError() {
+      this.error = ''
+
+      if (errorTimer) {
+        window.clearTimeout(errorTimer)
+        errorTimer = null
+      }
+    },
+
     clearMessages() {
       this.error = ''
       this.notice = ''
+
+      if (errorTimer) {
+        window.clearTimeout(errorTimer)
+        errorTimer = null
+      }
 
       if (noticeTimer) {
         window.clearTimeout(noticeTimer)
@@ -162,6 +204,8 @@ function toCalendarEvent(segment) {
     title: `${segment.urgent ? '加急 ' : ''}${segment.orderNo}`,
     start: segment.scheduledStart,
     end: segment.scheduledEnd,
+    startEditable: !segment.scheduleStartLocked,
+    durationEditable: true,
     extendedProps: {
       segmentId: segment.segmentId || segment.id,
       workOrderId: segment.workOrderId,
@@ -174,7 +218,12 @@ function toCalendarEvent(segment) {
       remark: segment.remark,
       estimatedMinutes: segment.estimatedMinutes,
       actualMinutes: segment.actualMinutes,
-      totalMinutes: segment.totalMinutes
+      totalMinutes: segment.totalMinutes,
+      paused: segment.paused,
+      pausedMinutes: segment.pausedMinutes,
+      overdue: segment.overdue,
+      scheduleStartLocked: Boolean(segment.scheduleStartLocked),
+      latestPausedAt: segment.latestPausedAt
     }
   }
 }

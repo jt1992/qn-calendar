@@ -23,6 +23,7 @@ import com.qn.calendar.workorder.dto.CompletedWorkOrderStatsResponse;
 import com.qn.calendar.workorder.dto.ScheduleEmailRequest;
 import com.qn.calendar.workorder.dto.WorkOrderSegmentResponse;
 import com.qn.calendar.workorder.repository.WorkOrderRepository;
+import com.qn.calendar.workorder.repository.WorkOrderSegmentPauseRepository;
 import com.qn.calendar.workorder.repository.WorkOrderSegmentRepository;
 import com.qn.calendar.workorder.util.WorkOrderTimeUtils;
 
@@ -69,6 +70,7 @@ public class WorkOrderEmailService {
 
     private final WorkOrderRepository workOrderRepository;
     private final WorkOrderSegmentRepository segmentRepository;
+    private final WorkOrderSegmentPauseRepository pauseRepository;
     private final JavaMailSender mailSender;
     private final TemplateEngine templateEngine;
     private final String mailFrom;
@@ -76,12 +78,14 @@ public class WorkOrderEmailService {
     public WorkOrderEmailService(
             WorkOrderRepository workOrderRepository,
             WorkOrderSegmentRepository segmentRepository,
+            WorkOrderSegmentPauseRepository pauseRepository,
             JavaMailSender mailSender,
             TemplateEngine templateEngine,
             @Value("${SMTP_FROM:}") String mailFrom
     ) {
         this.workOrderRepository = workOrderRepository;
         this.segmentRepository = segmentRepository;
+        this.pauseRepository = pauseRepository;
         this.mailSender = mailSender;
         this.templateEngine = templateEngine;
         this.mailFrom = mailFrom == null ? "" : mailFrom.trim();
@@ -110,7 +114,9 @@ public class WorkOrderEmailService {
                         segment,
                         WorkOrderTimeUtils.totalMinutes(segmentRepository.findByWorkOrderIdOrderByScheduledStartAscScheduledEndAscIdAsc(
                                 segment.getWorkOrder().getId()
-                        ))
+                        )),
+                        pauseRepository.existsBySegmentIdAndResumedAtIsNull(segment.getId()),
+                        pausedMinutes(segment.getWorkOrder().getId(), segment.getWorkOrder().getCompletedAt())
                 ))
                 .toList();
 
@@ -207,7 +213,8 @@ public class WorkOrderEmailService {
                                 segmentRepository.findByWorkOrderIdOrderByScheduledStartAscScheduledEndAscIdAsc(
                                         workOrder.getId()
                                 )
-                        )
+                        ),
+                        pausedMinutes(workOrder.getId(), workOrder.getCompletedAt())
                 ))
                 .toList();
     }
@@ -225,7 +232,8 @@ public class WorkOrderEmailService {
                                 segmentRepository.findByWorkOrderIdOrderByScheduledStartAscScheduledEndAscIdAsc(
                                         workOrder.getId()
                                 )
-                        )
+                        ),
+                        pausedMinutes(workOrder.getId(), workOrder.getCompletedAt())
                 ))
                 .toList();
     }
@@ -277,10 +285,16 @@ public class WorkOrderEmailService {
                 formatCurrency(stats.price()),
                 formatStatsDurationText(stats.estimatedMinutes()),
                 formatStatsDurationText(stats.actualTotalMinutes()),
+                formatStatsDurationText(stats.pausedMinutes()),
                 formatStatsDeltaText(stats.deltaMinutes()),
                 deltaTone(stats.deltaMinutes()),
                 formatHourlyRate(stats.hourlyRate())
         );
+    }
+
+    private int pausedMinutes(Long workOrderId, LocalDateTime completedAt) {
+        LocalDateTime fallbackEnd = completedAt == null ? LocalDateTime.now() : completedAt;
+        return WorkOrderTimeUtils.pauseMinutes(pauseRepository.findByWorkOrderId(workOrderId), fallbackEnd);
     }
 
     private static Map<LocalDate, List<EmailOrderRow>> buildRowsByDate(
@@ -861,6 +875,7 @@ public class WorkOrderEmailService {
             String price,
             String estimatedDuration,
             String actualDuration,
+            String pausedDuration,
             String deltaText,
             String deltaTone,
             String hourlyRate

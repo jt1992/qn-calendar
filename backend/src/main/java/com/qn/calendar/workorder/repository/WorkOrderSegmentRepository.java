@@ -49,6 +49,21 @@ public interface WorkOrderSegmentRepository extends JpaRepository<WorkOrderSegme
             @Param("scheduledEnd") LocalDateTime scheduledEnd
     );
 
+    @Query("""
+            select segment
+            from WorkOrderSegment segment
+            join fetch segment.workOrder workOrder
+            where segment.id <> :segmentId
+              and workOrder.status in :statuses
+              and segment.scheduledEnd > :from
+            order by segment.scheduledStart asc, segment.scheduledEnd asc, segment.id asc
+            """)
+    List<WorkOrderSegment> findAutoShiftCandidates(
+            @Param("segmentId") Long segmentId,
+            @Param("statuses") Collection<WorkOrderStatus> statuses,
+            @Param("from") LocalDateTime from
+    );
+
     @Modifying
     void deleteByWorkOrderId(Long workOrderId);
 }

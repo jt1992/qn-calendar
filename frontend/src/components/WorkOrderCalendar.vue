@@ -33,6 +33,7 @@ const pointerPosition = ref({ x: 0, y: 0 })
 const tooltipPosition = ref({ x: 0, y: 0 })
 const interactionPreview = ref(null)
 const interactionAction = ref('调整排程')
+const activeInteraction = ref(null)
 const eventTooltip = ref(null)
 const ignoreNextCalendarClick = ref(false)
 const localFocusedWorkOrder = ref(null)
@@ -181,7 +182,14 @@ function eventAllow(dropInfo, draggedEvent) {
   const latestShipTime = draggedEvent.extendedProps.latestShipTime
   const { start, end } = resolveInteractionWindow(dropInfo, draggedEvent)
   const latest = latestShipTime ? new Date(latestShipTime) : null
-  const scheduleWindow = resolveNonOverlappingWindow(draggedEvent, start, end, latest, minScheduleStart())
+  const scheduleWindow = resolveNonOverlappingWindow(
+    draggedEvent,
+    start,
+    end,
+    latest,
+    minScheduleStart(),
+    interactionOriginalStart(draggedEvent)
+  )
 
   updateInteractionPreview(
     interactionAction.value,
@@ -214,7 +222,7 @@ async function handleDatesSet(info) {
   try {
     await store.fetchCalendarEvents(dateFrom, dateTo)
   } catch (error) {
-    store.error = error.message
+    store.setError(error.message)
   }
 }
 
@@ -241,15 +249,21 @@ function eventContent(info) {
   const actions = document.createElement('div')
   const doneButton = document.createElement('button')
   const splitButton = document.createElement('button')
+  const pauseButton = document.createElement('button')
   const latestShipTime = info.event.extendedProps.latestShipTime
+  const isDone = info.event.extendedProps.status === 'DONE'
+  const isPaused = Boolean(info.event.extendedProps.paused)
   const segmentMinutes = info.event.extendedProps.actualMinutes || diffMinutes(info.event.start, info.event.end)
   const totalMinutes = info.event.extendedProps.totalMinutes || segmentMinutes
+  const pausedMinutes = info.event.extendedProps.pausedMinutes || 0
 
   root.className = 'calendar-event-card'
   root.dataset.workOrderId = String(info.event.extendedProps.workOrderId || '')
   root.dataset.orderNo = info.event.extendedProps.orderNo || info.event.title || ''
   root.dataset.urgent = String(Boolean(info.event.extendedProps.urgent))
   root.dataset.status = info.event.extendedProps.status || ''
+  root.dataset.paused = String(isPaused)
+  root.dataset.overdue = String(Boolean(info.event.extendedProps.overdue))
   root.dataset.latestShipTime = info.event.extendedProps.latestShipTime || ''
   root.dataset.price = String(info.event.extendedProps.price || '')
   root.dataset.remark = info.event.extendedProps.remark || ''
@@ -257,8 +271,10 @@ function eventContent(info) {
   root.dataset.totalMinutes = String(info.event.extendedProps.totalMinutes || '')
   root.dataset.tooltipTitle = `${info.event.extendedProps.urgent ? '[加急] ' : ''}${info.event.extendedProps.orderNo || info.event.title}`
   root.dataset.tooltipTimeRange = `${formatDateTime(info.event.start)} - ${formatDateTime(info.event.end)}`
-  root.dataset.tooltipDuration = `总排程 ${formatDurationText(totalMinutes)}`
-  root.dataset.tooltipStatus = info.event.extendedProps.status === 'DONE' ? '完成' : '未完成'
+  root.dataset.tooltipDuration = pausedMinutes > 0
+    ? `总排程 ${formatDurationText(totalMinutes)}，暂停 ${formatDurationText(pausedMinutes)}`
+    : `总排程 ${formatDurationText(totalMinutes)}`
+  root.dataset.tooltipStatus = isDone ? '完成' : isPaused ? '暂停中' : '未完成'
   root.dataset.tooltipLatest = formatDateTime(latestShipTime)
   root.dataset.tooltipPrice = info.event.extendedProps.price ? `$${info.event.extendedProps.price}` : ''
   root.dataset.tooltipRemark = formatRemarkText(info.event.extendedProps.remark)
@@ -266,28 +282,41 @@ function eventContent(info) {
   title.textContent = info.event.extendedProps.orderNo || info.event.title
   actions.className = 'calendar-event-actions'
 
-  doneButton.className = 'event-complete-button'
-  doneButton.type = 'button'
-  doneButton.textContent = info.event.extendedProps.status === 'DONE' ? '↻' : '✓'
-  doneButton.setAttribute(
-    'aria-label',
-    info.event.extendedProps.status === 'DONE' ? '取消完成' : '标记完成'
-  )
-  doneButton.addEventListener('click', async (event) => {
-    event.preventDefault()
-    event.stopPropagation()
-    await toggleEventDone(info.event)
-  })
+  if (!isDone) {
+    doneButton.className = 'event-complete-button'
+    doneButton.type = 'button'
+    doneButton.textContent = '✓'
+    doneButton.setAttribute('aria-label', '标记完成')
+    doneButton.addEventListener('click', async (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      await toggleEventDone(info.event)
+    })
 
-  splitButton.className = 'event-split-button'
-  splitButton.type = 'button'
-  splitButton.textContent = '拆'
-  splitButton.setAttribute('aria-label', '拆分片段')
-  splitButton.addEventListener('click', async (event) => {
-    event.preventDefault()
-    event.stopPropagation()
-    await splitEvent(info.event)
-  })
+    splitButton.className = 'event-split-button'
+    splitButton.type = 'button'
+    splitButton.textContent = '拆'
+    splitButton.setAttribute('aria-label', '拆分片段')
+    splitButton.addEventListener('click', async (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      await splitEvent(info.event)
+    })
+
+    actions.append(doneButton, splitButton)
+  }
+
+  if (canShowPauseButton(info.event)) {
+    pauseButton.className = `event-pause-toggle${isPaused ? ' paused' : ''}`
+    pauseButton.type = 'button'
+    pauseButton.textContent = isPaused ? '▶' : '⏸'
+    pauseButton.setAttribute('aria-label', isPaused ? '继续计时' : '暂停计时')
+    pauseButton.addEventListener('click', async (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      await toggleEventPause(info.event)
+    })
+  }
 
   timeRange.className = 'calendar-event-time'
   timeRange.textContent = `${formatTime(info.event.start)}~${formatTime(info.event.end)}`
@@ -300,8 +329,15 @@ function eventContent(info) {
   deadlineTime.className = 'calendar-event-deadline-time'
   deadlineTime.textContent = formatTimePart(latestShipTime)
 
-  actions.append(doneButton, splitButton)
-  root.append(actions, title, timeRange, duration, deadlineLabel, deadlineDate, deadlineTime)
+  if (actions.childElementCount > 0) {
+    root.append(actions)
+  }
+
+  if (pauseButton.parentElement === null && pauseButton.textContent) {
+    root.append(pauseButton)
+  }
+
+  root.append(title, timeRange, duration, deadlineLabel, deadlineDate, deadlineTime)
   return { domNodes: [root] }
 }
 
@@ -323,8 +359,8 @@ function bindEventTooltip(info) {
 
 async function handleEventReceive(info) {
   try {
-    const start = normalizeScheduleStart(info.event.start)
-    const end = addMinutes(start, info.event.extendedProps.actualMinutes)
+    const start = normalizeScheduleBoundary(normalizeScheduleStart(info.event.start))
+    const end = normalizeScheduleBoundary(addMinutes(start, info.event.extendedProps.actualMinutes))
     const latest = info.event.extendedProps.latestShipTime
       ? new Date(info.event.extendedProps.latestShipTime)
       : null
@@ -337,7 +373,7 @@ async function handleEventReceive(info) {
     await store.scheduleWorkOrder(info.event.extendedProps.workOrderId, scheduleWindow.start, scheduleWindow.end)
     clearInteractionPreview()
   } catch (error) {
-    store.error = error.message
+    store.setError(error.message)
     info.revert?.()
     info.event.remove()
     clearInteractionPreview()
@@ -346,14 +382,22 @@ async function handleEventReceive(info) {
 
 async function handleEventMove(info) {
   try {
-    const start = normalizeScheduleStart(info.event.start)
-    const end = currentView.value === 'timeGridWeek'
+    const start = normalizeScheduleBoundary(normalizeScheduleStart(info.event.start))
+    const rawEnd = currentView.value === 'timeGridWeek'
       ? info.event.end || addMinutes(start, info.event.extendedProps.actualMinutes)
       : addMinutes(start, info.event.extendedProps.actualMinutes)
+    const end = normalizeScheduleBoundary(rawEnd)
     const latest = info.event.extendedProps.latestShipTime
       ? new Date(info.event.extendedProps.latestShipTime)
       : null
-    const scheduleWindow = resolveNonOverlappingWindow(info.event, start, end, latest, minScheduleStart())
+    const scheduleWindow = resolveNonOverlappingWindow(
+      info.event,
+      start,
+      end,
+      latest,
+      minScheduleStart(),
+      info.oldEvent?.start || interactionOriginalStart(info.event)
+    )
 
     if (!scheduleWindow.valid) {
       throw new Error(scheduleWindow.invalidReason || '排程时间不可用')
@@ -366,7 +410,7 @@ async function handleEventMove(info) {
     )
     clearInteractionPreview()
   } catch (error) {
-    store.error = error.message
+    store.setError(error.message)
     info.revert()
     clearInteractionPreview()
   }
@@ -394,7 +438,9 @@ function focusEvent(event) {
     price: event.extendedProps.price,
     remark: event.extendedProps.remark,
     actualMinutes: event.extendedProps.totalMinutes || event.extendedProps.actualMinutes,
-    totalMinutes: event.extendedProps.totalMinutes
+    totalMinutes: event.extendedProps.totalMinutes,
+    paused: event.extendedProps.paused,
+    overdue: event.extendedProps.overdue
   })
 }
 
@@ -507,7 +553,13 @@ function calendarEventClassNames(event, focusedId) {
 }
 
 function calendarEventClassNamesFromProps(extendedProps, existingClassNames, focusedId) {
-  const managedClassNames = new Set(['work-order-selected', 'work-order-done', 'work-order-urgent'])
+  const managedClassNames = new Set([
+    'work-order-selected',
+    'work-order-done',
+    'work-order-urgent',
+    'work-order-overdue',
+    'work-order-paused'
+  ])
   const classNames = new Set(
     (Array.isArray(existingClassNames) ? existingClassNames : []).filter(
       (className) => !managedClassNames.has(className)
@@ -524,6 +576,14 @@ function calendarEventClassNamesFromProps(extendedProps, existingClassNames, foc
 
   if (extendedProps.urgent) {
     classNames.add('work-order-urgent')
+  }
+
+  if (extendedProps.overdue) {
+    classNames.add('work-order-overdue')
+  }
+
+  if (extendedProps.paused) {
+    classNames.add('work-order-paused')
   }
 
   return [...classNames]
@@ -551,6 +611,14 @@ function eventClassNames(info, focusedId) {
 
   if (info.event.extendedProps.urgent) {
     classNames.push('work-order-urgent')
+  }
+
+  if (info.event.extendedProps.overdue) {
+    classNames.push('work-order-overdue')
+  }
+
+  if (info.event.extendedProps.paused) {
+    classNames.push('work-order-paused')
   }
 
   return classNames
@@ -625,7 +693,7 @@ async function unscheduleEvent(event, options = {}) {
       emit('focus-order', null)
     }
   } catch (error) {
-    store.error = error.message
+    store.setError(error.message)
     await store.refreshCalendarEvents()
   }
 }
@@ -634,14 +702,14 @@ async function splitEvent(event) {
   const splitAt = resolveSplitAt(event)
 
   if (!splitAt) {
-    store.error = '片段至少 30 分钟才能拆分'
+    store.setError('片段至少 30 分钟才能拆分')
     return
   }
 
   try {
     await store.splitWorkOrderSegment(event.extendedProps.segmentId, splitAt)
   } catch (error) {
-    store.error = error.message
+    store.setError(error.message)
   }
 }
 
@@ -659,6 +727,7 @@ function handleEventDragStop(info) {
 
 function handleInteractionStop() {
   ignoreNextCalendarClick.value = true
+  activeInteraction.value = null
   window.setTimeout(() => {
     ignoreNextCalendarClick.value = false
   }, 150)
@@ -676,14 +745,33 @@ function handlePointerMove(event) {
 
 async function toggleEventDone(event) {
   try {
-    if (event.extendedProps.status === 'DONE') {
-      await store.reopen(event.extendedProps.workOrderId)
-    } else {
+    if (event.extendedProps.status !== 'DONE') {
       await store.markSegmentAsDone(event.extendedProps.segmentId)
     }
   } catch (error) {
-    store.error = error.message
+    store.setError(error.message)
   }
+}
+
+async function toggleEventPause(event) {
+  try {
+    if (event.extendedProps.paused) {
+      await store.resumeSegment(event.extendedProps.segmentId)
+    } else {
+      await store.pauseSegment(event.extendedProps.segmentId)
+    }
+  } catch (error) {
+    store.setError(error.message)
+  }
+}
+
+function canShowPauseButton(event) {
+  if (event.extendedProps.status === 'DONE' || !event.start || !event.extendedProps.segmentId) {
+    return false
+  }
+
+  const now = new Date()
+  return isSameDate(event.start, now) && now >= event.start
 }
 
 function handleInteractionStart(info, action) {
@@ -693,12 +781,16 @@ function handleInteractionStart(info, action) {
 
   focusInteractionEvent(info.event)
   interactionAction.value = action
-  const start = info.event.start
-  const end = info.event.end || addMinutes(start, info.event.extendedProps.actualMinutes)
+  activeInteraction.value = {
+    segmentId: String(info.event.extendedProps.segmentId || ''),
+    start: info.event.start ? new Date(info.event.start) : null
+  }
+  const start = normalizeScheduleBoundary(info.event.start)
+  const end = normalizeScheduleBoundary(info.event.end || addMinutes(start, info.event.extendedProps.actualMinutes))
   const latest = info.event.extendedProps.latestShipTime
     ? new Date(info.event.extendedProps.latestShipTime)
     : null
-  const scheduleWindow = resolveNonOverlappingWindow(info.event, start, end, latest, minScheduleStart())
+  const scheduleWindow = resolveNonOverlappingWindow(info.event, start, end, latest, minScheduleStart(), info.event.start)
 
   updateInteractionPreview(
     action,
@@ -711,13 +803,13 @@ function handleInteractionStart(info, action) {
 }
 
 function resolveInteractionWindow(dropInfo, draggedEvent) {
-  const start = currentView.value === 'dayGridMonth' || dropInfo.allDay
+  const start = normalizeScheduleBoundary(currentView.value === 'dayGridMonth' || dropInfo.allDay
     ? dateAtWorkdayStart(dropInfo.start)
-    : dropInfo.start
+    : dropInfo.start)
   const duration = draggedEvent.extendedProps.actualMinutes || diffMinutes(draggedEvent.start, draggedEvent.end)
-  const end = currentView.value === 'timeGridWeek' && dropInfo.end
+  const end = normalizeScheduleBoundary(currentView.value === 'timeGridWeek' && dropInfo.end
     ? dropInfo.end
-    : addMinutes(start, duration)
+    : addMinutes(start, duration))
 
   return { start, end }
 }
@@ -737,7 +829,7 @@ function resolveSplitAt(event) {
   return addMinutes(event.start, offsetMinutes)
 }
 
-function resolveNonOverlappingWindow(draggedEvent, start, end, latest, minStart) {
+function resolveNonOverlappingWindow(draggedEvent, start, end, latest, minStart, originalStart = null) {
   const duration = diffMinutes(start, end)
   const directWindow = { start, end }
 
@@ -750,10 +842,10 @@ function resolveNonOverlappingWindow(draggedEvent, start, end, latest, minStart)
   }
 
   if (getDifferentWorkOrderOverlaps(draggedEvent, start, end).length === 0) {
-    return withScheduleWindowValidation(directWindow, latest, minStart)
+    return withScheduleWindowValidation(draggedEvent, directWindow, latest, minStart, originalStart)
   }
 
-  const directValidation = withScheduleWindowValidation(directWindow, latest, minStart)
+  const directValidation = withScheduleWindowValidation(draggedEvent, directWindow, latest, minStart, originalStart)
 
   if (!directValidation.valid) {
     return directValidation
@@ -764,7 +856,7 @@ function resolveNonOverlappingWindow(draggedEvent, start, end, latest, minStart)
     buildAdjacentWindow(draggedEvent, start, duration, 'after')
   ]
     .filter(Boolean)
-    .map((candidate) => withScheduleWindowValidation(candidate, latest, minStart))
+    .map((candidate) => withScheduleWindowValidation(draggedEvent, candidate, latest, minStart, originalStart))
     .filter((candidate) => candidate.valid)
     .sort((left, right) => {
       const leftShift = Math.abs(left.start.getTime() - start.getTime())
@@ -809,7 +901,17 @@ function buildAdjacentWindow(draggedEvent, desiredStart, duration, direction) {
   return null
 }
 
-function withScheduleWindowValidation(scheduleWindow, latest, minStart) {
+function withScheduleWindowValidation(draggedEvent, scheduleWindow, latest, minStart, originalStart) {
+  const lockedValidation = validateLockedScheduleWindow(draggedEvent, scheduleWindow, originalStart)
+
+  if (!lockedValidation.valid) {
+    return {
+      ...scheduleWindow,
+      valid: false,
+      invalidReason: lockedValidation.invalidReason
+    }
+  }
+
   const minStartAllowed = !minStart || scheduleWindow.start >= minStart
   const deadlineAllowed = !latest || scheduleWindow.end <= latest
 
@@ -820,6 +922,50 @@ function withScheduleWindowValidation(scheduleWindow, latest, minStart) {
       ? '不可排到今天以前'
       : deadlineAllowed ? '' : `超过最晚发货时间 ${formatDateTime(latest)}`
   }
+}
+
+function validateLockedScheduleWindow(draggedEvent, scheduleWindow, originalStart) {
+  if (!draggedEvent.extendedProps.scheduleStartLocked) {
+    return { valid: true, invalidReason: '' }
+  }
+
+  const lockedStart = originalStart ? normalizeScheduleBoundary(originalStart) : null
+
+  if (lockedStart && scheduleWindow.start.getTime() !== lockedStart.getTime()) {
+    return {
+      valid: false,
+      invalidReason: '已开始计时的工单不可调整开始时间'
+    }
+  }
+
+  const minEnd = minLockedScheduleEnd(draggedEvent)
+  if (minEnd && scheduleWindow.end < minEnd) {
+    return {
+      valid: false,
+      invalidReason: '排程结束时间不可早于最后暂停时间'
+    }
+  }
+
+  return { valid: true, invalidReason: '' }
+}
+
+function minLockedScheduleEnd(draggedEvent) {
+  if (!draggedEvent.extendedProps.latestPausedAt) {
+    return null
+  }
+
+  const latestPausedAt = new Date(draggedEvent.extendedProps.latestPausedAt)
+  return Number.isNaN(latestPausedAt.getTime()) ? null : normalizeScheduleBoundary(latestPausedAt)
+}
+
+function interactionOriginalStart(event) {
+  const segmentId = String(event.extendedProps.segmentId || '')
+
+  if (!activeInteraction.value?.start || !segmentId || activeInteraction.value.segmentId !== segmentId) {
+    return event.start || null
+  }
+
+  return activeInteraction.value.start
 }
 
 function getDifferentWorkOrderOverlaps(draggedEvent, start, end) {
@@ -877,12 +1023,15 @@ function showEventTooltip(event, pointerEvent) {
   const latestShipTime = event.extendedProps.latestShipTime
   const segmentMinutes = event.extendedProps.actualMinutes || diffMinutes(event.start, event.end)
   const totalMinutes = event.extendedProps.totalMinutes || segmentMinutes
+  const pausedMinutes = event.extendedProps.pausedMinutes || 0
 
   eventTooltip.value = {
     title: `${event.extendedProps.urgent ? '[加急] ' : ''}${event.extendedProps.orderNo || event.title}`,
     timeRange: `${formatDateTime(event.start)} - ${formatDateTime(event.end)}`,
-    durationText: `总排程 ${formatDurationText(totalMinutes)}`,
-    statusText: event.extendedProps.status === 'DONE' ? '完成' : '未完成',
+    durationText: pausedMinutes > 0
+      ? `总排程 ${formatDurationText(totalMinutes)}，暂停 ${formatDurationText(pausedMinutes)}`
+      : `总排程 ${formatDurationText(totalMinutes)}`,
+    statusText: event.extendedProps.status === 'DONE' ? '完成' : event.extendedProps.paused ? '暂停中' : '未完成',
     latestText: formatDateTime(latestShipTime),
     priceText: event.extendedProps.price ? `$${event.extendedProps.price}` : '',
     remarkText: formatRemarkText(event.extendedProps.remark)
@@ -958,6 +1107,12 @@ function todayStart() {
   return today
 }
 
+function isSameDate(left, right) {
+  return left.getFullYear() === right.getFullYear()
+    && left.getMonth() === right.getMonth()
+    && left.getDate() === right.getDate()
+}
+
 function parseDateOnly(value) {
   if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     return null
@@ -1013,6 +1168,18 @@ function normalizeScheduleStart(date) {
   }
 
   return date
+}
+
+function normalizeScheduleBoundary(date) {
+  const next = new Date(date)
+  next.setSeconds(0, 0)
+
+  const remainder = next.getMinutes() % scheduleGranularityMinutes
+  if (remainder !== 0) {
+    next.setMinutes(next.getMinutes() + scheduleGranularityMinutes - remainder)
+  }
+
+  return next
 }
 
 function formatDateTime(value) {

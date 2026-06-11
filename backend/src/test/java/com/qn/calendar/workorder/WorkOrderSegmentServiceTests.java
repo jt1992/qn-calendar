@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 import com.qn.calendar.workorder.constant.WorkOrderStatus;
@@ -11,7 +12,9 @@ import com.qn.calendar.workorder.dto.ScheduleWorkOrderRequest;
 import com.qn.calendar.workorder.dto.SplitWorkOrderSegmentRequest;
 import com.qn.calendar.workorder.dto.WorkOrderSegmentListResponse;
 import com.qn.calendar.workorder.entity.WorkOrder;
+import com.qn.calendar.workorder.entity.WorkOrderSegment;
 import com.qn.calendar.workorder.repository.WorkOrderRepository;
+import com.qn.calendar.workorder.repository.WorkOrderSegmentPauseRepository;
 import com.qn.calendar.workorder.repository.WorkOrderSegmentRepository;
 import com.qn.calendar.workorder.service.WorkOrderSegmentService;
 
@@ -32,8 +35,12 @@ class WorkOrderSegmentServiceTests {
     @Autowired
     private WorkOrderSegmentRepository segmentRepository;
 
+    @Autowired
+    private WorkOrderSegmentPauseRepository pauseRepository;
+
     @BeforeEach
     void setUp() {
+        pauseRepository.deleteAll();
         segmentRepository.deleteAll();
         workOrderRepository.deleteAll();
     }
@@ -135,7 +142,7 @@ class WorkOrderSegmentServiceTests {
     }
 
     @Test
-    void completingSegmentExtendsEndToCurrentTimeRoundedUpToFifteenMinutes() {
+    void completingSegmentExtendsEndToCurrentTime() {
         WorkOrder workOrder = workOrderRepository.save(order(
                 "ORD-COMPLETE-EXTEND",
                 LocalDateTime.of(2026, 6, 9, 2, 0)
@@ -153,8 +160,8 @@ class WorkOrderSegmentServiceTests {
         assertThat(response.workOrder().status()).isEqualTo(WorkOrderStatus.DONE);
         assertThat(response.segments()).hasSize(1);
         assertThat(response.segments().getFirst().scheduledStart()).isEqualTo(LocalDateTime.of(2026, 6, 9, 0, 0));
-        assertThat(response.segments().getFirst().scheduledEnd()).isEqualTo(LocalDateTime.of(2026, 6, 9, 1, 30));
-        assertThat(response.totalMinutes()).isEqualTo(90);
+        assertThat(response.segments().getFirst().scheduledEnd()).isEqualTo(LocalDateTime.of(2026, 6, 9, 1, 26, 1));
+        assertThat(response.totalMinutes()).isEqualTo(86);
     }
 
     @Test
@@ -174,11 +181,193 @@ class WorkOrderSegmentServiceTests {
         );
 
         assertThat(response.workOrder().status()).isEqualTo(WorkOrderStatus.DONE);
-        assertThat(response.workOrder().completedAt()).isEqualTo(LocalDateTime.of(2026, 6, 9, 1, 30));
+        assertThat(response.workOrder().completedAt()).isEqualTo(LocalDateTime.of(2026, 6, 9, 1, 26, 1));
         assertThat(response.segments()).hasSize(1);
         assertThat(response.segments().getFirst().scheduledStart()).isEqualTo(LocalDateTime.of(2026, 6, 8, 0, 0));
         assertThat(response.segments().getFirst().scheduledEnd()).isEqualTo(LocalDateTime.of(2026, 6, 8, 1, 0));
         assertThat(response.totalMinutes()).isEqualTo(60);
+    }
+
+    @Test
+    void resumeAfterScheduledEndExtendsCurrentSegmentAndPushesFollowingOrdersEvenWhenTheyBecomeOverdue() {
+        WorkOrder current = workOrderRepository.save(order(
+                "ORD-PAUSE-CURRENT",
+                LocalDateTime.of(2026, 6, 8, 5, 0)
+        ));
+        WorkOrder following = workOrderRepository.save(order(
+                "ORD-PAUSE-FOLLOWING",
+                LocalDateTime.of(2026, 6, 8, 6, 0)
+        ));
+        WorkOrderSegmentListResponse currentCreated = service.createSegment(current.getId(), request(
+                LocalDateTime.of(2026, 6, 8, 3, 0),
+                LocalDateTime.of(2026, 6, 8, 5, 0)
+        ));
+        service.createSegment(following.getId(), request(
+                LocalDateTime.of(2026, 6, 8, 5, 0),
+                LocalDateTime.of(2026, 6, 8, 6, 0)
+        ));
+
+        Long currentSegmentId = currentCreated.segments().getFirst().segmentId();
+        service.pauseSegment(currentSegmentId, LocalDateTime.of(2026, 6, 8, 4, 0));
+        WorkOrderSegmentListResponse response = service.resumeSegment(
+                currentSegmentId,
+                LocalDateTime.of(2026, 6, 8, 5, 30)
+        );
+
+        assertThat(response.segments().getFirst().scheduledEnd()).isEqualTo(LocalDateTime.of(2026, 6, 8, 5, 30));
+        assertThat(response.segments().getFirst().paused()).isFalse();
+        assertThat(response.segments().getFirst().pausedMinutes()).isEqualTo(90);
+        assertThat(response.segments().getFirst().overdue()).isTrue();
+
+        WorkOrderSegment followingSegment = segmentRepository
+                .findByWorkOrderIdOrderByScheduledStartAscScheduledEndAscIdAsc(following.getId())
+                .getFirst();
+        assertThat(followingSegment.getScheduledStart()).isEqualTo(LocalDateTime.of(2026, 6, 8, 5, 30));
+        assertThat(followingSegment.getScheduledEnd()).isEqualTo(LocalDateTime.of(2026, 6, 8, 6, 30));
+        assertThat(workOrderRepository.findById(following.getId()).orElseThrow().getScheduledEnd())
+                .isEqualTo(LocalDateTime.of(2026, 6, 8, 6, 30));
+    }
+
+    @Test
+    void supportsMultiplePauseResumeIntervals() {
+        WorkOrder workOrder = workOrderRepository.save(order("ORD-MULTI-PAUSE"));
+        WorkOrderSegmentListResponse created = service.createSegment(workOrder.getId(), request(
+                LocalDateTime.of(2026, 6, 8, 3, 0),
+                LocalDateTime.of(2026, 6, 8, 5, 0)
+        ));
+        Long segmentId = created.segments().getFirst().segmentId();
+
+        service.pauseSegment(segmentId, LocalDateTime.of(2026, 6, 8, 4, 0));
+        service.resumeSegment(segmentId, LocalDateTime.of(2026, 6, 8, 4, 10));
+        service.pauseSegment(segmentId, LocalDateTime.of(2026, 6, 8, 4, 30));
+        WorkOrderSegmentListResponse response = service.resumeSegment(
+                segmentId,
+                LocalDateTime.of(2026, 6, 8, 4, 45)
+        );
+
+        assertThat(response.segments().getFirst().scheduledEnd()).isEqualTo(LocalDateTime.of(2026, 6, 8, 5, 0));
+        assertThat(response.segments().getFirst().pausedMinutes()).isEqualTo(25);
+        assertThat(pauseRepository.findByWorkOrderId(workOrder.getId())).hasSize(2);
+    }
+
+    @Test
+    void resumeBeforeScheduledEndDoesNotExtendCalendarEnd() {
+        WorkOrder workOrder = workOrderRepository.save(order("ORD-PAUSE-SECONDS"));
+        WorkOrderSegmentListResponse created = service.createSegment(workOrder.getId(), request(
+                LocalDateTime.of(2026, 6, 8, 3, 0),
+                LocalDateTime.of(2026, 6, 8, 5, 0)
+        ));
+        Long segmentId = created.segments().getFirst().segmentId();
+
+        service.pauseSegment(segmentId, LocalDateTime.of(2026, 6, 8, 4, 0, 7));
+        WorkOrderSegmentListResponse response = service.resumeSegment(
+                segmentId,
+                LocalDateTime.of(2026, 6, 8, 4, 10, 19)
+        );
+
+        assertThat(response.segments().getFirst().scheduledEnd()).isEqualTo(LocalDateTime.of(2026, 6, 8, 5, 0));
+        assertThat(response.segments().getFirst().pausedMinutes()).isEqualTo(10);
+    }
+
+    @Test
+    void resumeAfterScheduledEndRoundsExtendedCalendarEndToFifteenMinuteBoundary() {
+        WorkOrder workOrder = workOrderRepository.save(order("ORD-PAUSE-AFTER-END"));
+        WorkOrderSegmentListResponse created = service.createSegment(workOrder.getId(), request(
+                LocalDateTime.of(2026, 6, 8, 3, 0),
+                LocalDateTime.of(2026, 6, 8, 5, 0)
+        ));
+        Long segmentId = created.segments().getFirst().segmentId();
+
+        service.pauseSegment(segmentId, LocalDateTime.of(2026, 6, 8, 4, 0, 7));
+        WorkOrderSegmentListResponse response = service.resumeSegment(
+                segmentId,
+                LocalDateTime.of(2026, 6, 8, 5, 10, 19)
+        );
+
+        assertThat(response.segments().getFirst().scheduledEnd()).isEqualTo(LocalDateTime.of(2026, 6, 8, 5, 15));
+        assertThat(response.segments().getFirst().pausedMinutes()).isEqualTo(70);
+    }
+
+    @Test
+    void todaySegmentWithPauseHistoryLocksStartTime() {
+        LocalDate today = LocalDate.now();
+        WorkOrder workOrder = workOrderRepository.save(order(
+                "ORD-TODAY-LOCK-START",
+                today.plusDays(1).atTime(18, 0)
+        ));
+        WorkOrderSegmentListResponse created = service.createSegment(workOrder.getId(), request(
+                today.atTime(1, 0),
+                today.atTime(5, 0)
+        ));
+        Long segmentId = created.segments().getFirst().segmentId();
+
+        service.pauseSegment(segmentId, today.atTime(3, 0));
+        WorkOrderSegmentListResponse resumed = service.resumeSegment(segmentId, today.atTime(3, 15));
+
+        assertThat(resumed.segments().getFirst().scheduleStartLocked()).isTrue();
+        assertThat(resumed.segments().getFirst().latestPausedAt()).isEqualTo(today.atTime(3, 0));
+        assertThatThrownBy(() -> service.updateSegment(segmentId, request(
+                today.atTime(1, 15),
+                today.atTime(5, 30)
+        )))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("已开始计时的工单不可调整开始时间");
+    }
+
+    @Test
+    void todaySegmentWithPauseHistoryCanResizeEndNoEarlierThanLastPause() {
+        LocalDate today = LocalDate.now();
+        WorkOrder workOrder = workOrderRepository.save(order(
+                "ORD-TODAY-LOCK-END",
+                today.plusDays(1).atTime(18, 0)
+        ));
+        WorkOrderSegmentListResponse created = service.createSegment(workOrder.getId(), request(
+                today.atTime(1, 0),
+                today.atTime(5, 0)
+        ));
+        Long segmentId = created.segments().getFirst().segmentId();
+
+        service.pauseSegment(segmentId, today.atTime(3, 7));
+        service.resumeSegment(segmentId, today.atTime(3, 15));
+
+        assertThatThrownBy(() -> service.updateSegment(segmentId, request(
+                today.atTime(1, 0),
+                today.atTime(3, 0)
+        )))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("排程结束时间不可早于最后暂停时间");
+
+        WorkOrderSegmentListResponse response = service.updateSegment(segmentId, request(
+                today.atTime(1, 0),
+                today.atTime(3, 15)
+        ));
+
+        assertThat(response.segments().getFirst().scheduledStart()).isEqualTo(today.atTime(1, 0));
+        assertThat(response.segments().getFirst().scheduledEnd()).isEqualTo(today.atTime(3, 15));
+        assertThat(response.segments().getFirst().scheduleStartLocked()).isTrue();
+    }
+
+    @Test
+    void completingWhilePausedClosesPauseAndSubtractsThroughCompletion() {
+        WorkOrder workOrder = workOrderRepository.save(order("ORD-COMPLETE-PAUSED"));
+        WorkOrderSegmentListResponse created = service.createSegment(workOrder.getId(), request(
+                LocalDateTime.of(2026, 6, 8, 3, 0),
+                LocalDateTime.of(2026, 6, 8, 5, 0)
+        ));
+        Long segmentId = created.segments().getFirst().segmentId();
+
+        service.pauseSegment(segmentId, LocalDateTime.of(2026, 6, 8, 4, 0));
+        WorkOrderSegmentListResponse response = service.completeSegment(
+                segmentId,
+                LocalDateTime.of(2026, 6, 8, 4, 30)
+        );
+
+        assertThat(response.workOrder().status()).isEqualTo(WorkOrderStatus.DONE);
+        assertThat(response.segments().getFirst().scheduledEnd()).isEqualTo(LocalDateTime.of(2026, 6, 8, 4, 30));
+        assertThat(response.segments().getFirst().paused()).isFalse();
+        assertThat(response.segments().getFirst().pausedMinutes()).isEqualTo(30);
+        assertThat(response.totalMinutes()).isEqualTo(90);
+        assertThat(pauseRepository.findFirstBySegmentIdAndResumedAtIsNullOrderByPausedAtDescIdDesc(segmentId)).isEmpty();
     }
 
     @Test

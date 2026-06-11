@@ -103,6 +103,7 @@ function formatHourlyRate(value) {
             <th>订单价格</th>
             <th>原本预估时长</th>
             <th>实际总时长</th>
+            <th>暂停时长</th>
             <th>差异时间</th>
             <th>时薪</th>
           </tr>
@@ -116,6 +117,7 @@ function formatHourlyRate(value) {
             <td>{{ formatCurrency(row.price) }}</td>
             <td>{{ formatDurationText(row.estimatedMinutes) }}</td>
             <td>{{ formatDurationText(row.actualTotalMinutes) }}</td>
+            <td>{{ formatDurationText(row.pausedMinutes) }}</td>
             <td>
               <span class="delta-badge" :class="deltaClass(row.deltaMinutes)">
                 {{ formatDeltaText(row.deltaMinutes) }}
@@ -124,7 +126,7 @@ function formatHourlyRate(value) {
             <td>{{ formatHourlyRate(row.hourlyRate) }}</td>
           </tr>
           <tr v-if="stats.length === 0">
-            <td class="empty-state" colspan="7">尚无已完成工单</td>
+            <td class="empty-state" colspan="8">尚无已完成工单</td>
           </tr>
         </tbody>
       </table>

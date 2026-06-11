@@ -40,13 +40,14 @@
 
     <table cellpadding="0" cellspacing="0" width="100%" style="width:100%;max-width:none;border-collapse:collapse;table-layout:fixed;border:1px solid #cfd8e3;">
       <colgroup>
-        <col style="width:17%;" />
-        <col style="width:31%;" />
+        <col style="width:16%;" />
+        <col style="width:29%;" />
         <col style="width:8%;" />
         <col style="width:12%;" />
-        <col style="width:12%;" />
-        <col style="width:10%;" />
-        <col style="width:10%;" />
+        <col style="width:11%;" />
+        <col style="width:8%;" />
+        <col style="width:8%;" />
+        <col style="width:8%;" />
       </colgroup>
       <thead>
         <tr>
@@ -55,13 +56,14 @@
           <th style="padding:6px 7px;border:1px solid #cfd8e3;background:#f3f6f8;text-align:left;font-size:16px;">订单价格</th>
           <th style="padding:6px 7px;border:1px solid #cfd8e3;background:#f3f6f8;text-align:left;font-size:16px;">原本预估时长</th>
           <th style="padding:6px 7px;border:1px solid #cfd8e3;background:#f3f6f8;text-align:left;font-size:16px;">实际总时长</th>
+          <th style="padding:6px 7px;border:1px solid #cfd8e3;background:#f3f6f8;text-align:left;font-size:16px;">暂停时长</th>
           <th style="padding:6px 7px;border:1px solid #cfd8e3;background:#f3f6f8;text-align:left;font-size:16px;">差异时间</th>
           <th style="padding:6px 7px;border:1px solid #cfd8e3;background:#f3f6f8;text-align:left;font-size:16px;">时薪</th>
         </tr>
       </thead>
       <tbody>
         <tr th:if="${#lists.isEmpty(document.rows)}">
-          <td colspan="7" style="padding:14px;border:1px solid #d7e0ea;color:#607080;text-align:center;font-size:16px;">
+          <td colspan="8" style="padding:14px;border:1px solid #d7e0ea;color:#607080;text-align:center;font-size:16px;">
             尚无已完成工单
           </td>
         </tr>
@@ -71,6 +73,7 @@
           <td style="padding:5px 7px;border:1px solid #d7e0ea;font-size:16px;vertical-align:top;white-space:nowrap;" th:text="${row.price}">$300</td>
           <td style="padding:5px 7px;border:1px solid #d7e0ea;font-size:16px;vertical-align:top;white-space:nowrap;" th:text="${row.estimatedDuration}">3小时0分钟</td>
           <td style="padding:5px 7px;border:1px solid #d7e0ea;font-size:16px;vertical-align:top;white-space:nowrap;" th:text="${row.actualDuration}">2小时30分钟</td>
+          <td style="padding:5px 7px;border:1px solid #d7e0ea;font-size:16px;vertical-align:top;white-space:nowrap;" th:text="${row.pausedDuration}">0小时30分钟</td>
           <td style="padding:5px 7px;border:1px solid #d7e0ea;font-size:16px;vertical-align:top;white-space:nowrap;">
             <span
               th:style="${row.deltaTone == 'late'}

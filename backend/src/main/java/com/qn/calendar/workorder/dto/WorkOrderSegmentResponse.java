@@ -24,10 +24,35 @@ public record WorkOrderSegmentResponse(
         WorkOrderStatus status,
         LocalDateTime scheduledStart,
         LocalDateTime scheduledEnd,
-        LocalDateTime completedAt
+        LocalDateTime completedAt,
+        boolean paused,
+        int pausedMinutes,
+        boolean overdue,
+        boolean scheduleStartLocked,
+        LocalDateTime latestPausedAt
 ) {
 
     public static WorkOrderSegmentResponse from(WorkOrderSegment segment, int totalMinutes) {
+        return from(segment, totalMinutes, false, 0, false, null);
+    }
+
+    public static WorkOrderSegmentResponse from(
+            WorkOrderSegment segment,
+            int totalMinutes,
+            boolean paused,
+            int pausedMinutes
+    ) {
+        return from(segment, totalMinutes, paused, pausedMinutes, false, null);
+    }
+
+    public static WorkOrderSegmentResponse from(
+            WorkOrderSegment segment,
+            int totalMinutes,
+            boolean paused,
+            int pausedMinutes,
+            boolean scheduleStartLocked,
+            LocalDateTime latestPausedAt
+    ) {
         WorkOrder workOrder = segment.getWorkOrder();
         return new WorkOrderSegmentResponse(
                 segment.getId(),
@@ -45,7 +70,12 @@ public record WorkOrderSegmentResponse(
                 workOrder.getStatus(),
                 segment.getScheduledStart(),
                 segment.getScheduledEnd(),
-                workOrder.getCompletedAt()
+                workOrder.getCompletedAt(),
+                paused,
+                pausedMinutes,
+                segment.getScheduledEnd().isAfter(workOrder.getLatestShipTime()),
+                scheduleStartLocked,
+                latestPausedAt
         );
     }
 

@@ -118,7 +118,7 @@ async function updateDuration(workOrder, minutes) {
   try {
     await store.updateWorkOrderDuration(workOrder.id, actualMinutes)
   } catch (error) {
-    store.error = error.message
+    store.setError(error.message)
   } finally {
     setDurationUpdating(workOrder.id, false)
   }

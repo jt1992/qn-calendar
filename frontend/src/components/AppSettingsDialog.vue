@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch } from 'vue'
+import { onBeforeUnmount, ref, watch } from 'vue'
 import { Save, X } from '@lucide/vue'
 import { useAppSettingsStore } from '../stores/appSettingsStore'
 
@@ -15,6 +15,8 @@ const settingsStore = useAppSettingsStore()
 const amountInput = ref('')
 const fieldError = ref('')
 const savedMessage = ref('')
+let fieldErrorTimer = null
+let savedMessageTimer = null
 
 watch(
   () => props.open,
@@ -23,23 +25,28 @@ watch(
       return
     }
 
-    fieldError.value = ''
-    savedMessage.value = ''
+    clearFieldError()
+    clearSavedMessage()
     amountInput.value = formatAmount(settingsStore.settings.estimatedHourlyBaseAmount)
 
     try {
       await settingsStore.fetchSettings()
       amountInput.value = formatAmount(settingsStore.settings.estimatedHourlyBaseAmount)
     } catch (error) {
-      fieldError.value = error.message
+      showFieldError(error.message)
     }
   },
   { immediate: true }
 )
 
+onBeforeUnmount(() => {
+  clearFieldError()
+  clearSavedMessage()
+})
+
 async function submit() {
-  fieldError.value = ''
-  savedMessage.value = ''
+  clearFieldError()
+  clearSavedMessage()
 
   const amount = validateAmount()
 
@@ -52,9 +59,9 @@ async function submit() {
       estimatedHourlyBaseAmount: amount
     })
     amountInput.value = formatAmount(settingsStore.settings.estimatedHourlyBaseAmount)
-    savedMessage.value = '设置已保存'
+    showSavedMessage('设置已保存')
   } catch (error) {
-    fieldError.value = error.message
+    showFieldError(error.message)
   }
 }
 
@@ -62,23 +69,67 @@ function validateAmount() {
   const value = String(amountInput.value).trim()
 
   if (!value) {
-    fieldError.value = '预估工时基础金额不可为空'
+    showFieldError('预估工时基础金额不可为空')
     return null
   }
 
   if (!/^\d+(\.\d{1,2})?$/.test(value)) {
-    fieldError.value = '预估工时基础金额最多保留 2 位小数'
+    showFieldError('预估工时基础金额最多保留 2 位小数')
     return null
   }
 
   const amount = Number(value)
 
   if (!Number.isFinite(amount) || amount <= 0) {
-    fieldError.value = '预估工时基础金额必须大于 0'
+    showFieldError('预估工时基础金额必须大于 0')
     return null
   }
 
   return amount
+}
+
+function showFieldError(message) {
+  fieldError.value = message
+
+  if (fieldErrorTimer) {
+    window.clearTimeout(fieldErrorTimer)
+  }
+
+  fieldErrorTimer = window.setTimeout(() => {
+    fieldError.value = ''
+    fieldErrorTimer = null
+  }, 5000)
+}
+
+function clearFieldError() {
+  fieldError.value = ''
+
+  if (fieldErrorTimer) {
+    window.clearTimeout(fieldErrorTimer)
+    fieldErrorTimer = null
+  }
+}
+
+function showSavedMessage(message) {
+  savedMessage.value = message
+
+  if (savedMessageTimer) {
+    window.clearTimeout(savedMessageTimer)
+  }
+
+  savedMessageTimer = window.setTimeout(() => {
+    savedMessage.value = ''
+    savedMessageTimer = null
+  }, 5000)
+}
+
+function clearSavedMessage() {
+  savedMessage.value = ''
+
+  if (savedMessageTimer) {
+    window.clearTimeout(savedMessageTimer)
+    savedMessageTimer = null
+  }
 }
 
 function formatAmount(value) {

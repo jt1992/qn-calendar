@@ -10,8 +10,10 @@ import com.qn.calendar.workorder.constant.WorkOrderStatus;
 import com.qn.calendar.workorder.dto.ScheduleWorkOrderRequest;
 import com.qn.calendar.workorder.entity.WorkOrder;
 import com.qn.calendar.workorder.repository.WorkOrderRepository;
+import com.qn.calendar.workorder.repository.WorkOrderSegmentPauseRepository;
 import com.qn.calendar.workorder.repository.WorkOrderSegmentRepository;
 import com.qn.calendar.workorder.service.WorkOrderScheduleService;
+import com.qn.calendar.workorder.service.WorkOrderSegmentService;
 import com.qn.calendar.workorder.service.WorkOrderService;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -29,13 +31,20 @@ class WorkOrderServiceTests {
     private WorkOrderScheduleService scheduleService;
 
     @Autowired
+    private WorkOrderSegmentService segmentService;
+
+    @Autowired
     private WorkOrderRepository repository;
 
     @Autowired
     private WorkOrderSegmentRepository segmentRepository;
 
+    @Autowired
+    private WorkOrderSegmentPauseRepository pauseRepository;
+
     @BeforeEach
     void setUp() {
+        pauseRepository.deleteAll();
         segmentRepository.deleteAll();
         repository.deleteAll();
     }
@@ -167,7 +176,7 @@ class WorkOrderServiceTests {
     }
 
     @Test
-    void allowsReopeningDoneWorkOrderWhenItOverlapsActiveWorkOrder() {
+    void rejectsReopeningDoneWorkOrder() {
         WorkOrder completed = repository.save(order("ORD-DONE-OVERLAP"));
         completed.schedule(
                 LocalDateTime.of(2026, 6, 8, 12, 0),
@@ -184,10 +193,9 @@ class WorkOrderServiceTests {
         );
         repository.saveAndFlush(active);
 
-        WorkOrder reopened = service.reopen(completed.getId());
-
-        assertThat(reopened.getStatus()).isEqualTo(WorkOrderStatus.SCHEDULED);
-        assertThat(reopened.getCompletedAt()).isNull();
+        assertThatThrownBy(() -> service.reopen(completed.getId()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("完成工单不可复原");
     }
 
     @Test
@@ -218,9 +226,35 @@ class WorkOrderServiceTests {
         assertThat(stats.getFirst().remark()).isNull();
         assertThat(stats.getFirst().estimatedMinutes()).isEqualTo(180);
         assertThat(stats.getFirst().actualTotalMinutes()).isEqualTo(150);
+        assertThat(stats.getFirst().pausedMinutes()).isZero();
         assertThat(stats.getFirst().deltaMinutes()).isEqualTo(-30);
         assertThat(stats.getFirst().hourlyRate()).isEqualByComparingTo("120.00");
         assertThat(stats.getFirst().orderTime()).isNull();
+    }
+
+    @Test
+    void completedStatsSubtractPausedMinutesFromScheduledSpan() {
+        WorkOrder completed = repository.save(order("ORD-PAUSED-STATS"));
+        var created = scheduleService.schedule(
+                completed.getId(),
+                new ScheduleWorkOrderRequest(
+                        LocalDateTime.of(2026, 6, 8, 3, 0),
+                        LocalDateTime.of(2026, 6, 8, 5, 0)
+                )
+        );
+        Long segmentId = created.segments().getFirst().segmentId();
+
+        segmentService.pauseSegment(segmentId, LocalDateTime.of(2026, 6, 8, 4, 0));
+        segmentService.resumeSegment(segmentId, LocalDateTime.of(2026, 6, 8, 4, 30));
+        segmentService.completeSegment(segmentId, LocalDateTime.of(2026, 6, 8, 5, 30));
+
+        var stats = service.getCompletedWorkOrderStats();
+
+        assertThat(stats).hasSize(1);
+        assertThat(stats.getFirst().actualTotalMinutes()).isEqualTo(120);
+        assertThat(stats.getFirst().pausedMinutes()).isEqualTo(30);
+        assertThat(stats.getFirst().deltaMinutes()).isEqualTo(-60);
+        assertThat(stats.getFirst().hourlyRate()).isEqualByComparingTo("150.00");
     }
 
     private WorkOrder order(String orderNo) {
