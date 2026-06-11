@@ -13,10 +13,12 @@ spring:
       max-file-size: 20MB
       max-request-size: 20MB
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:h2:file:./data/qn-calendar;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE}
-    username: ${SPRING_DATASOURCE_USERNAME:sa}
+    url: ${SPRING_DATASOURCE_URL:jdbc:sqlite:${qn.calendar.data-dir}/qn-calendar.db}
+    driver-class-name: org.sqlite.JDBC
+    username: ${SPRING_DATASOURCE_USERNAME:}
     password: "${SPRING_DATASOURCE_PASSWORD:}"
   jpa:
+    database-platform: org.hibernate.community.dialect.SQLiteDialect
     hibernate:
       ddl-auto: update
     open-in-view: false
@@ -32,3 +34,8 @@ spring:
       "[mail.smtp.starttls.enable]": ${SMTP_USE_TLS:false}
       "[mail.smtp.ssl.enable]": ${SMTP_USE_SSL:false}
       "[mail.smtp.from]": "${SMTP_FROM:}"
+
+app:
+  desktop:
+    enabled: ${APP_DESKTOP_ENABLED:false}
+    open-browser-on-startup: ${APP_DESKTOP_OPEN_BROWSER:true}

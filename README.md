@@ -37,16 +37,70 @@ XLSX 訂單匯入與工單排程系統。前端使用 Vue 3.5、Vite 8、Pinia�
 - Email 週曆使用 15 分鐘 slot 與 `rowspan` 輸出 HTML，並依片段資料輸出週曆與訂單備註。
 - 前端支援 CSS 變數驅動的深色 / 淺色模式，預設深色模式。
 - 本機與 Docker Compose 後端都會讀取根目錄 `.env` 的 SMTP 設定。
-- Docker Compose PostgreSQL 使用 `postgres:17`，本機對外 port 為 `15432`。
+- 後端統一使用 SQLite；預設資料庫位置為 `~/.qn-calendar/qn-calendar.db`，可用 `QN_CALENDAR_DATA_DIR` 指定資料目錄。
+- Maven package 會在後端打包時建置 Vue 前端，並把靜態檔放入 Spring Boot jar。
+- Spring Boot 可直接服務 Vue production build，支援 SPA fallback，且不攔截 `/api/**`。
+- 桌面版可透過 jpackage 產生 Windows `.exe` 與 macOS `.dmg`；啟動後可自動開瀏覽器，並在支援系統匣的環境提供「開啟頁面」與「關閉系統」。
+- Docker Compose 改為單一後端服務，前端由 Spring Boot 提供，SQLite 資料保存在 Docker volume。
+- 推送 `v*` tag 後，GitHub Actions 會分別在 Windows/macOS runner 用 jpackage 產生安裝檔並上傳到 GitHub Release。
 
 ## 常用指令
+
+後端測試：
 
 ```bash
 cd backend
 mvn test
 ```
 
+前端單獨打包：
+
 ```bash
 cd frontend
 npm run build
 ```
+
+建立包含前端靜態檔的可執行 jar：
+
+```bash
+cd backend
+mvn package
+```
+
+以桌面模式啟動 jar：
+
+```bash
+cd backend
+java -Dapp.desktop.enabled=true -Djava.awt.headless=false -jar target/qn-calendar-backend-0.1.0.jar
+```
+
+Docker Compose：
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+啟動後開啟 `http://localhost:8080`。Docker 模式會關閉桌面瀏覽器與系統匣功能，SQLite 資料存在 `qn-calendar-data` volume。
+
+## 設定
+
+`.env` 可設定 SMTP 與埠號。SQLite 預設使用使用者家目錄：
+
+```properties
+SERVER_PORT=8080
+QN_CALENDAR_DATA_DIR=/absolute/path/to/qn-calendar-data
+```
+
+未設定 `QN_CALENDAR_DATA_DIR` 時，後端會使用 `~/.qn-calendar/qn-calendar.db`。
+
+## 桌面版打包與發佈
+
+jpackage 不能跨平台打包：Windows `.exe` 必須在 Windows runner/環境產生，macOS `.dmg` 必須在 macOS runner/環境產生。本專案已配置 `.github/workflows/release.yml`，推送 `v*` tag 後會自動建立 GitHub Release 並附上安裝檔。
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+jpackage 要求 installer 版本第一段為正整數；若 tag 使用 `v0.x.x`，GitHub Actions 會把 installer 內部版本轉成對應的 `v1.x.x` 格式，但 Release tag 仍維持原本名稱。若 repository 維持私有，下載 GitHub Release 安裝檔的人仍需要對應的 GitHub 存取權限；要提供給沒有權限的使用者時，需要改用公開 release repo 或外部發佈管道。

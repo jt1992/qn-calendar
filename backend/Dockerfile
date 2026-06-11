@@ -1,12 +1,18 @@
 FROM maven:3.9-eclipse-temurin-21 AS build
-WORKDIR /app
-COPY pom.xml .
-RUN mvn -q -DskipTests dependency:go-offline
-COPY src ./src
-RUN mvn -q -DskipTests package
+WORKDIR /workspace
+COPY backend/pom.xml backend/pom.xml
+COPY frontend/package*.json frontend/
+RUN mvn -q -f backend/pom.xml -DskipTests dependency:go-offline
+COPY frontend frontend
+COPY backend/src backend/src
+RUN mvn -q -f backend/pom.xml -DskipTests package
 
 FROM eclipse-temurin:21-jre
 WORKDIR /app
-COPY --from=build /app/target/*.jar app.jar
+ENV APP_DESKTOP_ENABLED=false
+ENV QN_CALENDAR_DATA_DIR=/data
+RUN mkdir -p /data
+COPY --from=build /workspace/backend/target/*.jar app.jar
+VOLUME ["/data"]
 EXPOSE 8080
-ENTRYPOINT ["java", "-jar", "app.jar"]
+ENTRYPOINT ["java", "-Djava.awt.headless=true", "-jar", "app.jar"]

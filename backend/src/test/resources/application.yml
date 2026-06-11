@@ -1,12 +1,18 @@
 spring:
   datasource:
-    url: jdbc:h2:mem:qn-calendar-test;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1
-    username: sa
+    url: jdbc:sqlite:target/qn-calendar-test.db
+    driver-class-name: org.sqlite.JDBC
+    username: ""
     password: ""
   jpa:
+    database-platform: org.hibernate.community.dialect.SQLiteDialect
     hibernate:
       ddl-auto: create-drop
     open-in-view: false
   mail:
     host: localhost
     port: 1025
+
+app:
+  desktop:
+    enabled: false

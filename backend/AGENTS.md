@@ -12,7 +12,7 @@
 - Thymeleaf，用於產生 HTML Email。
 - 使用一般關聯式資料庫即可。
 - MVP 階段以 `work_order` 一張核心資料表完成主要功能。
-- 本地開發預設啟用 demo 工單資料，啟動時補齊缺少的 demo 訂單；可用 `APP_DEMO_DATA_ENABLED=false` 關閉。
+- 本地開發不自動建立 demo 工單資料；資料從 XLSX 匯入或既有 SQLite 資料庫取得。
 
 ## 核心領域模型
 
