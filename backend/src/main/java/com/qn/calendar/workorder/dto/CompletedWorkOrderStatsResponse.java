@@ -9,7 +9,6 @@ import com.qn.calendar.workorder.entity.WorkOrder;
 public record CompletedWorkOrderStatsResponse(
         Long id,
         String orderNo,
-        String buyerNickname,
         String remark,
         BigDecimal price,
         int estimatedMinutes,
@@ -25,7 +24,6 @@ public record CompletedWorkOrderStatsResponse(
         return new CompletedWorkOrderStatsResponse(
                 workOrder.getId(),
                 workOrder.getOrderNo(),
-                workOrder.getBuyerNickname(),
                 workOrder.getRemark(),
                 workOrder.getPrice(),
                 workOrder.getEstimatedMinutes(),

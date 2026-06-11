@@ -1,11 +1,13 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { RouterLink, RouterView, useRoute } from 'vue-router'
-import { CalendarDays, Mail, Moon, Sun, Table2 } from '@lucide/vue'
+import { CalendarDays, Mail, Moon, Settings, Sun, Table2 } from '@lucide/vue'
+import AppSettingsDialog from './components/AppSettingsDialog.vue'
 import ScheduleEmailDialog from './components/ScheduleEmailDialog.vue'
 
 const route = useRoute()
 const emailDialogOpen = ref(false)
+const settingsDialogOpen = ref(false)
 const themeMode = ref(window.localStorage.getItem('qn-calendar-theme') || 'dark')
 const completedStatsMonth = ref('')
 const emailDateRange = ref({
@@ -49,6 +51,10 @@ function updateEmailDateRange(range) {
       </nav>
 
       <div class="top-nav-actions">
+        <button class="icon-button" type="button" @click="settingsDialogOpen = true">
+          <Settings :size="18" />
+          设置
+        </button>
         <button class="icon-button" type="button" @click="emailDialogOpen = true">
           <Mail :size="18" />
           发送 Email
@@ -77,6 +83,11 @@ function updateEmailDateRange(range) {
       :default-email-type="defaultEmailType"
       :open="emailDialogOpen"
       @close="emailDialogOpen = false"
+    />
+
+    <AppSettingsDialog
+      :open="settingsDialogOpen"
+      @close="settingsDialogOpen = false"
     />
   </main>
 </template>

@@ -50,7 +50,7 @@ public enum WorkOrderStatus {
 2. 後端使用 Apache POI 解析 XLSX。
 3. XLSX 至少必須包含三個欄位：`訂單編號`、`訂單價格`、`最晚發貨日期`。
 4. 每一筆資料必須取得訂單編號 `orderNo`。
-5. 價格每 100 元轉換為 1 小時工時，後端一律以分鐘儲存。
+5. 價格每「預估工時基礎金額」轉換為 1 小時工時，預設基礎金額為 100，可由全局設定調整；後端一律以分鐘儲存。
 6. `最晚發貨日期` 若只有日期沒有時間，後端視為當天 `23:59:59`。
 7. 日期時間格式一律優先使用 `yyyy-MM-dd HH:mm:ss`；純日期使用 `yyyy-MM-dd`。
 8. 後端查詢 `order_no` 是否已存在。
@@ -68,7 +68,7 @@ public enum WorkOrderStatus {
 
 ```java
 int estimatedMinutes = price
-        .divide(BigDecimal.valueOf(100), 0, RoundingMode.CEILING)
+        .divide(estimatedHourlyBaseAmount, 0, RoundingMode.CEILING)
         .multiply(BigDecimal.valueOf(60))
         .intValue();
 ```
@@ -257,6 +257,19 @@ GET /api/work-orders/pending
 
 ```http
 GET /api/work-orders/calendar?dateFrom=2026-06-08&dateTo=2026-06-14
+```
+
+### 全局設定
+
+```http
+GET /api/settings
+PUT /api/settings
+```
+
+```json
+{
+  "estimatedHourlyBaseAmount": 100
+}
 ```
 
 ### 更新排程

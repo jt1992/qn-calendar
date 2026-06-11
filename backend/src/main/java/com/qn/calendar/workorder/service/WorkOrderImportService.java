@@ -18,6 +18,7 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import com.qn.calendar.settings.service.AppSettingsService;
 import com.qn.calendar.workorder.dto.ImportRowError;
 import com.qn.calendar.workorder.dto.ImportWorkOrderResponse;
 import com.qn.calendar.workorder.entity.WorkOrder;
@@ -72,10 +73,15 @@ public class WorkOrderImportService {
     );
 
     private final WorkOrderRepository repository;
+    private final AppSettingsService appSettingsService;
     private final DataFormatter formatter = new DataFormatter(Locale.CHINA);
 
-    public WorkOrderImportService(WorkOrderRepository repository) {
+    public WorkOrderImportService(
+            WorkOrderRepository repository,
+            AppSettingsService appSettingsService
+    ) {
         this.repository = repository;
+        this.appSettingsService = appSettingsService;
     }
 
     @Transactional
@@ -97,6 +103,7 @@ public class WorkOrderImportService {
 
             int createdCount = 0;
             int skippedCount = 0;
+            BigDecimal estimatedHourlyBaseAmount = appSettingsService.getEstimatedHourlyBaseAmount();
             List<ImportRowError> errors = new java.util.ArrayList<>();
             Set<String> seenOrderNumbers = new HashSet<>();
 
@@ -142,7 +149,7 @@ public class WorkOrderImportService {
                             evaluator,
                             orderTime
                     );
-                    int estimatedMinutes = calculateEstimatedMinutes(price);
+                    int estimatedMinutes = calculateEstimatedMinutes(price, estimatedHourlyBaseAmount);
 
                     repository.save(new WorkOrder(
                             orderNo,
@@ -458,8 +465,8 @@ public class WorkOrderImportService {
         }
     }
 
-    private int calculateEstimatedMinutes(BigDecimal price) {
-        return price.divide(BigDecimal.valueOf(100), 0, RoundingMode.CEILING)
+    private int calculateEstimatedMinutes(BigDecimal price, BigDecimal estimatedHourlyBaseAmount) {
+        return price.divide(estimatedHourlyBaseAmount, 0, RoundingMode.CEILING)
                 .multiply(BigDecimal.valueOf(60))
                 .intValue();
     }
