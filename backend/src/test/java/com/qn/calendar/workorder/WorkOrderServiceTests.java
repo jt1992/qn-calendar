@@ -215,7 +215,6 @@ class WorkOrderServiceTests {
 
         assertThat(stats).hasSize(1);
         assertThat(stats.getFirst().orderNo()).isEqualTo("ORD-COMPLETED");
-        assertThat(stats.getFirst().buyerNickname()).isNull();
         assertThat(stats.getFirst().remark()).isNull();
         assertThat(stats.getFirst().estimatedMinutes()).isEqualTo(180);
         assertThat(stats.getFirst().actualTotalMinutes()).isEqualTo(150);

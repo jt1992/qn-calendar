@@ -8,6 +8,9 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import com.qn.calendar.settings.dto.UpdateAppSettingsRequest;
+import com.qn.calendar.settings.repository.AppSettingRepository;
+import com.qn.calendar.settings.service.AppSettingsService;
 import com.qn.calendar.workorder.dto.ImportWorkOrderResponse;
 import com.qn.calendar.workorder.entity.WorkOrder;
 import com.qn.calendar.workorder.repository.WorkOrderRepository;
@@ -38,10 +41,17 @@ class WorkOrderImportServiceTests {
     @Autowired
     private WorkOrderSegmentRepository segmentRepository;
 
+    @Autowired
+    private AppSettingRepository appSettingRepository;
+
+    @Autowired
+    private AppSettingsService appSettingsService;
+
     @BeforeEach
     void setUp() {
         segmentRepository.deleteAll();
         repository.deleteAll();
+        appSettingRepository.deleteAll();
     }
 
     @Test
@@ -70,6 +80,20 @@ class WorkOrderImportServiceTests {
         assertThat(secondResponse.createdCount()).isZero();
         assertThat(secondResponse.skippedCount()).isEqualTo(1);
         assertThat(repository.findAll()).hasSize(1);
+    }
+
+    @Test
+    void usesSavedHourlyBaseAmountWhenImportingNewOrders() throws Exception {
+        appSettingsService.updateSettings(new UpdateAppSettingsRequest(BigDecimal.valueOf(200)));
+        MockMultipartFile file = xlsxWithOneOrder("ORD-BASE-AMOUNT", BigDecimal.valueOf(250), LocalDateTime.of(2026, 6, 10, 0, 0));
+
+        ImportWorkOrderResponse response = importService.importXlsx(file);
+
+        assertThat(response.createdCount()).as(response.errors().toString()).isEqualTo(1);
+        assertThat(response.errors()).isEmpty();
+        WorkOrder workOrder = repository.findAll().getFirst();
+        assertThat(workOrder.getEstimatedMinutes()).isEqualTo(120);
+        assertThat(workOrder.getActualMinutes()).isEqualTo(120);
     }
 
     @Test

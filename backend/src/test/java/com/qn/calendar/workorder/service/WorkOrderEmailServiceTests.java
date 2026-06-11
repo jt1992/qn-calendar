@@ -452,7 +452,6 @@ class WorkOrderEmailServiceTests {
         return new CompletedWorkOrderStatsResponse(
                 1L,
                 orderNo,
-                "测试买家",
                 "测试备注",
                 BigDecimal.valueOf(300),
                 estimatedMinutes,
