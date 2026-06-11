@@ -48,10 +48,10 @@ public class DesktopSystemTrayManager {
         TrayIcon trayIcon = new TrayIcon(createTrayImage(), "Qn Calendar");
         trayIcon.setImageAutoSize(true);
 
-        MenuItem openItem = new MenuItem("開啟頁面");
+        MenuItem openItem = new MenuItem("打开页面");
         openItem.addActionListener(action -> desktopBrowser.open(applicationUri));
 
-        MenuItem exitItem = new MenuItem("關閉系統");
+        MenuItem exitItem = new MenuItem("关闭系统");
         exitItem.addActionListener(action -> {
             systemTray.remove(trayIcon);
             int exitCode = SpringApplication.exit(event.getApplicationContext(), () -> 0);

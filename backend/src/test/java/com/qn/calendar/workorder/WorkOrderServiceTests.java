@@ -73,7 +73,7 @@ class WorkOrderServiceTests {
 
         assertThatThrownBy(() -> service.updateDuration(workOrder.getId(), 92))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("工時必須是 15 分鐘的倍數");
+                .hasMessage("工时必须是 15 分钟的倍数");
     }
 
     @Test
@@ -88,7 +88,7 @@ class WorkOrderServiceTests {
 
         assertThatThrownBy(() -> service.updateDuration(workOrder.getId(), 90))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessage("只有待排工單可先調整工時");
+                .hasMessage("只有待排工单可先调整工时");
     }
 
     @Test
@@ -115,7 +115,7 @@ class WorkOrderServiceTests {
 
         assertThatThrownBy(() -> service.unschedule(workOrder.getId()))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessage("工單尚未排入日曆");
+                .hasMessage("工单尚未排入日历");
     }
 
     @Test
@@ -138,7 +138,7 @@ class WorkOrderServiceTests {
                 )
         ))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("不同工單排程不可重疊");
+                .hasMessage("不同工单排程不可重叠");
     }
 
     @Test
@@ -163,7 +163,7 @@ class WorkOrderServiceTests {
                 )
         ))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("不同工單排程不可重疊");
+                .hasMessage("不同工单排程不可重叠");
     }
 
     @Test

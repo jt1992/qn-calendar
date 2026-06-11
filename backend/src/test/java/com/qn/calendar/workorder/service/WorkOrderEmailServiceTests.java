@@ -40,16 +40,17 @@ class WorkOrderEmailServiceTests {
         assertThat(document.weekView()).isTrue();
         assertThat(document.rangeLabel()).isEqualTo("2026-06-08 - 2026-06-14");
         assertThat(document.sections()).hasSize(1);
-        assertThat(document.sections().getFirst().days()).hasSize(1);
+        assertThat(document.sections().getFirst().days()).hasSize(7);
+        assertThat(document.sections().getFirst().weeks()).hasSize(1);
         assertThat(document.sections().getFirst().days().getFirst().label()).startsWith("2026-06-08");
 
-        WorkOrderEmailService.EmailOrderRow row = document.sections().getFirst().days().getFirst().rows().getFirst();
+        WorkOrderEmailService.EmailOrderRow row = firstRow(document);
         assertThat(row.orderNo()).isEqualTo("ORD-001");
         assertThat(row.startTime()).isEqualTo("12:00");
         assertThat(row.endTime()).isEqualTo("15:15");
-        assertThat(row.durationText()).isEqualTo("3小時15分鐘");
-        assertThat(row.shipDate()).isEqualTo("2026-06-09");
-        assertThat(row.remark()).isEqualTo("买家留言：測試備註");
+        assertThat(row.durationText()).isEqualTo("3小时15分钟");
+        assertThat(row.shipDate()).isEqualTo("2026-06-09 15:15:00");
+        assertThat(row.remark()).isEqualTo("买家留言：测试备注");
     }
 
     @Test
@@ -102,11 +103,11 @@ class WorkOrderEmailServiceTests {
         assertThat(document.sections()).hasSize(1);
         assertThat(document.sections().getFirst().title()).isEqualTo("2026-06");
 
-        WorkOrderEmailService.EmailOrderRow row = document.sections().getFirst().days().getFirst().rows().getFirst();
+        WorkOrderEmailService.EmailOrderRow row = firstRow(document);
         assertThat(row.orderNo()).isEqualTo("ORD-MONTH");
         assertThat(row.startTime()).isEqualTo("10:30");
         assertThat(row.endTime()).isEqualTo("12:00");
-        assertThat(row.durationText()).isEqualTo("1小時30分鐘");
+        assertThat(row.durationText()).isEqualTo("1小时30分钟");
         assertThat(row.done()).isTrue();
     }
 
@@ -137,14 +138,23 @@ class WorkOrderEmailServiceTests {
 
         assertThat(weeklyHtml)
                 .contains("ORD-RENDER")
-                .contains("發貨日期")
-                .contains("備注")
-                .contains("买家留言：測試備註");
+                .contains("最晚发货")
+                .contains("备注")
+                .contains("买家留言：测试备注");
         assertThat(monthlyHtml)
                 .contains("ORD-RENDER")
-                .doesNotContain("發貨日期")
-                .doesNotContain("備注")
-                .doesNotContain("买家留言：測試備註");
+                .contains("最晚发货")
+                .doesNotContain("备注")
+                .doesNotContain("买家留言：测试备注");
+    }
+
+    private WorkOrderEmailService.EmailOrderRow firstRow(WorkOrderEmailService.EmailScheduleDocument document) {
+        return document.sections()
+                .stream()
+                .flatMap((section) -> section.days().stream())
+                .flatMap((day) -> day.rows().stream())
+                .findFirst()
+                .orElseThrow();
     }
 
     @Test
@@ -158,13 +168,13 @@ class WorkOrderEmailServiceTests {
         WorkOrderEmailService.CompletedStatsEmailRow row = document.rows().getFirst();
 
         assertThat(row.orderNo()).isEqualTo("ORD-DONE");
-        assertThat(row.remark()).isEqualTo("測試備註");
+        assertThat(row.remark()).isEqualTo("测试备注");
         assertThat(row.price()).isEqualTo("$300");
-        assertThat(row.estimatedDuration()).isEqualTo("3小時0分鐘");
-        assertThat(row.actualDuration()).isEqualTo("2小時30分鐘");
-        assertThat(row.deltaText()).isEqualTo("提前 0小時30分鐘");
+        assertThat(row.estimatedDuration()).isEqualTo("3小时0分钟");
+        assertThat(row.actualDuration()).isEqualTo("2小时30分钟");
+        assertThat(row.deltaText()).isEqualTo("提前 0小时30分钟");
         assertThat(row.deltaTone()).isEqualTo("early");
-        assertThat(row.hourlyRate()).isEqualTo("$120 / 小時");
+        assertThat(row.hourlyRate()).isEqualTo("$120 / 小时");
     }
 
     @Test
@@ -178,18 +188,18 @@ class WorkOrderEmailServiceTests {
         String html = renderCompletedStats(templateEngine, document);
 
         assertThat(html)
-                .contains("訂單編號")
-                .contains("訂單備注")
-                .contains("訂單價格")
-                .contains("原本預估時長")
-                .contains("實際總時長")
-                .contains("差異時間")
-                .contains("時薪")
+                .contains("订单编号")
+                .contains("订单备注")
+                .contains("订单价格")
+                .contains("原本预估时长")
+                .contains("实际总时长")
+                .contains("差异时间")
+                .contains("时薪")
                 .contains("2026-06")
                 .contains("ORD-DONE")
-                .contains("超出 0小時15分鐘")
-                .contains("$92.31 / 小時")
-                .doesNotContain("買家暱稱");
+                .contains("超出 0小时15分钟")
+                .contains("$92.31 / 小时")
+                .doesNotContain("买家昵称");
     }
 
     @Test
@@ -215,7 +225,7 @@ class WorkOrderEmailServiceTests {
                 1L,
                 orderNo,
                 null,
-                "买家留言：測試備註",
+                "买家留言：测试备注",
                 BigDecimal.valueOf(300),
                 180,
                 minutes,
@@ -238,8 +248,8 @@ class WorkOrderEmailServiceTests {
         return new CompletedWorkOrderStatsResponse(
                 1L,
                 orderNo,
-                "測試買家",
-                "測試備註",
+                "测试买家",
+                "测试备注",
                 BigDecimal.valueOf(300),
                 estimatedMinutes,
                 actualTotalMinutes,
@@ -265,7 +275,7 @@ class WorkOrderEmailServiceTests {
 
     private String render(TemplateEngine templateEngine, WorkOrderEmailService.EmailScheduleDocument document) {
         Context context = new Context(Locale.TAIWAN);
-        context.setVariable("subject", "工單排程表");
+        context.setVariable("subject", "工单排程表");
         context.setVariable("document", document);
         return templateEngine.process("email/schedule-week", context);
     }
@@ -275,7 +285,7 @@ class WorkOrderEmailServiceTests {
             WorkOrderEmailService.CompletedStatsEmailDocument document
     ) {
         Context context = new Context(Locale.TAIWAN);
-        context.setVariable("subject", "完工統計表");
+        context.setVariable("subject", "完工统计表");
         context.setVariable("document", document);
         return templateEngine.process("email/completed-stats", context);
     }

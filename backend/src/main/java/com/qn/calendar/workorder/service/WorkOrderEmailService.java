@@ -111,11 +111,11 @@ public class WorkOrderEmailService {
 
     private void validateRequest(ScheduleEmailRequest request) {
         if (request.viewType() == null) {
-            throw new IllegalArgumentException("Email 類型不可為空");
+            throw new IllegalArgumentException("Email 类型不可为空");
         }
 
         if (parseRecipients(request.to()).isEmpty()) {
-            throw new IllegalArgumentException("Email 收件者不可為空");
+            throw new IllegalArgumentException("Email 收件人不可为空");
         }
 
         if (request.viewType() == ScheduleEmailViewType.COMPLETED_STATS
@@ -125,11 +125,11 @@ public class WorkOrderEmailService {
         }
 
         if (request.dateFrom() == null || request.dateTo() == null) {
-            throw new IllegalArgumentException("Email 日期區間不可為空");
+            throw new IllegalArgumentException("Email 日期区间不可为空");
         }
 
         if (request.dateTo().isBefore(request.dateFrom())) {
-            throw new IllegalArgumentException("Email 日期區間不可無效");
+            throw new IllegalArgumentException("Email 日期区间不可无效");
         }
     }
 
@@ -219,7 +219,7 @@ public class WorkOrderEmailService {
                 : buildWeekSections(dateFrom, dateTo, rowsByDate);
 
         return new EmailScheduleDocument(
-                viewType == ScheduleEmailViewType.MONTH ? "月排程表" : "週排程表",
+                viewType == ScheduleEmailViewType.MONTH ? "月排程表" : "周排程表",
                 viewType == ScheduleEmailViewType.MONTH
                         ? MONTH_LABEL_FORMATTER.format(dateFrom)
                         : formatDateRange(dateFrom, dateTo),
@@ -322,7 +322,7 @@ public class WorkOrderEmailService {
                 TIME_FORMATTER.format(visibleStart),
                 TIME_FORMATTER.format(visibleEnd),
                 formatDurationText(minutes),
-                DATE_FORMATTER.format(segment.latestShipTime()),
+                formatDateTime(segment.latestShipTime()),
                 segment.remark(),
                 segment.urgent(),
                 segment.status() == WorkOrderStatus.DONE,
@@ -346,7 +346,8 @@ public class WorkOrderEmailService {
                 sections.add(new EmailScheduleSection(
                         formatDateRange(sectionStart, sectionEnd),
                         !sections.isEmpty(),
-                        days
+                        days,
+                        chunkDays(days)
                 ));
             }
 
@@ -360,10 +361,16 @@ public class WorkOrderEmailService {
             LocalDate dateFrom,
             Map<LocalDate, List<EmailOrderRow>> rowsByDate
     ) {
+        LocalDate monthEnd = dateFrom.withDayOfMonth(dateFrom.lengthOfMonth());
+        LocalDate calendarStart = startOfCalendarWeek(dateFrom);
+        LocalDate calendarEnd = endOfCalendarWeek(monthEnd);
+        List<EmailDaySchedule> days = buildDaySchedules(calendarStart, calendarEnd, rowsByDate);
+
         return List.of(new EmailScheduleSection(
                 MONTH_LABEL_FORMATTER.format(dateFrom),
                 false,
-                buildDaySchedules(dateFrom, dateFrom.withDayOfMonth(dateFrom.lengthOfMonth()), rowsByDate)
+                days,
+                chunkDays(days)
         ));
     }
 
@@ -378,14 +385,30 @@ public class WorkOrderEmailService {
         while (!cursor.isAfter(dateTo)) {
             List<EmailOrderRow> rows = rowsByDate.getOrDefault(cursor, List.of());
 
-            if (!rows.isEmpty()) {
-                days.add(new EmailDaySchedule(DAY_LABEL_FORMATTER.format(cursor), rows));
-            }
+            days.add(new EmailDaySchedule(DAY_LABEL_FORMATTER.format(cursor), rows));
 
             cursor = cursor.plusDays(1);
         }
 
         return days;
+    }
+
+    private static List<EmailScheduleWeek> chunkDays(List<EmailDaySchedule> days) {
+        List<EmailScheduleWeek> weeks = new ArrayList<>();
+
+        for (int index = 0; index < days.size(); index += 7) {
+            weeks.add(new EmailScheduleWeek(days.subList(index, Math.min(index + 7, days.size()))));
+        }
+
+        return weeks;
+    }
+
+    private static LocalDate startOfCalendarWeek(LocalDate date) {
+        return date.minusDays(date.getDayOfWeek().getValue() % 7);
+    }
+
+    private static LocalDate endOfCalendarWeek(LocalDate date) {
+        return startOfCalendarWeek(date).plusDays(6);
     }
 
     private static String formatDateRange(LocalDate dateFrom, LocalDate dateTo) {
@@ -396,29 +419,33 @@ public class WorkOrderEmailService {
         return DATE_FORMATTER.format(dateFrom) + " - " + DATE_FORMATTER.format(dateTo);
     }
 
+    private static String formatDateTime(LocalDateTime value) {
+        return value == null ? "-" : value.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+    }
+
     private static String formatDurationText(int minutes) {
         int hours = minutes / 60;
         int remainingMinutes = minutes % 60;
 
         if (hours <= 0) {
-            return remainingMinutes + "分鐘";
+            return remainingMinutes + "分钟";
         }
 
         if (remainingMinutes == 0) {
-            return hours + "小時";
+            return hours + "小时";
         }
 
-        return hours + "小時" + remainingMinutes + "分鐘";
+        return hours + "小时" + remainingMinutes + "分钟";
     }
 
     private static String formatStatsDurationText(int minutes) {
         int normalizedMinutes = Math.max(0, minutes);
-        return (normalizedMinutes / 60) + "小時" + (normalizedMinutes % 60) + "分鐘";
+        return (normalizedMinutes / 60) + "小时" + (normalizedMinutes % 60) + "分钟";
     }
 
     private static String formatStatsDeltaText(int minutes) {
         if (minutes == 0) {
-            return "符合預期";
+            return "符合预期";
         }
 
         return (minutes > 0 ? "超出 " : "提前 ") + formatStatsDurationText(Math.abs(minutes));
@@ -441,7 +468,7 @@ public class WorkOrderEmailService {
             return "-";
         }
 
-        return formatCurrency(value) + " / 小時";
+        return formatCurrency(value) + " / 小时";
     }
 
     private static String formatCurrency(BigDecimal value) {
@@ -484,9 +511,9 @@ public class WorkOrderEmailService {
             helper.setText(html, true);
             mailSender.send(message);
         } catch (MessagingException exception) {
-            throw new IllegalStateException("排程 Email 建立失敗");
+            throw new IllegalStateException("排程 Email 创建失败");
         } catch (MailException exception) {
-            throw new IllegalStateException("排程 Email 發送失敗");
+            throw new IllegalStateException("排程 Email 发送失败");
         }
     }
 
@@ -512,8 +539,12 @@ public class WorkOrderEmailService {
     public record EmailScheduleSection(
             String title,
             boolean pageBreakBefore,
-            List<EmailDaySchedule> days
+            List<EmailDaySchedule> days,
+            List<EmailScheduleWeek> weeks
     ) {
+    }
+
+    public record EmailScheduleWeek(List<EmailDaySchedule> days) {
     }
 
     public record EmailDaySchedule(String label, List<EmailOrderRow> rows) {

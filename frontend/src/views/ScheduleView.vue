@@ -20,15 +20,23 @@ onMounted(async () => {
 function focusWorkOrder(workOrder) {
   focusedWorkOrder.value = workOrder
 }
+
+function clearFocusOnBackground(event) {
+  if (event.target?.closest?.('.pending-order-card, .fc-event, .fc-event-mirror, .fc-event-resizer')) {
+    return
+  }
+
+  focusedWorkOrder.value = null
+}
 </script>
 
 <template>
-  <section class="schedule-layout" aria-label="待排工單">
+  <section class="schedule-layout" aria-label="待排工单" @pointerdown="clearFocusOnBackground">
     <aside class="side-panel">
       <div class="side-heading">
         <div>
-          <h1>待排工單</h1>
-          <p>上傳 XLSX 後拖曳排程</p>
+          <h1>待排工单</h1>
+          <p>上传 XLSX 后拖拽排程</p>
         </div>
         <WorkOrderImportButton />
       </div>
@@ -41,7 +49,7 @@ function focusWorkOrder(workOrder) {
       </div>
 
       <section v-if="store.importResult?.errors?.length" class="import-errors">
-        <h2>匯入錯誤</h2>
+        <h2>导入错误</h2>
         <ul>
           <li v-for="error in store.importResult.errors" :key="`${error.row}-${error.message}`">
             第 {{ error.row }} 列：{{ error.message }}

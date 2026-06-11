@@ -37,7 +37,7 @@ const sending = ref(false)
 
 const form = reactive({
   recipients: '',
-  subject: '工單排程表',
+  subject: '工单排程表',
   viewType: 'WEEK',
   dateFrom: '',
   dateTo: '',
@@ -176,11 +176,11 @@ function resolveInitialViewType() {
 }
 
 function defaultSubject(viewType) {
-  return viewType === 'COMPLETED_STATS' ? '完工統計表' : '工單排程表'
+  return viewType === 'COMPLETED_STATS' ? '完工统计表' : '工单排程表'
 }
 
 function isDefaultSubject(subject) {
-  return ['工單排程表', '完工統計表'].includes(subject)
+  return ['工单排程表', '完工统计表'].includes(subject)
 }
 
 async function refreshCompletedStatsOptions() {
@@ -194,31 +194,31 @@ async function refreshCompletedStatsOptions() {
 
 <template>
   <div v-if="open" class="dialog-backdrop" role="presentation" @click="emit('close')">
-    <form class="dialog" aria-label="發送排程 Email" @click.stop @submit.prevent="submit">
+    <form class="dialog" aria-label="发送排程 Email" @click.stop @submit.prevent="submit">
       <div class="dialog-heading">
-        <h2>發送排程 Email</h2>
-        <button class="icon-only-button" type="button" aria-label="關閉" @click="emit('close')">
+        <h2>发送排程 Email</h2>
+        <button class="icon-only-button" type="button" aria-label="关闭" @click="emit('close')">
           <X :size="18" />
         </button>
       </div>
 
       <label>
-        收件者 Email
+        收件人 Email
         <input v-model="form.recipients" type="text" placeholder="someone@example.com" required />
       </label>
 
       <label>
-        主旨
+        主题
         <input v-model="form.subject" type="text" required />
       </label>
 
-      <div class="email-type-switch" aria-label="Email 類型">
+      <div class="email-type-switch" aria-label="Email 类型">
         <button
           type="button"
           :class="{ active: form.viewType === 'WEEK' }"
           @click="setViewType('WEEK')"
         >
-          週表
+          周表
         </button>
         <button
           type="button"
@@ -232,17 +232,17 @@ async function refreshCompletedStatsOptions() {
           :class="{ active: form.viewType === 'COMPLETED_STATS' }"
           @click="setViewType('COMPLETED_STATS')"
         >
-          完工統計
+          完工统计
         </button>
       </div>
 
       <div v-if="form.viewType === 'WEEK'" class="date-fields">
         <label>
-          開始日期
+          开始日期
           <input v-model="form.dateFrom" type="date" required />
         </label>
         <label>
-          結束日期
+          结束日期
           <input v-model="form.dateTo" type="date" :min="form.dateFrom" required />
         </label>
       </div>
@@ -253,12 +253,12 @@ async function refreshCompletedStatsOptions() {
       </label>
 
       <label v-else-if="form.viewType === 'COMPLETED_STATS'">
-        訂單月份
+        订单月份
         <div class="month-filter-row">
           <MonthPicker
             v-model="form.completedStatsMonth"
             :available-months="availableCompletedStatsMonths"
-            aria-label="訂單月份"
+            aria-label="订单月份"
           />
           <button
             class="text-button"
@@ -275,7 +275,7 @@ async function refreshCompletedStatsOptions() {
         <button class="icon-button primary-action" type="submit" :disabled="sending">
           <span v-if="sending" class="loading-spinner" aria-hidden="true"></span>
           <Mail v-else :size="18" />
-          {{ sending ? '發送中' : '發送' }}
+          {{ sending ? '发送中' : '发送' }}
         </button>
       </div>
     </form>

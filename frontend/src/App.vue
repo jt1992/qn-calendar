@@ -37,13 +37,13 @@ function updateEmailDateRange(range) {
         <RouterLink v-slot="{ isActive, navigate }" custom to="/schedule">
           <button type="button" :class="{ active: isActive }" @click="navigate">
             <CalendarDays :size="18" />
-            待排工單
+            待排工单
           </button>
         </RouterLink>
         <RouterLink v-slot="{ isActive, navigate }" custom to="/completed-stats">
           <button type="button" :class="{ active: isActive }" @click="navigate">
             <Table2 :size="18" />
-            完工統計表
+            完工统计表
           </button>
         </RouterLink>
       </nav>
@@ -51,9 +51,9 @@ function updateEmailDateRange(range) {
       <div class="top-nav-actions">
         <button class="icon-button" type="button" @click="emailDialogOpen = true">
           <Mail :size="18" />
-          發送 Email
+          发送 Email
         </button>
-        <button class="icon-only-button" type="button" aria-label="切換深淺色模式" @click="toggleTheme">
+        <button class="icon-only-button" type="button" aria-label="切换深浅色模式" @click="toggleTheme">
           <Sun v-if="themeMode === 'dark'" :size="18" />
           <Moon v-else :size="18" />
         </button>

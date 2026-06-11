@@ -108,7 +108,7 @@ class WorkOrderImportServiceTests {
                         "29号发！！！蛋糕裙恢复尺寸200+加急100",
                         "子订单3304375611452199951： 2026-06-11 22:17前 ; ",
                         "2026-05-27 22:17:38",
-                        "買家要保留裙襬",
+                        "买家要保留裙襬",
                         "3304375611452180770",
                         "加急单",
                         "280.00"
@@ -126,7 +126,7 @@ class WorkOrderImportServiceTests {
         assertThat(workOrder.isUrgent()).isTrue();
         assertThat(workOrder.getOrderTime()).isEqualTo(LocalDateTime.of(2026, 5, 27, 22, 17, 38));
         assertThat(workOrder.getRemark()).isEqualTo("""
-                买家留言：買家要保留裙襬
+                买家留言：买家要保留裙襬
                 商家备注：29号发！！！蛋糕裙恢复尺寸200+加急100""");
         assertThat(workOrder.getLatestShipTime()).isEqualTo(LocalDateTime.of(
                 LocalDate.now().getYear(),
@@ -189,9 +189,9 @@ class WorkOrderImportServiceTests {
         try (Workbook workbook = new XSSFWorkbook(); ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
             Sheet sheet = workbook.createSheet("orders");
             Row header = sheet.createRow(0);
-            header.createCell(0).setCellValue("訂單編號");
-            header.createCell(1).setCellValue("訂單價格");
-            header.createCell(2).setCellValue("最晚發貨日期");
+            header.createCell(0).setCellValue("订单编号");
+            header.createCell(1).setCellValue("订单价格");
+            header.createCell(2).setCellValue("最晚发货日期");
 
             CreationHelper creationHelper = workbook.getCreationHelper();
             CellStyle dateStyle = workbook.createCellStyle();

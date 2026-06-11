@@ -37,7 +37,7 @@ export const useWorkOrderStore = defineStore('workOrders', {
 
       try {
         this.importResult = await importWorkOrders(file)
-        this.setNotice(`新增 ${this.importResult.createdCount} 筆，跳過 ${this.importResult.skippedCount} 筆`)
+        this.setNotice(`新增 ${this.importResult.createdCount} 笔，跳过 ${this.importResult.skippedCount} 笔`)
         await this.fetchPendingWorkOrders()
       } catch (error) {
         this.error = error.message
@@ -129,7 +129,7 @@ export const useWorkOrderStore = defineStore('workOrders', {
 
     async sendScheduleEmail(payload) {
       await sendScheduleEmail(payload)
-      this.setNotice('排程 Email 已送出')
+      this.setNotice('排程 Email 已发送')
     },
 
     setNotice(message) {

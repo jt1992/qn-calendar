@@ -41,7 +41,7 @@ public class WorkOrderService {
     @Transactional(readOnly = true)
     public List<WorkOrderSegmentResponse> getCalendarWorkOrders(LocalDate dateFrom, LocalDate dateTo) {
         if (dateTo.isBefore(dateFrom)) {
-            throw new IllegalArgumentException("日曆日期區間不可無效");
+            throw new IllegalArgumentException("日历日期区间不可无效");
         }
 
         LocalDateTime from = dateFrom.atStartOfDay();
@@ -80,7 +80,7 @@ public class WorkOrderService {
     @Transactional
     public WorkOrder markAsDone(Long id) {
         WorkOrder workOrder = repository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("找不到工單"));
+                .orElseThrow(() -> new IllegalArgumentException("找不到工单"));
 
         workOrder.markDone(LocalDateTime.now());
         return workOrder;
@@ -89,10 +89,10 @@ public class WorkOrderService {
     @Transactional
     public WorkOrder updateDuration(Long id, int actualMinutes) {
         WorkOrder workOrder = repository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("找不到工單"));
+                .orElseThrow(() -> new IllegalArgumentException("找不到工单"));
 
         if (workOrder.getStatus() != WorkOrderStatus.PENDING) {
-            throw new IllegalStateException("只有待排工單可先調整工時");
+            throw new IllegalStateException("只有待排工单可先调整工时");
         }
 
         validateDuration(actualMinutes);
@@ -103,10 +103,10 @@ public class WorkOrderService {
     @Transactional
     public WorkOrder unschedule(Long id) {
         WorkOrder workOrder = repository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("找不到工單"));
+                .orElseThrow(() -> new IllegalArgumentException("找不到工单"));
 
         if (workOrder.getStatus() == WorkOrderStatus.PENDING) {
-            throw new IllegalStateException("工單尚未排入日曆");
+            throw new IllegalStateException("工单尚未排入日历");
         }
 
         segmentRepository.deleteByWorkOrderId(id);
@@ -117,7 +117,7 @@ public class WorkOrderService {
     @Transactional
     public WorkOrder reopen(Long id) {
         WorkOrder workOrder = repository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("找不到工單"));
+                .orElseThrow(() -> new IllegalArgumentException("找不到工单"));
 
         workOrder.reopen();
         return workOrder;
@@ -125,11 +125,11 @@ public class WorkOrderService {
 
     private void validateDuration(int actualMinutes) {
         if (actualMinutes <= 0) {
-            throw new IllegalArgumentException("工時必須大於 0");
+            throw new IllegalArgumentException("工时必须大于 0");
         }
 
         if (actualMinutes % WorkOrderTimeUtils.SCHEDULE_GRANULARITY_MINUTES != 0) {
-            throw new IllegalArgumentException("工時必須是 15 分鐘的倍數");
+            throw new IllegalArgumentException("工时必须是 15 分钟的倍数");
         }
     }
 

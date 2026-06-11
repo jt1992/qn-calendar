@@ -12,7 +12,7 @@ http.interceptors.response.use(
       error.response?.data?.message ||
       error.response?.data?.error ||
       error.message ||
-      '請求失敗'
+      '请求失败'
 
     return Promise.reject({
       message,

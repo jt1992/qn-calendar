@@ -36,7 +36,7 @@ public class WorkOrderSegmentService {
     @Transactional
     public WorkOrderSegmentListResponse createSegment(Long workOrderId, ScheduleWorkOrderRequest request) {
         WorkOrder workOrder = workOrderRepository.findById(workOrderId)
-                .orElseThrow(() -> new IllegalArgumentException("找不到工單"));
+                .orElseThrow(() -> new IllegalArgumentException("找不到工单"));
 
         validateSchedule(workOrder, request.scheduledStart(), request.scheduledEnd());
         segmentRepository.save(new WorkOrderSegment(workOrder, request.scheduledStart(), request.scheduledEnd()));
@@ -46,7 +46,7 @@ public class WorkOrderSegmentService {
     @Transactional
     public WorkOrderSegmentListResponse updateSegment(Long segmentId, ScheduleWorkOrderRequest request) {
         WorkOrderSegment segment = segmentRepository.findById(segmentId)
-                .orElseThrow(() -> new IllegalArgumentException("找不到工單片段"));
+                .orElseThrow(() -> new IllegalArgumentException("找不到工单片段"));
         WorkOrder workOrder = segment.getWorkOrder();
 
         validateSchedule(workOrder, request.scheduledStart(), request.scheduledEnd());
@@ -57,7 +57,7 @@ public class WorkOrderSegmentService {
     @Transactional
     public WorkOrderSegmentListResponse deleteSegment(Long segmentId) {
         WorkOrderSegment segment = segmentRepository.findById(segmentId)
-                .orElseThrow(() -> new IllegalArgumentException("找不到工單片段"));
+                .orElseThrow(() -> new IllegalArgumentException("找不到工单片段"));
         WorkOrder workOrder = segment.getWorkOrder();
 
         segmentRepository.delete(segment);
@@ -67,7 +67,7 @@ public class WorkOrderSegmentService {
     @Transactional
     public WorkOrderSegmentListResponse splitSegment(Long segmentId, SplitWorkOrderSegmentRequest request) {
         WorkOrderSegment segment = segmentRepository.findById(segmentId)
-                .orElseThrow(() -> new IllegalArgumentException("找不到工單片段"));
+                .orElseThrow(() -> new IllegalArgumentException("找不到工单片段"));
         WorkOrder workOrder = segment.getWorkOrder();
         LocalDateTime originalEnd = segment.getScheduledEnd();
 
@@ -96,7 +96,7 @@ public class WorkOrderSegmentService {
     @Transactional
     public WorkOrderSegmentListResponse completeSegment(Long segmentId, LocalDateTime completedAt) {
         WorkOrderSegment segment = segmentRepository.findById(segmentId)
-                .orElseThrow(() -> new IllegalArgumentException("找不到工單片段"));
+                .orElseThrow(() -> new IllegalArgumentException("找不到工单片段"));
         WorkOrder workOrder = segment.getWorkOrder();
         LocalDateTime roundedCompletedAt = WorkOrderTimeUtils.roundUpToScheduleBoundary(completedAt);
 
@@ -112,10 +112,10 @@ public class WorkOrderSegmentService {
     @Transactional
     public WorkOrderSegmentListResponse deleteAllSegments(Long workOrderId) {
         WorkOrder workOrder = workOrderRepository.findById(workOrderId)
-                .orElseThrow(() -> new IllegalArgumentException("找不到工單"));
+                .orElseThrow(() -> new IllegalArgumentException("找不到工单"));
 
         if (workOrder.getStatus() == WorkOrderStatus.PENDING) {
-            throw new IllegalStateException("工單尚未排入日曆");
+            throw new IllegalStateException("工单尚未排入日历");
         }
 
         segmentRepository.deleteByWorkOrderId(workOrderId);
@@ -177,20 +177,20 @@ public class WorkOrderSegmentService {
         long minutes = Duration.between(scheduledStart, scheduledEnd).toMinutes();
 
         if (minutes <= 0) {
-            throw new IllegalArgumentException("排程結束時間必須晚於開始時間");
+            throw new IllegalArgumentException("排程结束时间必须晚于开始时间");
         }
 
         if (minutes % WorkOrderTimeUtils.SCHEDULE_GRANULARITY_MINUTES != 0) {
-            throw new IllegalArgumentException("工時必須是 15 分鐘的倍數");
+            throw new IllegalArgumentException("工时必须是 15 分钟的倍数");
         }
 
         if (!WorkOrderTimeUtils.isScheduleBoundary(scheduledStart)
                 || !WorkOrderTimeUtils.isScheduleBoundary(scheduledEnd)) {
-            throw new IllegalArgumentException("排程時間必須符合 15 分鐘粒度");
+            throw new IllegalArgumentException("排程时间必须符合 15 分钟粒度");
         }
 
         if (scheduledEnd.isAfter(workOrder.getLatestShipTime())) {
-            throw new IllegalArgumentException("排程結束時間不可超過最晚發貨時間");
+            throw new IllegalArgumentException("排程结束时间不可超过最晚发货时间");
         }
 
         if (segmentRepository.existsOverlappingDifferentWorkOrder(
@@ -199,17 +199,17 @@ public class WorkOrderSegmentService {
                 scheduledStart,
                 scheduledEnd
         )) {
-            throw new IllegalArgumentException("不同工單排程不可重疊");
+            throw new IllegalArgumentException("不同工单排程不可重叠");
         }
     }
 
     private void validateSplit(WorkOrderSegment segment, LocalDateTime splitAt) {
         if (!WorkOrderTimeUtils.isScheduleBoundary(splitAt)) {
-            throw new IllegalArgumentException("拆分時間必須符合 15 分鐘粒度");
+            throw new IllegalArgumentException("拆分时间必须符合 15 分钟粒度");
         }
 
         if (!splitAt.isAfter(segment.getScheduledStart()) || !splitAt.isBefore(segment.getScheduledEnd())) {
-            throw new IllegalArgumentException("拆分時間必須位於片段內");
+            throw new IllegalArgumentException("拆分时间必须位于片段内");
         }
     }
 

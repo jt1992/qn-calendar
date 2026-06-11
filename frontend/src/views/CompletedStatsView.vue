@@ -39,7 +39,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <section class="stats-layout" aria-label="完工統計表">
+  <section class="stats-layout" aria-label="完工统计表">
     <div v-if="store.error" class="message error-message">
       {{ store.error }}
     </div>
