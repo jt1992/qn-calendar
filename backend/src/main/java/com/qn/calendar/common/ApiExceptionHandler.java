@@ -21,7 +21,7 @@ public class ApiExceptionHandler {
                 .toList();
 
         return ResponseEntity.badRequest()
-                .body(ApiError.of("請確認輸入資料", details));
+                .body(ApiError.of("请确认输入数据", details));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

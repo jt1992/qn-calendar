@@ -16,6 +16,7 @@ public record CompletedWorkOrderStatsResponse(
         int actualTotalMinutes,
         int deltaMinutes,
         BigDecimal hourlyRate,
+        LocalDateTime orderTime,
         LocalDateTime latestShipTime,
         LocalDateTime completedAt
 ) {
@@ -31,6 +32,7 @@ public record CompletedWorkOrderStatsResponse(
                 actualTotalMinutes,
                 actualTotalMinutes - workOrder.getEstimatedMinutes(),
                 calculateHourlyRate(workOrder.getPrice(), actualTotalMinutes),
+                workOrder.getOrderTime(),
                 workOrder.getLatestShipTime(),
                 workOrder.getCompletedAt()
         );

@@ -128,7 +128,7 @@ function formatDurationText(minutes) {
   const normalizedMinutes = normalizeMinutes(minutes)
   const hours = Math.floor(normalizedMinutes / 60)
   const remainingMinutes = normalizedMinutes % 60
-  return `${hours}小時${remainingMinutes}分鐘`
+  return `${hours}小时${remainingMinutes}分钟`
 }
 
 function formatShipTime(value) {
@@ -156,7 +156,7 @@ function showOrderTooltip(workOrder, event) {
   orderTooltip.value = {
     title: `${workOrder.urgent ? '[加急] ' : ''}${workOrder.orderNo}`,
     timeRange: '未排程',
-    durationText: `總排程 ${formatDurationText(durationMinutes(workOrder))}`,
+    durationText: `总排程 ${formatDurationText(durationMinutes(workOrder))}`,
     statusText: statusLabel(workOrder.status),
     latestText: formatShipTime(workOrder.latestShipTime),
     priceText: formatMoney(workOrder.price),
@@ -186,9 +186,9 @@ function hideOrderTooltip() {
 </script>
 
 <template>
-  <section class="pending-panel" aria-label="待排工單清單">
+  <section class="pending-panel" aria-label="待排工单清单">
     <div class="panel-heading">
-      <span>共 {{ workOrders.length }} 筆</span>
+      <span>共 {{ workOrders.length }} 笔</span>
       <span class="count-badge">{{ workOrders.length }}</span>
     </div>
 
@@ -220,17 +220,17 @@ function hideOrderTooltip() {
           </div>
         </div>
         <div class="order-detail-line">
-          <span class="order-price">訂單價格 {{ formatMoney(workOrder.price) }}</span>
+          <span class="order-price">订单价格 {{ formatMoney(workOrder.price) }}</span>
           <div
             class="duration-control"
-            aria-label="每次按鈕調整 15 分鐘"
+            aria-label="每次按钮调整 15 分钟"
             @mousedown.stop
             @pointerdown.stop
             @dragstart.stop
           >
             <button
               type="button"
-              aria-label="減少工時"
+              aria-label="减少工时"
               :disabled="isDurationUpdating(workOrder.id) || durationMinutes(workOrder) <= scheduleGranularityMinutes"
               @click.stop="adjustDuration(workOrder, -scheduleGranularityMinutes)"
             >
@@ -239,7 +239,7 @@ function hideOrderTooltip() {
             <span class="duration-value">{{ formatDurationText(durationMinutes(workOrder)) }}</span>
             <button
               type="button"
-              aria-label="增加工時"
+              aria-label="增加工时"
               :disabled="isDurationUpdating(workOrder.id)"
               @click.stop="adjustDuration(workOrder, scheduleGranularityMinutes)"
             >
@@ -250,7 +250,7 @@ function hideOrderTooltip() {
         <div class="order-meta">
           <span
             class="ship-deadline"
-            :aria-label="`最晚發貨時間 ${formatShipTime(workOrder.latestShipTime)}`"
+            :aria-label="`最晚发货时间 ${formatShipTime(workOrder.latestShipTime)}`"
           >
             <Clock :size="14" aria-hidden="true" />
             <span>{{ formatShipTime(workOrder.latestShipTime) }}</span>
@@ -258,7 +258,7 @@ function hideOrderTooltip() {
         </div>
       </article>
 
-      <p v-if="!hasWorkOrders" class="empty-state">目前沒有待排工單</p>
+      <p v-if="!hasWorkOrders" class="empty-state">目前没有待排工单</p>
     </div>
 
     <div
@@ -271,7 +271,7 @@ function hideOrderTooltip() {
       <span>{{ orderTooltip.timeRange }}</span>
       <span>{{ orderTooltip.durationText }}</span>
       <span>{{ orderTooltip.statusText }} · 最晚 {{ orderTooltip.latestText }}</span>
-      <span v-if="orderTooltip.priceText">訂單價格 {{ orderTooltip.priceText }}</span>
+      <span v-if="orderTooltip.priceText">订单价格 {{ orderTooltip.priceText }}</span>
       <span class="event-tooltip-remark">订单备注：{{ orderTooltip.remarkText }}</span>
     </div>
   </section>

@@ -1,10 +1,10 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import FullCalendar from '@fullcalendar/vue3'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
 import interactionPlugin from '@fullcalendar/interaction'
-import { ChevronLeft, ChevronRight, Mail } from '@lucide/vue'
+import { ChevronLeft, ChevronRight } from '@lucide/vue'
 import { useWorkOrderStore } from '../stores/workOrderStore'
 
 const props = defineProps({
@@ -18,7 +18,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['send-email', 'range-change', 'focus-order'])
+const emit = defineEmits(['range-change', 'focus-order'])
 const store = useWorkOrderStore()
 const calendarViewStorageKey = 'qn-calendar-view'
 const calendarDateStorageKey = 'qn-calendar-date'
@@ -32,32 +32,44 @@ const currentView = ref(initialCalendarView)
 const pointerPosition = ref({ x: 0, y: 0 })
 const tooltipPosition = ref({ x: 0, y: 0 })
 const interactionPreview = ref(null)
-const interactionAction = ref('調整排程')
+const interactionAction = ref('调整排程')
 const eventTooltip = ref(null)
 const ignoreNextCalendarClick = ref(false)
+const localFocusedWorkOrder = ref(null)
 const scheduleGranularityMinutes = 15
 const allowPastScheduling = ref(getInitialAllowPastScheduling())
 
-const focusedWorkOrderId = computed(() => props.focusedWorkOrder?.id || props.focusedWorkOrder?.workOrderId || null)
+const effectiveFocusedWorkOrder = computed(() => props.focusedWorkOrder || localFocusedWorkOrder.value)
+const focusedWorkOrderId = computed(() => {
+  const focusedWorkOrder = effectiveFocusedWorkOrder.value
+  return focusedWorkOrder?.id || focusedWorkOrder?.workOrderId || null
+})
 
 const calendarEvents = computed(() => {
+  const focusedId = focusedWorkOrderId.value
+  const events = props.events.map((event) => ({
+    ...event,
+    classNames: calendarEventClassNames(event, focusedId)
+  }))
   const marker = deadlineMarkerEvent.value
-  return marker ? [...props.events, marker] : props.events
+  return marker ? [...events, marker] : events
 })
 
 const deadlineMarkerEvent = computed(() => {
-  if (currentView.value !== 'timeGridWeek' || !props.focusedWorkOrder?.latestShipTime) {
+  const focusedWorkOrder = effectiveFocusedWorkOrder.value
+
+  if (currentView.value !== 'timeGridWeek' || !focusedWorkOrder?.latestShipTime) {
     return null
   }
 
-  const start = new Date(props.focusedWorkOrder.latestShipTime)
+  const start = new Date(focusedWorkOrder.latestShipTime)
 
   if (Number.isNaN(start.getTime())) {
     return null
   }
 
   return {
-    id: `deadline-${props.focusedWorkOrder.id || props.focusedWorkOrder.workOrderId || 'focused'}`,
+    id: `deadline-${focusedWorkOrder.id || focusedWorkOrder.workOrderId || 'focused'}`,
     start,
     end: addMinutes(start, scheduleGranularityMinutes),
     display: 'background',
@@ -131,11 +143,11 @@ const calendarOptions = computed(() => ({
   eventContent,
   datesSet: handleDatesSet,
   eventAllow,
-  eventDragStart: (info) => handleInteractionStart(info, '拖曳排程'),
+  eventDragStart: (info) => handleInteractionStart(info, '拖拽排程'),
   eventDragStop: handleEventDragStop,
   eventReceive: handleEventReceive,
   eventDrop: handleEventMove,
-  eventResizeStart: (info) => handleInteractionStart(info, '調整工時'),
+  eventResizeStart: (info) => handleInteractionStart(info, '调整工时'),
   eventResizeStop: handleInteractionStop,
   eventResize: handleEventMove,
   eventClick: handleEventClick,
@@ -146,12 +158,24 @@ const calendarOptions = computed(() => ({
 onMounted(() => {
   window.addEventListener('pointermove', handlePointerMove, { passive: true })
   window.addEventListener('pointerup', clearInteractionPreview)
+  window.addEventListener('pointerdown', handleGlobalFocusPointerDown)
+  window.addEventListener('click', handleGlobalFocusClick)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('pointermove', handlePointerMove)
   window.removeEventListener('pointerup', clearInteractionPreview)
+  window.removeEventListener('pointerdown', handleGlobalFocusPointerDown)
+  window.removeEventListener('click', handleGlobalFocusClick)
 })
+
+watch(
+  () => props.focusedWorkOrder,
+  (focusedWorkOrder) => {
+    localFocusedWorkOrder.value = focusedWorkOrder
+    refreshCalendarDecorations()
+  }
+)
 
 function eventAllow(dropInfo, draggedEvent) {
   const latestShipTime = draggedEvent.extendedProps.latestShipTime
@@ -222,9 +246,18 @@ function eventContent(info) {
   const totalMinutes = info.event.extendedProps.totalMinutes || segmentMinutes
 
   root.className = 'calendar-event-card'
+  root.dataset.workOrderId = String(info.event.extendedProps.workOrderId || '')
+  root.dataset.orderNo = info.event.extendedProps.orderNo || info.event.title || ''
+  root.dataset.urgent = String(Boolean(info.event.extendedProps.urgent))
+  root.dataset.status = info.event.extendedProps.status || ''
+  root.dataset.latestShipTime = info.event.extendedProps.latestShipTime || ''
+  root.dataset.price = String(info.event.extendedProps.price || '')
+  root.dataset.remark = info.event.extendedProps.remark || ''
+  root.dataset.actualMinutes = String(info.event.extendedProps.totalMinutes || info.event.extendedProps.actualMinutes || '')
+  root.dataset.totalMinutes = String(info.event.extendedProps.totalMinutes || '')
   root.dataset.tooltipTitle = `${info.event.extendedProps.urgent ? '[加急] ' : ''}${info.event.extendedProps.orderNo || info.event.title}`
   root.dataset.tooltipTimeRange = `${formatDateTime(info.event.start)} - ${formatDateTime(info.event.end)}`
-  root.dataset.tooltipDuration = `總排程 ${formatDurationText(totalMinutes)}`
+  root.dataset.tooltipDuration = `总排程 ${formatDurationText(totalMinutes)}`
   root.dataset.tooltipStatus = info.event.extendedProps.status === 'DONE' ? '完成' : '未完成'
   root.dataset.tooltipLatest = formatDateTime(latestShipTime)
   root.dataset.tooltipPrice = info.event.extendedProps.price ? `$${info.event.extendedProps.price}` : ''
@@ -238,7 +271,7 @@ function eventContent(info) {
   doneButton.textContent = info.event.extendedProps.status === 'DONE' ? '↻' : '✓'
   doneButton.setAttribute(
     'aria-label',
-    info.event.extendedProps.status === 'DONE' ? '取消完成' : '標記完成'
+    info.event.extendedProps.status === 'DONE' ? '取消完成' : '标记完成'
   )
   doneButton.addEventListener('click', async (event) => {
     event.preventDefault()
@@ -259,9 +292,9 @@ function eventContent(info) {
   timeRange.className = 'calendar-event-time'
   timeRange.textContent = `${formatTime(info.event.start)}~${formatTime(info.event.end)}`
   duration.className = 'calendar-event-duration'
-  duration.textContent = `總 ${formatDurationText(totalMinutes)}`
+  duration.textContent = `总 ${formatDurationText(totalMinutes)}`
   deadlineLabel.className = 'calendar-event-deadline-label'
-  deadlineLabel.textContent = '最晚發貨：'
+  deadlineLabel.textContent = '最晚发货：'
   deadlineDate.className = 'calendar-event-deadline-date'
   deadlineDate.textContent = formatDatePart(latestShipTime)
   deadlineTime.className = 'calendar-event-deadline-time'
@@ -298,7 +331,7 @@ async function handleEventReceive(info) {
     const scheduleWindow = resolveNonOverlappingWindow(info.event, start, end, latest, minScheduleStart())
 
     if (!scheduleWindow.valid) {
-      throw new Error(scheduleWindow.invalidReason || '排程時間不可用')
+      throw new Error(scheduleWindow.invalidReason || '排程时间不可用')
     }
 
     await store.scheduleWorkOrder(info.event.extendedProps.workOrderId, scheduleWindow.start, scheduleWindow.end)
@@ -323,7 +356,7 @@ async function handleEventMove(info) {
     const scheduleWindow = resolveNonOverlappingWindow(info.event, start, end, latest, minScheduleStart())
 
     if (!scheduleWindow.valid) {
-      throw new Error(scheduleWindow.invalidReason || '排程時間不可用')
+      throw new Error(scheduleWindow.invalidReason || '排程时间不可用')
     }
 
     await store.updateWorkOrderSegment(
@@ -344,17 +377,29 @@ function handleEventClick(info) {
     return
   }
 
-  emit('focus-order', {
-    id: info.event.extendedProps.workOrderId,
-    orderNo: info.event.extendedProps.orderNo,
-    urgent: info.event.extendedProps.urgent,
-    status: info.event.extendedProps.status,
-    latestShipTime: info.event.extendedProps.latestShipTime,
-    price: info.event.extendedProps.price,
-    remark: info.event.extendedProps.remark,
-    actualMinutes: info.event.extendedProps.totalMinutes || info.event.extendedProps.actualMinutes,
-    totalMinutes: info.event.extendedProps.totalMinutes
+  focusEvent(info.event)
+}
+
+function focusEvent(event) {
+  if (event.extendedProps.isDeadlineMarker) {
+    return
+  }
+
+  setFocusedWorkOrder({
+    id: event.extendedProps.workOrderId,
+    orderNo: event.extendedProps.orderNo,
+    urgent: event.extendedProps.urgent,
+    status: event.extendedProps.status,
+    latestShipTime: event.extendedProps.latestShipTime,
+    price: event.extendedProps.price,
+    remark: event.extendedProps.remark,
+    actualMinutes: event.extendedProps.totalMinutes || event.extendedProps.actualMinutes,
+    totalMinutes: event.extendedProps.totalMinutes
   })
+}
+
+function focusInteractionEvent(event) {
+  focusEvent(event)
 }
 
 function handleCalendarBackgroundClick(event) {
@@ -367,7 +412,126 @@ function handleCalendarBackgroundClick(event) {
     return
   }
 
+  clearFocusedWorkOrder()
+}
+
+function handleGlobalFocusPointerDown(event) {
+  const target = event.target
+
+  if (!(target instanceof Element)) {
+    return
+  }
+
+  if (target.closest('.fc-event, .fc-event-mirror, .fc-event-resizer, .pending-order-card')) {
+    return
+  }
+
+  clearFocusedWorkOrder()
+}
+
+function handleGlobalFocusClick(event) {
+  const target = event.target
+
+  if (!(target instanceof Element)) {
+    return
+  }
+
+  const eventElement = target.closest('.fc-event')
+
+  if (eventElement && !eventElement.classList.contains('deadline-marker')) {
+    focusEventElement(eventElement)
+  }
+}
+
+function focusEventElement(eventElement) {
+  const eventCard = eventElement.querySelector('.calendar-event-card')
+
+  if (!eventCard?.dataset.workOrderId) {
+    return
+  }
+
+  setFocusedWorkOrder({
+    id: eventCard.dataset.workOrderId,
+    orderNo: eventCard.dataset.orderNo,
+    urgent: eventCard.dataset.urgent === 'true',
+    status: eventCard.dataset.status,
+    latestShipTime: eventCard.dataset.latestShipTime,
+    price: eventCard.dataset.price,
+    remark: eventCard.dataset.remark,
+    actualMinutes: numberFromDataset(eventCard.dataset.actualMinutes),
+    totalMinutes: numberFromDataset(eventCard.dataset.totalMinutes)
+  })
+}
+
+function setFocusedWorkOrder(workOrder) {
+  localFocusedWorkOrder.value = workOrder
+  emit('focus-order', workOrder)
+  refreshCalendarDecorations()
+}
+
+function clearFocusedWorkOrder() {
+  localFocusedWorkOrder.value = null
   emit('focus-order', null)
+  refreshCalendarDecorations()
+}
+
+function refreshCalendarDecorations() {
+  nextTick(() => {
+    const calendarApi = calendarRef.value?.getApi()
+
+    if (!calendarApi) {
+      return
+    }
+
+    for (const calendarEvent of calendarApi.getEvents()) {
+      if (calendarEvent.extendedProps.isDeadlineMarker) {
+        calendarEvent.remove()
+      } else {
+        calendarEvent.setProp(
+          'classNames',
+          calendarEventClassNamesFromProps(calendarEvent.extendedProps, calendarEvent.classNames, focusedWorkOrderId.value)
+        )
+      }
+    }
+
+    const marker = deadlineMarkerEvent.value
+
+    if (marker) {
+      calendarApi.addEvent(marker)
+    }
+  })
+}
+
+function calendarEventClassNames(event, focusedId) {
+  return calendarEventClassNamesFromProps(event.extendedProps || {}, event.classNames, focusedId)
+}
+
+function calendarEventClassNamesFromProps(extendedProps, existingClassNames, focusedId) {
+  const managedClassNames = new Set(['work-order-selected', 'work-order-done', 'work-order-urgent'])
+  const classNames = new Set(
+    (Array.isArray(existingClassNames) ? existingClassNames : []).filter(
+      (className) => !managedClassNames.has(className)
+    )
+  )
+
+  if (focusedId && String(focusedId) === String(extendedProps.workOrderId)) {
+    classNames.add('work-order-selected')
+  }
+
+  if (extendedProps.status === 'DONE') {
+    classNames.add('work-order-done')
+  }
+
+  if (extendedProps.urgent) {
+    classNames.add('work-order-urgent')
+  }
+
+  return [...classNames]
+}
+
+function numberFromDataset(value) {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : undefined
 }
 
 function eventClassNames(info, focusedId) {
@@ -470,7 +634,7 @@ async function splitEvent(event) {
   const splitAt = resolveSplitAt(event)
 
   if (!splitAt) {
-    store.error = '片段至少 30 分鐘才能拆分'
+    store.error = '片段至少 30 分钟才能拆分'
     return
   }
 
@@ -527,6 +691,7 @@ function handleInteractionStart(info, action) {
     return
   }
 
+  focusInteractionEvent(info.event)
   interactionAction.value = action
   const start = info.event.start
   const end = info.event.end || addMinutes(start, info.event.extendedProps.actualMinutes)
@@ -580,7 +745,7 @@ function resolveNonOverlappingWindow(draggedEvent, start, end, latest, minStart)
     return {
       ...directWindow,
       valid: false,
-      invalidReason: '排程結束時間必須晚於開始時間'
+      invalidReason: '排程结束时间必须晚于开始时间'
     }
   }
 
@@ -610,14 +775,14 @@ function resolveNonOverlappingWindow(draggedEvent, start, end, latest, minStart)
   if (candidates.length > 0) {
     return {
       ...candidates[0],
-      invalidReason: '已貼齊其他工單'
+      invalidReason: '已贴齐其他工单'
     }
   }
 
   return {
     ...directWindow,
     valid: false,
-    invalidReason: '找不到可貼齊的空檔'
+    invalidReason: '找不到可贴齐的空档'
   }
 }
 
@@ -653,7 +818,7 @@ function withScheduleWindowValidation(scheduleWindow, latest, minStart) {
     valid: minStartAllowed && deadlineAllowed,
     invalidReason: !minStartAllowed
       ? '不可排到今天以前'
-      : deadlineAllowed ? '' : `超過最晚發貨時間 ${formatDateTime(latest)}`
+      : deadlineAllowed ? '' : `超过最晚发货时间 ${formatDateTime(latest)}`
   }
 }
 
@@ -704,7 +869,7 @@ function updateInteractionPreview(action, start, end, latest, valid, invalidReas
 
 function clearInteractionPreview() {
   interactionPreview.value = null
-  interactionAction.value = '調整排程'
+  interactionAction.value = '调整排程'
 }
 
 function showEventTooltip(event, pointerEvent) {
@@ -716,7 +881,7 @@ function showEventTooltip(event, pointerEvent) {
   eventTooltip.value = {
     title: `${event.extendedProps.urgent ? '[加急] ' : ''}${event.extendedProps.orderNo || event.title}`,
     timeRange: `${formatDateTime(event.start)} - ${formatDateTime(event.end)}`,
-    durationText: `總排程 ${formatDurationText(totalMinutes)}`,
+    durationText: `总排程 ${formatDurationText(totalMinutes)}`,
     statusText: event.extendedProps.status === 'DONE' ? '完成' : '未完成',
     latestText: formatDateTime(latestShipTime),
     priceText: event.extendedProps.price ? `$${event.extendedProps.price}` : '',
@@ -880,7 +1045,7 @@ function formatDurationText(minutes) {
   const normalizedMinutes = Math.max(0, Math.round(minutes))
   const hours = Math.floor(normalizedMinutes / 60)
   const remainingMinutes = normalizedMinutes % 60
-  return `${hours}小時${remainingMinutes}分鐘`
+  return `${hours}小时${remainingMinutes}分钟`
 }
 
 function formatRemarkText(value) {
@@ -907,33 +1072,29 @@ function weekdayLabel(date) {
 </script>
 
 <template>
-  <section class="calendar-panel" aria-label="工單日曆">
+  <section class="calendar-panel" aria-label="工单日历">
     <header class="calendar-header">
       <div class="calendar-title-group">
         <h2>{{ visibleTitle }}</h2>
-        <p>{{ currentView === 'dayGridMonth' ? '月檢視拖到日期，週檢視精準調整時間' : '半小時區間，15 分鐘粒度' }}</p>
+        <p>{{ currentView === 'dayGridMonth' ? '月视图拖到日期，周视图精准调整时间' : '半小时区间，15 分钟粒度' }}</p>
       </div>
 
       <div class="calendar-header-actions">
-        <label class="schedule-toggle" title="測試用：允許排程到今天以前">
+        <label class="schedule-toggle" title="测试用：允许排程到今天以前">
           <input
             type="checkbox"
             :checked="allowPastScheduling"
             @change="toggleAllowPastScheduling"
           />
-          <span>允許過去</span>
+          <span>允许过去</span>
         </label>
-        <button class="icon-button" type="button" @click="emit('send-email')">
-          <Mail :size="17" />
-          發送 Email
-        </button>
-        <div class="view-switch" aria-label="日曆檢視">
+        <div class="view-switch" aria-label="日历视图">
           <button
             type="button"
             :class="{ active: currentView === 'timeGridWeek' }"
             @click="changeView('timeGridWeek')"
           >
-            週
+            周
           </button>
           <button
             type="button"
@@ -943,7 +1104,7 @@ function weekdayLabel(date) {
             月
           </button>
         </div>
-        <div class="calendar-nav" aria-label="日曆導覽">
+        <div class="calendar-nav" aria-label="日历导航">
           <button class="icon-only-button" type="button" aria-label="上一段" @click="previousRange">
             <ChevronLeft :size="20" />
           </button>
@@ -967,8 +1128,8 @@ function weekdayLabel(date) {
       aria-live="polite"
     >
       <strong>{{ interactionPreview.action }}</strong>
-      <span>開始：{{ interactionPreview.startText }}</span>
-      <span>結束：{{ interactionPreview.endText }}</span>
+      <span>开始：{{ interactionPreview.startText }}</span>
+      <span>结束：{{ interactionPreview.endText }}</span>
       <span>{{ interactionPreview.durationText }}</span>
       <span v-if="!interactionPreview.valid" class="interaction-warning">
         {{ interactionPreview.invalidReason }}
@@ -985,7 +1146,7 @@ function weekdayLabel(date) {
       <span>{{ eventTooltip.timeRange }}</span>
       <span>{{ eventTooltip.durationText }}</span>
       <span>{{ eventTooltip.statusText }} · 最晚 {{ eventTooltip.latestText }}</span>
-      <span v-if="eventTooltip.priceText">訂單價格 {{ eventTooltip.priceText }}</span>
+      <span v-if="eventTooltip.priceText">订单价格 {{ eventTooltip.priceText }}</span>
       <span class="event-tooltip-remark">订单备注：{{ eventTooltip.remarkText }}</span>
     </div>
   </section>

@@ -19,7 +19,7 @@ public final class ApplicationDataDirectory {
         try {
             Files.createDirectories(dataDirectory);
         } catch (IOException exception) {
-            throw new IllegalStateException("無法建立資料目錄：" + dataDirectory, exception);
+            throw new IllegalStateException("无法创建数据目录：" + dataDirectory, exception);
         }
 
         System.setProperty(DATA_DIR_PROPERTY, dataDirectory.toString());

@@ -116,7 +116,7 @@ class WorkOrderSegmentServiceTests {
                 LocalDateTime.of(2026, 6, 8, 12, 0)
         )))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("不同工單排程不可重疊");
+                .hasMessage("不同工单排程不可重叠");
     }
 
     @Test
@@ -131,7 +131,7 @@ class WorkOrderSegmentServiceTests {
                 LocalDateTime.of(2026, 6, 8, 10, 15)
         )))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("排程結束時間不可超過最晚發貨時間");
+                .hasMessage("排程结束时间不可超过最晚发货时间");
     }
 
     @Test
@@ -213,7 +213,7 @@ class WorkOrderSegmentServiceTests {
                 new SplitWorkOrderSegmentRequest(LocalDateTime.of(2026, 6, 8, 10, 5))
         ))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("拆分時間必須符合 15 分鐘粒度");
+                .hasMessage("拆分时间必须符合 15 分钟粒度");
     }
 
     @Test

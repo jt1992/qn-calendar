@@ -16,6 +16,8 @@ import {
   updateWorkOrderDuration
 } from '../api/workOrders'
 
+let noticeTimer = null
+
 export const useWorkOrderStore = defineStore('workOrders', {
   state: () => ({
     pendingWorkOrders: [],
@@ -35,7 +37,7 @@ export const useWorkOrderStore = defineStore('workOrders', {
 
       try {
         this.importResult = await importWorkOrders(file)
-        this.notice = `新增 ${this.importResult.createdCount} 筆，跳過 ${this.importResult.skippedCount} 筆`
+        this.setNotice(`新增 ${this.importResult.createdCount} 笔，跳过 ${this.importResult.skippedCount} 笔`)
         await this.fetchPendingWorkOrders()
       } catch (error) {
         this.error = error.message
@@ -127,12 +129,29 @@ export const useWorkOrderStore = defineStore('workOrders', {
 
     async sendScheduleEmail(payload) {
       await sendScheduleEmail(payload)
-      this.notice = '排程 Email 已送出'
+    },
+
+    setNotice(message) {
+      this.notice = message
+
+      if (noticeTimer) {
+        window.clearTimeout(noticeTimer)
+      }
+
+      noticeTimer = window.setTimeout(() => {
+        this.notice = ''
+        noticeTimer = null
+      }, 5000)
     },
 
     clearMessages() {
       this.error = ''
       this.notice = ''
+
+      if (noticeTimer) {
+        window.clearTimeout(noticeTimer)
+        noticeTimer = null
+      }
     }
   }
 })

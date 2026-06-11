@@ -73,6 +73,34 @@ class WorkOrderImportServiceTests {
     }
 
     @Test
+    void backfillsMissingOrderTimeWhenExistingOrderIsImportedAgain() throws Exception {
+        repository.save(new WorkOrder(
+                "ORD-BACKFILL",
+                BigDecimal.valueOf(100),
+                60,
+                false,
+                LocalDateTime.of(2026, 6, 10, 18, 0)
+        ));
+        MockMultipartFile file = xlsxWithRows(
+                List.of("订单编号", "买家实付金额", "订单付款时间", "应发货时间"),
+                List.of(List.of(
+                        "ORD-BACKFILL",
+                        "100.00",
+                        "2026-04-21 12:30:00",
+                        "2026-04-23 23:59:59"
+                ))
+        );
+
+        ImportWorkOrderResponse response = importService.importXlsx(file);
+
+        assertThat(response.createdCount()).isZero();
+        assertThat(response.skippedCount()).isEqualTo(1);
+        assertThat(repository.findAll()).hasSize(1);
+        assertThat(repository.findAll().getFirst().getOrderTime())
+                .isEqualTo(LocalDateTime.of(2026, 4, 21, 12, 30));
+    }
+
+    @Test
     void importsRealOrderColumnsByHeaderNameAndCombinesRemarks() throws Exception {
         MockMultipartFile file = xlsxWithRows(
                 List.of("商家备注", "应发货时间", "订单付款时间", "买家留言", "订单编号", "备注标签", "买家实付金额"),
@@ -80,7 +108,7 @@ class WorkOrderImportServiceTests {
                         "29号发！！！蛋糕裙恢复尺寸200+加急100",
                         "子订单3304375611452199951： 2026-06-11 22:17前 ; ",
                         "2026-05-27 22:17:38",
-                        "買家要保留裙襬",
+                        "买家要保留裙襬",
                         "3304375611452180770",
                         "加急单",
                         "280.00"
@@ -96,8 +124,9 @@ class WorkOrderImportServiceTests {
         assertThat(workOrder.getPrice()).isEqualByComparingTo("280.00");
         assertThat(workOrder.getEstimatedMinutes()).isEqualTo(180);
         assertThat(workOrder.isUrgent()).isTrue();
+        assertThat(workOrder.getOrderTime()).isEqualTo(LocalDateTime.of(2026, 5, 27, 22, 17, 38));
         assertThat(workOrder.getRemark()).isEqualTo("""
-                买家留言：買家要保留裙襬
+                买家留言：买家要保留裙襬
                 商家备注：29号发！！！蛋糕裙恢复尺寸200+加急100""");
         assertThat(workOrder.getLatestShipTime()).isEqualTo(LocalDateTime.of(
                 LocalDate.now().getYear(),
@@ -160,9 +189,9 @@ class WorkOrderImportServiceTests {
         try (Workbook workbook = new XSSFWorkbook(); ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
             Sheet sheet = workbook.createSheet("orders");
             Row header = sheet.createRow(0);
-            header.createCell(0).setCellValue("訂單編號");
-            header.createCell(1).setCellValue("訂單價格");
-            header.createCell(2).setCellValue("最晚發貨日期");
+            header.createCell(0).setCellValue("订单编号");
+            header.createCell(1).setCellValue("订单价格");
+            header.createCell(2).setCellValue("最晚发货日期");
 
             CreationHelper creationHelper = workbook.getCreationHelper();
             CellStyle dateStyle = workbook.createCellStyle();

@@ -27,7 +27,7 @@ async function handleFileChange(event) {
 
 async function uploadFile(file) {
   if (!file.name.toLowerCase().endsWith('.xlsx')) {
-    store.error = '請上傳 XLSX 檔案'
+    store.error = '请上传 XLSX 文件'
     return
   }
 
@@ -51,7 +51,7 @@ async function handleDrop(event) {
     type="button"
     class="upload-dropzone"
     :class="{ dragging: isDragging }"
-    aria-label="上傳 XLSX"
+    aria-label="上传 XLSX"
     @click="openFilePicker"
     @dragenter.prevent="isDragging = true"
     @dragover.prevent="isDragging = true"
@@ -59,7 +59,7 @@ async function handleDrop(event) {
     @drop.prevent="handleDrop"
   >
     <Upload :size="16" />
-    <span>點擊上傳或拖拽 XLSX 到這裡</span>
+    <span>点击上传或拖拽 XLSX 到这里</span>
   </button>
   <input
     ref="fileInput"
