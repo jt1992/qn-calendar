@@ -1,6 +1,7 @@
 package com.qn.calendar.settings.controller;
 
 import com.qn.calendar.settings.dto.AppSettingsResponse;
+import com.qn.calendar.settings.dto.UpdateEmailSenderSettingsRequest;
 import com.qn.calendar.settings.dto.UpdateAppSettingsRequest;
 import com.qn.calendar.settings.service.AppSettingsService;
 
@@ -30,5 +31,12 @@ public class AppSettingsController {
     @PutMapping
     public AppSettingsResponse updateSettings(@Valid @RequestBody UpdateAppSettingsRequest request) {
         return service.updateSettings(request);
+    }
+
+    @PutMapping("/email-sender")
+    public AppSettingsResponse updateEmailSenderSettings(
+            @Valid @RequestBody UpdateEmailSenderSettingsRequest request
+    ) {
+        return service.updateEmailSenderSettings(request);
     }
 }

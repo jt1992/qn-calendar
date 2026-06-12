@@ -9,3 +9,8 @@ export async function updateAppSettings(payload) {
   const { data } = await http.put('/api/settings', payload)
   return data
 }
+
+export async function updateEmailSenderSettings(payload) {
+  const { data } = await http.put('/api/settings/email-sender', payload)
+  return data
+}

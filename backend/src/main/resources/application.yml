@@ -24,16 +24,6 @@ spring:
     open-in-view: false
     properties:
       "[hibernate.format_sql]": true
-  mail:
-    host: ${SMTP_HOST:localhost}
-    port: ${SMTP_PORT:1025}
-    username: "${SMTP_USER:}"
-    password: "${SMTP_PASSWORD:}"
-    properties:
-      "[mail.smtp.auth]": ${SMTP_AUTH:false}
-      "[mail.smtp.starttls.enable]": ${SMTP_USE_TLS:false}
-      "[mail.smtp.ssl.enable]": ${SMTP_USE_SSL:false}
-      "[mail.smtp.from]": "${SMTP_FROM:}"
 
 app:
   desktop:

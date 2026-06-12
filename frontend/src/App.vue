@@ -1,13 +1,15 @@
 <script setup>
-import { computed, ref } from 'vue'
-import { RouterLink, RouterView, useRoute } from 'vue-router'
+import { computed, ref, watch } from 'vue'
+import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { CalendarDays, Mail, Moon, Settings, Sun, Table2 } from '@lucide/vue'
 import AppSettingsDialog from './components/AppSettingsDialog.vue'
 import ScheduleEmailDialog from './components/ScheduleEmailDialog.vue'
 
 const route = useRoute()
+const router = useRouter()
 const emailDialogOpen = ref(false)
-const settingsDialogOpen = ref(false)
+const settingsDialogOpen = ref(route.query.settingsModal === '1')
+const settingsTab = ref(normalizeSettingsTab(route.query.tab))
 const themeMode = ref(window.localStorage.getItem('qn-calendar-theme') || 'dark')
 const completedStatsMonth = ref('')
 const emailDateRange = ref({
@@ -17,6 +19,15 @@ const emailDateRange = ref({
 })
 
 const defaultEmailType = computed(() => route.name === 'completed-stats' ? 'COMPLETED_STATS' : '')
+
+watch(
+  () => route.query,
+  (query) => {
+    settingsDialogOpen.value = query.settingsModal === '1'
+    settingsTab.value = normalizeSettingsTab(query.tab)
+  },
+  { immediate: true }
+)
 
 function toggleTheme() {
   themeMode.value = themeMode.value === 'dark' ? 'light' : 'dark'
@@ -29,6 +40,53 @@ function updateEmailDateRange(range) {
     dateTo: range.dateTo,
     viewType: range.viewType
   }
+}
+
+function openSettingsDialog(tab = 'baseAmount') {
+  const nextTab = normalizeSettingsTab(tab)
+  settingsDialogOpen.value = true
+  settingsTab.value = nextTab
+  router.replace({
+    query: {
+      ...route.query,
+      settingsModal: '1',
+      tab: nextTab
+    }
+  })
+}
+
+function closeSettingsDialog() {
+  settingsDialogOpen.value = false
+  const nextQuery = { ...route.query }
+  delete nextQuery.settingsModal
+  delete nextQuery.tab
+  router.replace({ query: nextQuery })
+}
+
+function updateSettingsTab(tab) {
+  const nextTab = normalizeSettingsTab(tab)
+  settingsTab.value = nextTab
+
+  if (!settingsDialogOpen.value) {
+    return
+  }
+
+  router.replace({
+    query: {
+      ...route.query,
+      settingsModal: '1',
+      tab: nextTab
+    }
+  })
+}
+
+function openSettingsFromEmail(tab) {
+  emailDialogOpen.value = false
+  openSettingsDialog(tab)
+}
+
+function normalizeSettingsTab(tab) {
+  return tab === 'email' ? 'email' : 'baseAmount'
 }
 </script>
 
@@ -51,13 +109,13 @@ function updateEmailDateRange(range) {
       </nav>
 
       <div class="top-nav-actions">
-        <button class="icon-button" type="button" @click="settingsDialogOpen = true">
-          <Settings :size="18" />
-          设置
-        </button>
         <button class="icon-button" type="button" @click="emailDialogOpen = true">
           <Mail :size="18" />
           发送 Email
+        </button>
+        <button class="icon-button" type="button" @click="openSettingsDialog()">
+          <Settings :size="18" />
+          设置
         </button>
         <button class="icon-only-button" type="button" aria-label="切换深浅色模式" @click="toggleTheme">
           <Sun v-if="themeMode === 'dark'" :size="18" />
@@ -83,11 +141,14 @@ function updateEmailDateRange(range) {
       :default-email-type="defaultEmailType"
       :open="emailDialogOpen"
       @close="emailDialogOpen = false"
+      @open-settings="openSettingsFromEmail"
     />
 
     <AppSettingsDialog
+      :initial-tab="settingsTab"
       :open="settingsDialogOpen"
-      @close="settingsDialogOpen = false"
+      @close="closeSettingsDialog"
+      @update-tab="updateSettingsTab"
     />
   </main>
 </template>

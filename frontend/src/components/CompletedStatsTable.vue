@@ -22,13 +22,13 @@ function displayText(value) {
   return value === null || value === undefined || value === '' ? '-' : value
 }
 
-function formatCurrency(value) {
+function formatCurrency(value, minimumFractionDigits = 0) {
   if (value === null || value === undefined || value === '') {
     return '-'
   }
 
-  return `$${Number(value).toLocaleString('zh-TW', {
-    minimumFractionDigits: 0,
+  return `¥${Number(value).toLocaleString('zh-CN', {
+    minimumFractionDigits,
     maximumFractionDigits: 2
   })}`
 }
@@ -37,7 +37,17 @@ function formatDurationText(minutes) {
   const normalizedMinutes = Math.max(0, Math.round(minutes || 0))
   const hours = Math.floor(normalizedMinutes / 60)
   const remainingMinutes = normalizedMinutes % 60
-  return `${hours}小时${remainingMinutes}分钟`
+  const parts = []
+
+  if (hours > 0) {
+    parts.push(`${hours} h`)
+  }
+
+  if (remainingMinutes > 0) {
+    parts.push(`${remainingMinutes} m`)
+  }
+
+  return parts.length ? parts.join(' ') : '0 m'
 }
 
 function formatDeltaText(minutes) {
@@ -61,7 +71,7 @@ function formatHourlyRate(value) {
     return '-'
   }
 
-  return `${formatCurrency(value)} / 小时`
+  return formatCurrency(value, 2)
 }
 </script>
 
@@ -100,12 +110,12 @@ function formatHourlyRate(value) {
           <tr>
             <th>订单编号</th>
             <th>订单备注</th>
-            <th>订单价格</th>
-            <th>原本预估时长</th>
-            <th>实际总时长</th>
-            <th>暂停时长</th>
-            <th>差异时间</th>
-            <th>时薪</th>
+            <th class="stats-number">订单价格</th>
+            <th class="stats-number">预估工时</th>
+            <th class="stats-number">实际工时</th>
+            <th class="stats-number">暂停时长</th>
+            <th class="stats-number">工时差</th>
+            <th class="stats-number">时薪</th>
           </tr>
         </thead>
         <tbody>
@@ -114,16 +124,16 @@ function formatHourlyRate(value) {
               <strong>{{ row.orderNo }}</strong>
             </td>
             <td class="stats-remark">{{ displayText(row.remark) }}</td>
-            <td>{{ formatCurrency(row.price) }}</td>
-            <td>{{ formatDurationText(row.estimatedMinutes) }}</td>
-            <td>{{ formatDurationText(row.actualTotalMinutes) }}</td>
-            <td>{{ formatDurationText(row.pausedMinutes) }}</td>
-            <td>
+            <td class="stats-number">{{ formatCurrency(row.price) }}</td>
+            <td class="stats-number">{{ formatDurationText(row.estimatedMinutes) }}</td>
+            <td class="stats-number">{{ formatDurationText(row.actualTotalMinutes) }}</td>
+            <td class="stats-number">{{ formatDurationText(row.pausedMinutes) }}</td>
+            <td class="stats-number">
               <span class="delta-badge" :class="deltaClass(row.deltaMinutes)">
                 {{ formatDeltaText(row.deltaMinutes) }}
               </span>
             </td>
-            <td>{{ formatHourlyRate(row.hourlyRate) }}</td>
+            <td class="stats-number">{{ formatHourlyRate(row.hourlyRate) }}</td>
           </tr>
           <tr v-if="stats.length === 0">
             <td class="empty-state" colspan="8">尚无已完成工单</td>

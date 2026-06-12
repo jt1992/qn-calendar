@@ -1,12 +1,19 @@
 import { defineStore } from 'pinia'
-import { getAppSettings, updateAppSettings } from '../api/settings'
+import { getAppSettings, updateAppSettings, updateEmailSenderSettings } from '../api/settings'
 
 let errorTimer = null
 
 export const useAppSettingsStore = defineStore('appSettings', {
   state: () => ({
     settings: {
-      estimatedHourlyBaseAmount: 100
+      estimatedHourlyBaseAmount: 100,
+      emailSender: {
+        configured: false,
+        senderEmailMasked: '',
+        smtpHost: '',
+        smtpPort: 587,
+        smtpSecurity: 'SSL'
+      }
     },
     loading: false,
     saving: false,
@@ -34,6 +41,20 @@ export const useAppSettingsStore = defineStore('appSettings', {
 
       try {
         this.settings = await updateAppSettings(settings)
+      } catch (error) {
+        this.setError(error.message)
+        throw error
+      } finally {
+        this.saving = false
+      }
+    },
+
+    async saveEmailSenderSettings(settings) {
+      this.saving = true
+      this.clearError()
+
+      try {
+        this.settings = await updateEmailSenderSettings(settings)
       } catch (error) {
         this.setError(error.message)
         throw error

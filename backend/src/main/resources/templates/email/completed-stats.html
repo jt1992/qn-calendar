@@ -30,7 +30,7 @@
       }
     </style>
   </head>
-  <body style="width:100%;max-width:none;margin:0;padding:10px;background:#ffffff;color:#17212b;font-family:Arial,'Noto Sans SC','Microsoft YaHei',sans-serif;font-size:16px;line-height:1.28;">
+  <body style="width:100%;max-width:none;margin:0;padding:10px;background:#ffffff;color:#17212b;font-family:Arial,'Noto Sans SC','Microsoft YaHei',sans-serif;font-size:14px;line-height:1.24;">
     <p
       style="margin:0 0 8px;color:#4f5d6b;font-size:18px;font-weight:800;line-height:1.15;"
       th:text="${'完工统计表｜' + document.monthLabel + '｜' + #lists.size(document.rows) + ' 笔'}"
@@ -41,24 +41,24 @@
     <table cellpadding="0" cellspacing="0" width="100%" style="width:100%;max-width:none;border-collapse:collapse;table-layout:fixed;border:1px solid #cfd8e3;">
       <colgroup>
         <col style="width:16%;" />
-        <col style="width:29%;" />
+        <col style="width:31%;" />
         <col style="width:8%;" />
-        <col style="width:12%;" />
-        <col style="width:11%;" />
+        <col style="width:10%;" />
+        <col style="width:10%;" />
         <col style="width:8%;" />
-        <col style="width:8%;" />
+        <col style="width:9%;" />
         <col style="width:8%;" />
       </colgroup>
       <thead>
         <tr>
-          <th style="padding:6px 7px;border:1px solid #cfd8e3;background:#f3f6f8;text-align:left;font-size:16px;">订单编号</th>
-          <th style="padding:6px 7px;border:1px solid #cfd8e3;background:#f3f6f8;text-align:left;font-size:16px;">订单备注</th>
-          <th style="padding:6px 7px;border:1px solid #cfd8e3;background:#f3f6f8;text-align:left;font-size:16px;">订单价格</th>
-          <th style="padding:6px 7px;border:1px solid #cfd8e3;background:#f3f6f8;text-align:left;font-size:16px;">原本预估时长</th>
-          <th style="padding:6px 7px;border:1px solid #cfd8e3;background:#f3f6f8;text-align:left;font-size:16px;">实际总时长</th>
-          <th style="padding:6px 7px;border:1px solid #cfd8e3;background:#f3f6f8;text-align:left;font-size:16px;">暂停时长</th>
-          <th style="padding:6px 7px;border:1px solid #cfd8e3;background:#f3f6f8;text-align:left;font-size:16px;">差异时间</th>
-          <th style="padding:6px 7px;border:1px solid #cfd8e3;background:#f3f6f8;text-align:left;font-size:16px;">时薪</th>
+          <th style="padding:5px 6px;border:1px solid #cfd8e3;background:#f3f6f8;text-align:left;font-size:14px;">订单编号</th>
+          <th style="padding:5px 6px;border:1px solid #cfd8e3;background:#f3f6f8;text-align:left;font-size:14px;">订单备注</th>
+          <th style="padding:5px 6px;border:1px solid #cfd8e3;background:#f3f6f8;text-align:right;font-size:14px;">订单价格</th>
+          <th style="padding:5px 6px;border:1px solid #cfd8e3;background:#f3f6f8;text-align:right;font-size:14px;">预估工时</th>
+          <th style="padding:5px 6px;border:1px solid #cfd8e3;background:#f3f6f8;text-align:right;font-size:14px;">实际工时</th>
+          <th style="padding:5px 6px;border:1px solid #cfd8e3;background:#f3f6f8;text-align:right;font-size:14px;">暂停时长</th>
+          <th style="padding:5px 6px;border:1px solid #cfd8e3;background:#f3f6f8;text-align:right;font-size:14px;">工时差</th>
+          <th style="padding:5px 6px;border:1px solid #cfd8e3;background:#f3f6f8;text-align:right;font-size:14px;">时薪</th>
         </tr>
       </thead>
       <tbody>
@@ -68,23 +68,23 @@
           </td>
         </tr>
         <tr th:each="row : ${document.rows}">
-          <td style="padding:5px 7px;border:1px solid #d7e0ea;font-size:16px;font-weight:800;vertical-align:top;word-break:break-all;" th:text="${row.orderNo}">A001</td>
-          <td style="padding:5px 7px;border:1px solid #d7e0ea;font-size:16px;line-height:1.24;vertical-align:top;white-space:pre-line;word-break:break-word;" th:text="${row.remark}">备注</td>
-          <td style="padding:5px 7px;border:1px solid #d7e0ea;font-size:16px;vertical-align:top;white-space:nowrap;" th:text="${row.price}">$300</td>
-          <td style="padding:5px 7px;border:1px solid #d7e0ea;font-size:16px;vertical-align:top;white-space:nowrap;" th:text="${row.estimatedDuration}">3小时0分钟</td>
-          <td style="padding:5px 7px;border:1px solid #d7e0ea;font-size:16px;vertical-align:top;white-space:nowrap;" th:text="${row.actualDuration}">2小时30分钟</td>
-          <td style="padding:5px 7px;border:1px solid #d7e0ea;font-size:16px;vertical-align:top;white-space:nowrap;" th:text="${row.pausedDuration}">0小时30分钟</td>
-          <td style="padding:5px 7px;border:1px solid #d7e0ea;font-size:16px;vertical-align:top;white-space:nowrap;">
+          <td style="padding:4px 6px;border:1px solid #d7e0ea;font-size:14px;font-weight:800;vertical-align:top;word-break:break-all;" th:text="${row.orderNo}">A001</td>
+          <td style="padding:4px 6px;border:1px solid #d7e0ea;font-size:13px;line-height:1.22;vertical-align:top;white-space:pre-line;word-break:break-word;" th:text="${row.remark}">备注</td>
+          <td style="padding:4px 6px;border:1px solid #d7e0ea;font-size:14px;vertical-align:top;text-align:right;white-space:nowrap;" th:text="${row.price}">¥300</td>
+          <td style="padding:4px 6px;border:1px solid #d7e0ea;font-size:14px;vertical-align:top;text-align:right;white-space:nowrap;" th:text="${row.estimatedDuration}">3 h</td>
+          <td style="padding:4px 6px;border:1px solid #d7e0ea;font-size:14px;vertical-align:top;text-align:right;white-space:nowrap;" th:text="${row.actualDuration}">2 h 30 m</td>
+          <td style="padding:4px 6px;border:1px solid #d7e0ea;font-size:14px;vertical-align:top;text-align:right;white-space:nowrap;" th:text="${row.pausedDuration}">30 m</td>
+          <td style="padding:4px 6px;border:1px solid #d7e0ea;font-size:14px;vertical-align:top;text-align:right;white-space:nowrap;">
             <span
               th:style="${row.deltaTone == 'late'}
-                ? 'display:inline-block;padding:2px 8px;border-radius:999px;background:#fff0ee;color:#d21f1f;font-weight:800;'
-                : (${row.deltaTone == 'early'} ? 'display:inline-block;padding:2px 8px;border-radius:999px;background:#eff6ff;color:#2563eb;font-weight:800;' : 'display:inline-block;padding:2px 8px;border-radius:999px;background:#f3f6f8;color:#4f5d6b;font-weight:800;')"
+                ? 'display:inline-block;padding:2px 6px;border-radius:999px;background:#fff0ee;color:#d21f1f;font-weight:800;'
+                : (${row.deltaTone == 'early'} ? 'display:inline-block;padding:2px 6px;border-radius:999px;background:#eff6ff;color:#2563eb;font-weight:800;' : 'display:inline-block;padding:2px 6px;border-radius:999px;background:#f3f6f8;color:#4f5d6b;font-weight:800;')"
               th:text="${row.deltaText}"
             >
               符合预期
             </span>
           </td>
-          <td style="padding:5px 7px;border:1px solid #d7e0ea;font-size:16px;vertical-align:top;white-space:nowrap;" th:text="${row.hourlyRate}">$120 / 小时</td>
+          <td style="padding:4px 6px;border:1px solid #d7e0ea;font-size:14px;vertical-align:top;text-align:right;white-space:nowrap;" th:text="${row.hourlyRate}">¥120.00</td>
         </tr>
       </tbody>
     </table>
