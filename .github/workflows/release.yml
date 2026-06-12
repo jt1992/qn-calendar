@@ -25,7 +25,7 @@ jobs:
           mkdir -p release-input
           cp backend/target/qn-calendar-backend-*.jar release-input/app.jar
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         with:
           name: qn-calendar-jar
           path: release-input/app.jar
@@ -34,7 +34,7 @@ jobs:
     needs: build-jar
     runs-on: windows-2025-vs2026
     steps:
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v7
         with:
           name: qn-calendar-jar
           path: target
@@ -74,7 +74,7 @@ jobs:
             --java-options "-Djava.awt.headless=false" `
             --java-options "-Dfile.encoding=UTF-8"
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         with:
           name: qn-calendar-windows
           path: dist/*.exe
@@ -83,7 +83,7 @@ jobs:
     needs: build-jar
     runs-on: macos-latest
     steps:
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v7
         with:
           name: qn-calendar-jar
           path: target
@@ -118,7 +118,7 @@ jobs:
               --java-options "-Dfile.encoding=UTF-8"
           done
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         with:
           name: qn-calendar-macos
           path: dist/*
@@ -129,12 +129,12 @@ jobs:
       - build-macos
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v7
         with:
           name: qn-calendar-windows
           path: release-assets
 
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v7
         with:
           name: qn-calendar-macos
           path: release-assets
