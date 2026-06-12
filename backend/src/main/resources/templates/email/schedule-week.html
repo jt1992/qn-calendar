@@ -58,7 +58,7 @@
       style="margin:0 0 8px;color:#4f5d6b;font-size:18px;font-weight:800;line-height:1.15;"
       th:text="${document.viewLabel + ' ｜ ' + document.rangeLabel}"
     >
-      月排程表 ｜ 2026-04
+      月表 ｜ 2026-04
     </p>
 
     <section
@@ -138,7 +138,8 @@
                     class="weekly-remark"
                     style="margin-top:4px;font-size:10px;line-height:1.08;white-space:pre-line;word-break:break-word;overflow:visible;"
                   >
-                    备注：<span th:text="${row.remark}">备注</span>
+                    <span style="display:block;font-weight:800;">备注：</span>
+                    <span style="display:block;" th:text="${row.remark}">买家留言：备注</span>
                   </div>
                 </div>
               </div>
@@ -190,7 +191,8 @@
                   class="weekly-remark"
                   style="margin-top:3px;font-size:11px;line-height:1.12;white-space:pre-line;word-break:break-word;overflow:visible;"
                 >
-                  备注：<span th:text="${row.remark}">备注</span>
+                  <span style="display:block;font-weight:800;">备注：</span>
+                  <span style="display:block;" th:text="${row.remark}">买家留言：备注</span>
                 </div>
               </div>
             </td>

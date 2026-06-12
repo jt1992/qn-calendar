@@ -28,7 +28,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -37,7 +38,8 @@ button {
 }
 
 button:disabled,
-input:disabled {
+input:disabled,
+select:disabled {
   cursor: not-allowed;
   opacity: 0.58;
 }
@@ -1134,6 +1136,11 @@ input:disabled {
   font-size: 0.9rem;
 }
 
+.stats-table .stats-number {
+  text-align: right;
+  white-space: nowrap;
+}
+
 .stats-table strong {
   color: var(--text);
 }
@@ -1196,6 +1203,50 @@ input:disabled {
   font-size: 1.05rem;
 }
 
+.settings-dialog {
+  width: min(620px, 100%);
+}
+
+.settings-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 28px;
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+}
+
+.settings-tabs button {
+  position: relative;
+  flex: 0 0 auto;
+  min-height: 44px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1rem;
+  font-weight: 900;
+}
+
+.settings-tabs button:hover,
+.settings-tabs button.active {
+  color: var(--primary);
+}
+
+.settings-tabs button.active::after {
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  background: var(--primary);
+  content: "";
+}
+
+.settings-panel {
+  display: grid;
+  gap: 14px;
+}
+
 .dialog label {
   display: grid;
   gap: 6px;
@@ -1204,7 +1255,8 @@ input:disabled {
   font-weight: 800;
 }
 
-.dialog input {
+.dialog input,
+.dialog select {
   width: 100%;
   min-height: 42px;
   border: 1px solid var(--line-strong);
@@ -1212,6 +1264,40 @@ input:disabled {
   padding: 0 10px;
   background: var(--surface-strong);
   color: var(--text);
+}
+
+.email-settings-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.email-sender-summary {
+  display: grid;
+  gap: 8px;
+  align-items: start;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+  background: var(--surface-soft);
+}
+
+.email-sender-summary span {
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.email-sender-summary strong {
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.email-sender-summary .text-button {
+  justify-self: start;
+}
+
+.settings-meta {
+  overflow-wrap: anywhere;
 }
 
 .dialog .month-picker {
@@ -1273,6 +1359,24 @@ input:disabled {
   color: var(--danger);
   font-size: 0.86rem;
   font-weight: 800;
+}
+
+.dialog-warning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--warning);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+
+.dialog-warning span {
+  min-width: 0;
 }
 
 .month-filter-row {

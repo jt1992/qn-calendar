@@ -276,7 +276,7 @@ function eventContent(info) {
     : `总排程 ${formatDurationText(totalMinutes)}`
   root.dataset.tooltipStatus = isDone ? '完成' : isPaused ? '暂停中' : '未完成'
   root.dataset.tooltipLatest = formatDateTime(latestShipTime)
-  root.dataset.tooltipPrice = info.event.extendedProps.price ? `$${info.event.extendedProps.price}` : ''
+  root.dataset.tooltipPrice = info.event.extendedProps.price ? formatMoney(info.event.extendedProps.price) : ''
   root.dataset.tooltipRemark = formatRemarkText(info.event.extendedProps.remark)
   title.className = 'calendar-event-title'
   title.textContent = info.event.extendedProps.orderNo || info.event.title
@@ -1033,7 +1033,7 @@ function showEventTooltip(event, pointerEvent) {
       : `总排程 ${formatDurationText(totalMinutes)}`,
     statusText: event.extendedProps.status === 'DONE' ? '完成' : event.extendedProps.paused ? '暂停中' : '未完成',
     latestText: formatDateTime(latestShipTime),
-    priceText: event.extendedProps.price ? `$${event.extendedProps.price}` : '',
+    priceText: event.extendedProps.price ? formatMoney(event.extendedProps.price) : '',
     remarkText: formatRemarkText(event.extendedProps.remark)
   }
 }
@@ -1213,6 +1213,13 @@ function formatDurationText(minutes) {
   const hours = Math.floor(normalizedMinutes / 60)
   const remainingMinutes = normalizedMinutes % 60
   return `${hours}小时${remainingMinutes}分钟`
+}
+
+function formatMoney(value) {
+  return `¥${Number(value || 0).toLocaleString('zh-CN', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2
+  })}`
 }
 
 function formatRemarkText(value) {

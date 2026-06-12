@@ -2,9 +2,12 @@ package com.qn.calendar.settings.service;
 
 import java.math.BigDecimal;
 
+import com.qn.calendar.settings.constant.SmtpSecurity;
 import com.qn.calendar.settings.dto.AppSettingsResponse;
+import com.qn.calendar.settings.dto.UpdateEmailSenderSettingsRequest;
 import com.qn.calendar.settings.dto.UpdateAppSettingsRequest;
 import com.qn.calendar.settings.entity.AppSetting;
+import com.qn.calendar.settings.model.EmailSenderSettings;
 import com.qn.calendar.settings.repository.AppSettingRepository;
 
 import org.springframework.stereotype.Service;
@@ -35,6 +38,24 @@ public class AppSettingsService {
                 .orElse(DEFAULT_ESTIMATED_HOURLY_BASE_AMOUNT);
     }
 
+    @Transactional(readOnly = true)
+    public EmailSenderSettings getRequiredEmailSenderSettings() {
+        AppSetting appSetting = repository.findById(APP_SETTING_ID)
+                .orElseThrow(() -> new IllegalStateException("请先在全局设置中配置寄件者 SMTP"));
+
+        if (!appSetting.isEmailSenderConfigured()) {
+            throw new IllegalStateException("请先在全局设置中配置寄件者 SMTP");
+        }
+
+        return new EmailSenderSettings(
+                appSetting.getEmailSender(),
+                appSetting.getSmtpHost(),
+                appSetting.getSmtpPort(),
+                appSetting.getSmtpSecurity(),
+                appSetting.getSmtpAuthCode()
+        );
+    }
+
     @Transactional
     public AppSettingsResponse updateSettings(UpdateAppSettingsRequest request) {
         validateEstimatedHourlyBaseAmount(request.estimatedHourlyBaseAmount());
@@ -43,6 +64,30 @@ public class AppSettingsService {
                 .orElseGet(() -> new AppSetting(APP_SETTING_ID, DEFAULT_ESTIMATED_HOURLY_BASE_AMOUNT));
 
         appSetting.updateEstimatedHourlyBaseAmount(request.estimatedHourlyBaseAmount());
+        return AppSettingsResponse.from(repository.save(appSetting));
+    }
+
+    @Transactional
+    public AppSettingsResponse updateEmailSenderSettings(UpdateEmailSenderSettingsRequest request) {
+        String emailSender = trim(request.senderEmail());
+        String smtpHost = trim(request.smtpHost());
+        String smtpAuthCode = trim(request.smtpAuthCode());
+        validateEmailSenderSettings(
+                emailSender,
+                smtpHost,
+                request.smtpPort(),
+                request.smtpSecurity(),
+                smtpAuthCode
+        );
+
+        AppSetting appSetting = getOrCreateSettings();
+        appSetting.updateEmailSenderSettings(
+                emailSender,
+                smtpHost,
+                request.smtpPort(),
+                request.smtpSecurity(),
+                smtpAuthCode
+        );
         return AppSettingsResponse.from(repository.save(appSetting));
     }
 
@@ -66,5 +111,45 @@ public class AppSettingsService {
         if (estimatedHourlyBaseAmount.scale() > 2) {
             throw new IllegalArgumentException("预估工时基础金额最多保留 2 位小数");
         }
+    }
+
+    private void validateEmailSenderSettings(
+            String emailSender,
+            String smtpHost,
+            Integer smtpPort,
+            SmtpSecurity smtpSecurity,
+            String smtpAuthCode
+    ) {
+        if (!hasText(emailSender)) {
+            throw new IllegalArgumentException("寄件 Email 不可为空");
+        }
+
+        if (!hasText(smtpHost)) {
+            throw new IllegalArgumentException("SMTP 服务器不可为空");
+        }
+
+        if (smtpPort == null) {
+            throw new IllegalArgumentException("SMTP 端口不可为空");
+        }
+
+        if (smtpPort <= 0 || smtpPort > 65535) {
+            throw new IllegalArgumentException("SMTP 端口必须介于 1 到 65535");
+        }
+
+        if (smtpSecurity == null) {
+            throw new IllegalArgumentException("加密方式不可为空");
+        }
+
+        if (!hasText(smtpAuthCode)) {
+            throw new IllegalArgumentException("授权码不可为空");
+        }
+    }
+
+    private static String trim(String value) {
+        return value == null ? "" : value.trim();
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.trim().isEmpty();
     }
 }

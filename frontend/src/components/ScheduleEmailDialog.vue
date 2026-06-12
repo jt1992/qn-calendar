@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
-import { Mail, X } from '@lucide/vue'
+import { Mail, Settings, X } from '@lucide/vue'
+import { useAppSettingsStore } from '../stores/appSettingsStore'
 import { useWorkOrderStore } from '../stores/workOrderStore'
 import MonthPicker from './MonthPicker.vue'
 
@@ -31,8 +32,9 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['close'])
+const emit = defineEmits(['close', 'open-settings'])
 const store = useWorkOrderStore()
+const settingsStore = useAppSettingsStore()
 const sending = ref(false)
 const sentMessage = ref('')
 let sentMessageTimer = null
@@ -53,6 +55,8 @@ const recipients = computed(() =>
     .map((email) => email.trim())
     .filter(Boolean)
 )
+
+const emailSenderConfigured = computed(() => Boolean(settingsStore.settings.emailSender?.configured))
 
 const availableCompletedStatsMonths = computed(() => {
   return [...new Set(
@@ -85,6 +89,7 @@ watch(
     form.completedStatsMonth = props.completedStatsMonth || ''
     form.subject = defaultSubject()
 
+    await refreshEmailSenderSettings()
     await refreshCompletedStatsOptions()
   },
   { immediate: true }
@@ -104,7 +109,11 @@ watch(
 )
 
 async function submit() {
-  if (sending.value) {
+  if (sending.value || !emailSenderConfigured.value) {
+    if (!emailSenderConfigured.value) {
+      store.setError('请先在全局设置中配置寄件者 SMTP')
+    }
+
     return
   }
 
@@ -193,15 +202,23 @@ function defaultSubject() {
   }
 
   if (form.viewType === 'MONTH') {
-    return `月排程表 - ${form.month || currentMonth()}`
+    return `月表 - ${form.month || currentMonth()}`
   }
 
-  return `周排程表 - ${form.dateFrom || ''} - ${form.dateTo || ''}`
+  return `周表 - ${form.dateFrom || ''} - ${form.dateTo || ''}`
 }
 
 async function refreshCompletedStatsOptions() {
   try {
     await store.fetchCompletedStats()
+  } catch (error) {
+    store.setError(error.message)
+  }
+}
+
+async function refreshEmailSenderSettings() {
+  try {
+    await settingsStore.fetchSettings()
   } catch (error) {
     store.setError(error.message)
   }
@@ -313,11 +330,23 @@ onBeforeUnmount(() => {
         </div>
       </label>
 
+      <div v-if="!emailSenderConfigured" class="dialog-warning">
+        <span>请先配置寄件者 SMTP</span>
+        <button class="icon-button" type="button" @click="emit('open-settings', 'email')">
+          <Settings :size="18" />
+          设置寄件者
+        </button>
+      </div>
+
       <div class="dialog-actions">
         <span v-if="sentMessage" class="dialog-status" role="status">
           {{ sentMessage }}
         </span>
-        <button class="icon-button primary-action" type="submit" :disabled="sending">
+        <button
+          class="icon-button primary-action"
+          type="submit"
+          :disabled="sending || settingsStore.loading || !emailSenderConfigured"
+        >
           <span v-if="sending" class="loading-spinner" aria-hidden="true"></span>
           <Mail v-else :size="18" />
           {{ sending ? '发送中' : '发送' }}

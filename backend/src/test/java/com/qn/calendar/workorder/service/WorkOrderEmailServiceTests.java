@@ -17,6 +17,9 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Properties;
 
+import com.qn.calendar.settings.constant.SmtpSecurity;
+import com.qn.calendar.settings.model.EmailSenderSettings;
+import com.qn.calendar.settings.service.AppSettingsService;
 import com.qn.calendar.workorder.constant.ScheduleEmailViewType;
 import com.qn.calendar.workorder.constant.WorkOrderStatus;
 import com.qn.calendar.workorder.dto.CompletedWorkOrderStatsResponse;
@@ -235,6 +238,7 @@ class WorkOrderEmailServiceTests {
                 .contains("weekly-remark")
                 .contains("最晚发货")
                 .contains("display:block;\">最晚发货：")
+                .contains("<span style=\"display:block;font-weight:800;\">备注：</span>")
                 .contains("white-space:nowrap;")
                 .contains("2026-06-21")
                 .contains("12:00:00")
@@ -242,13 +246,13 @@ class WorkOrderEmailServiceTests {
                 .contains("买家留言：测试备注")
                 .doesNotContain("<h1")
                 .doesNotContain("<h2")
-                .doesNotContain("周排程表 ｜")
+                .doesNotContain("周表 ｜")
                 .doesNotContain("2026-06-21 12:00:00")
                 .doesNotContain("max-height")
                 .doesNotContain("break-inside: avoid");
         assertThat(monthlyHtml)
                 .contains("ORD-RENDER")
-                .contains("月排程表 ｜ 2026-06")
+                .contains("月表 ｜ 2026-06")
                 .contains("最晚发货")
                 .doesNotContain("week-timegrid")
                 .doesNotContain("time-axis")
@@ -287,13 +291,13 @@ class WorkOrderEmailServiceTests {
 
         assertThat(row.orderNo()).isEqualTo("ORD-DONE");
         assertThat(row.remark()).isEqualTo("测试备注");
-        assertThat(row.price()).isEqualTo("$300");
-        assertThat(row.estimatedDuration()).isEqualTo("3小时0分钟");
-        assertThat(row.actualDuration()).isEqualTo("2小时30分钟");
-        assertThat(row.pausedDuration()).isEqualTo("0小时0分钟");
-        assertThat(row.deltaText()).isEqualTo("提前 0小时30分钟");
+        assertThat(row.price()).isEqualTo("¥300");
+        assertThat(row.estimatedDuration()).isEqualTo("3 h");
+        assertThat(row.actualDuration()).isEqualTo("2 h 30 m");
+        assertThat(row.pausedDuration()).isEqualTo("0 m");
+        assertThat(row.deltaText()).isEqualTo("提前 30 m");
         assertThat(row.deltaTone()).isEqualTo("early");
-        assertThat(row.hourlyRate()).isEqualTo("$120 / 小时");
+        assertThat(row.hourlyRate()).isEqualTo("¥120.00");
     }
 
     @Test
@@ -315,14 +319,16 @@ class WorkOrderEmailServiceTests {
                 .contains("订单编号")
                 .contains("订单备注")
                 .contains("订单价格")
-                .contains("原本预估时长")
-                .contains("实际总时长")
-                .contains("差异时间")
+                .contains("预估工时")
+                .contains("实际工时")
+                .contains("工时差")
                 .contains("时薪")
+                .contains("text-align:right")
                 .contains("2026-06")
                 .contains("ORD-DONE")
-                .contains("超出 0小时15分钟")
-                .contains("$92.31 / 小时")
+                .contains("超出 15 m")
+                .contains("¥92.31")
+                .doesNotContain(" / 小时")
                 .doesNotContain("<h1")
                 .doesNotContain("买家昵称");
     }
@@ -362,43 +368,90 @@ class WorkOrderEmailServiceTests {
     }
 
     @Test
-    void sendScheduleEmailUsesPdfAttachmentWithoutHtmlBody() throws Exception {
+    void sendScheduleEmailUsesUtf8PdfAttachmentFilenamesWithoutHtmlBody() throws Exception {
         WorkOrderRepository workOrderRepository = mock(WorkOrderRepository.class);
         WorkOrderSegmentRepository segmentRepository = mock(WorkOrderSegmentRepository.class);
         WorkOrderSegmentPauseRepository pauseRepository = mock(WorkOrderSegmentPauseRepository.class);
         when(segmentRepository.findCalendarSegments(anyList(), any(), any())).thenReturn(List.of());
+        when(workOrderRepository.findCompletedStats(WorkOrderStatus.DONE)).thenReturn(List.of());
+        AppSettingsService appSettingsService = mock(AppSettingsService.class);
+        EmailSenderSettings emailSenderSettings = new EmailSenderSettings(
+                "sender@example.com",
+                "smtp.example.com",
+                587,
+                SmtpSecurity.STARTTLS,
+                "smtp-auth-code"
+        );
+        when(appSettingsService.getRequiredEmailSenderSettings()).thenReturn(emailSenderSettings);
         CapturingMailSender mailSender = new CapturingMailSender();
         WorkOrderEmailService service = new WorkOrderEmailService(
                 workOrderRepository,
                 segmentRepository,
                 pauseRepository,
-                mailSender,
-                templateEngine(),
-                ""
+                appSettingsService,
+                templateEngine()
+        ) {
+            @Override
+            JavaMailSender createMailSender(EmailSenderSettings settings) {
+                assertThat(settings).isEqualTo(emailSenderSettings);
+                return mailSender;
+            }
+        };
+        List<AttachmentFilenameCase> cases = List.of(
+                new AttachmentFilenameCase(
+                        new ScheduleEmailRequest(
+                                List.of("receiver@example.com"),
+                                "custom subject",
+                                LocalDate.of(2026, 6, 20),
+                                LocalDate.of(2026, 6, 26),
+                                ScheduleEmailViewType.WEEK
+                        ),
+                        "filename*=UTF-8''%E5%91%A8%E8%A1%A8%20-%202026-06-20%20-%202026-06-26.pdf"
+                ),
+                new AttachmentFilenameCase(
+                        new ScheduleEmailRequest(
+                                List.of("receiver@example.com"),
+                                "custom subject",
+                                LocalDate.of(2026, 6, 1),
+                                LocalDate.of(2026, 6, 30),
+                                ScheduleEmailViewType.MONTH
+                        ),
+                        "filename*=UTF-8''%E6%9C%88%E8%A1%A8%20-%202026-06.pdf"
+                ),
+                new AttachmentFilenameCase(
+                        new ScheduleEmailRequest(
+                                List.of("receiver@example.com"),
+                                "custom subject",
+                                null,
+                                null,
+                                ScheduleEmailViewType.COMPLETED_STATS
+                        ),
+                        "filename*=UTF-8''%E5%AE%8C%E5%B7%A5%E7%BB%9F%E8%AE%A1%E8%A1%A8%20-%20%E5%85%A8%E9%83%A8.pdf"
+                )
         );
-        ScheduleEmailRequest request = new ScheduleEmailRequest(
-                List.of("receiver@example.com"),
-                "周排程表 - 2026-06-20 - 2026-06-26",
-                LocalDate.of(2026, 6, 20),
-                LocalDate.of(2026, 6, 26),
-                ScheduleEmailViewType.WEEK
-        );
 
-        service.sendScheduleEmail(request);
+        for (AttachmentFilenameCase currentCase : cases) {
+            service.sendScheduleEmail(currentCase.request());
 
-        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-        mailSender.sentMessage.writeTo(outputStream);
-        String rawMessage = outputStream.toString(StandardCharsets.UTF_8);
+            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+            mailSender.sentMessage.writeTo(outputStream);
+            String rawMessage = outputStream.toString(StandardCharsets.UTF_8);
 
-        assertThat(rawMessage)
-                .contains("application/pdf")
-                .contains("Content-Disposition: attachment")
-                .contains("filename*=UTF-8''%E5%91%A8%E6%8E%92%E7%A8%8B%E8%A1%A8%20-%202026-06-20%20-%202026-06-26.pdf")
-                .doesNotContain("????")
-                .contains("text/plain")
-                .doesNotContain("text/html")
-                .doesNotContain("<table")
-                .doesNotContain("calendar-card");
+            assertThat(rawMessage)
+                    .contains("From: sender@example.com")
+                    .contains("application/pdf")
+                    .contains("Content-Disposition: attachment")
+                    .contains("filename=\"=?UTF-8?B?")
+                    .contains(currentCase.encodedFilename())
+                    .doesNotContain("custom subject.pdf")
+                    .doesNotContain("????")
+                    .contains("text/plain")
+                    .doesNotContain("text/html")
+                    .doesNotContain("<table")
+                    .doesNotContain("calendar-card");
+            assertThat(rawMessage.indexOf(currentCase.encodedFilename()))
+                    .isLessThan(rawMessage.indexOf("filename=\"=?UTF-8?B?"));
+        }
     }
 
     @Test
@@ -472,6 +525,9 @@ class WorkOrderEmailServiceTests {
                 LocalDateTime.of(2026, 6, 20, 18, 0),
                 LocalDateTime.of(2026, 6, 20, 12, 0)
         );
+    }
+
+    private record AttachmentFilenameCase(ScheduleEmailRequest request, String encodedFilename) {
     }
 
     private TemplateEngine templateEngine() {
