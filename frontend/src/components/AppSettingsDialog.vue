@@ -28,7 +28,7 @@ const emailForm = reactive({
   senderEmail: '',
   smtpAuthCode: '',
   smtpHost: '',
-  smtpPort: '587',
+  smtpPort: '465',
   smtpSecurity: 'SSL'
 })
 
@@ -179,7 +179,7 @@ function validateEmailSender() {
   }
 
   if (![465, 587].includes(smtpPort)) {
-    showFieldError('SMTP 端口必须为 587 或 465')
+    showFieldError('SMTP 端口必须为 465 或 587')
     return null
   }
 
@@ -214,7 +214,7 @@ function resetEmailForm() {
   emailForm.senderEmail = ''
   emailForm.smtpAuthCode = ''
   emailForm.smtpHost = emailSender.value.smtpHost || ''
-  emailForm.smtpPort = emailSender.value.smtpPort ? String(emailSender.value.smtpPort) : '587'
+  emailForm.smtpPort = emailSender.value.smtpPort ? String(emailSender.value.smtpPort) : '465'
   emailForm.smtpSecurity = emailSender.value.smtpSecurity || 'SSL'
 }
 
@@ -387,8 +387,8 @@ function securityLabel(value) {
                 required
                 :disabled="settingsBusy"
               >
-                <option value="587">587</option>
                 <option value="465">465</option>
+                <option value="587">587</option>
               </select>
             </label>
             <label>

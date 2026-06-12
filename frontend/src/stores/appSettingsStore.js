@@ -11,7 +11,7 @@ export const useAppSettingsStore = defineStore('appSettings', {
         configured: false,
         senderEmailMasked: '',
         smtpHost: '',
-        smtpPort: 587,
+        smtpPort: 465,
         smtpSecurity: 'SSL'
       }
     },
