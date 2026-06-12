@@ -124,11 +124,6 @@ QN_CALENDAR_DATA_DIR=/absolute/path/to/qn-calendar-data
 
 jpackage 不能跨平台打包：Windows `.exe` 必须在 Windows runner/环境生成，macOS `.dmg` / `.pkg` 必须在 macOS runner/环境生成。本项目已配置 `.github/workflows/release.yml`，推送 `v*` tag 后会自动创建 GitHub Release 并附上安装文件。
 
-```bash
-git tag v1.0.0
-git push origin v1.0.0
-```
-
 jpackage 要求 installer 版本第一段为正整数；若 tag 使用 `v0.x.x`，GitHub Actions 会把 installer 内部版本转成对应的 `v1.x.x` 格式，但 Release tag 仍维持原本名称。若 repository 维持私有，下载 GitHub Release 安装文件的人仍需要对应的 GitHub 访问权限；要提供给没有权限的用户时，需要改用公开 release repo 或外部发布渠道。
 
 ## 桌面版安装、更新与卸载

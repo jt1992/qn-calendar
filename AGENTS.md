@@ -151,6 +151,28 @@ git pull origin main
 git branch -D feature/codex-xxx
 ```
 
+### Release flow
+
+Release tags must point to commits that already belong to `main`.
+
+Correct release sequence:
+
+```bash
+# 1. Finish code or workflow changes through the normal PR flow
+git switch main
+git pull origin main
+
+# 2. Create the release tag from latest main
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+Do not push or force-push a release tag to a commit that only exists on an
+unmerged feature/chore branch. GitHub will show "This commit does not belong to
+any branch on this repository" for that tag, even if the release workflow itself
+succeeds. If a release workflow needs fixes, first merge the fix into `main`,
+then create or move the release tag from the updated `main` commit.
+
 ### Why `--force-with-lease`
 
 `--force-with-lease` checks the remote state before pushing, so it will not clobber someone else's commits. Plain `--force` is unsafe and forbidden.
