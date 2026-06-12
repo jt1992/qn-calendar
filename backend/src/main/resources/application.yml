@@ -6,24 +6,17 @@ spring:
     import:
       - optional:file:.env[.properties]
       - optional:file:../.env[.properties]
-  application:
-    name: qn-calendar-backend
   servlet:
     multipart:
       max-file-size: 20MB
       max-request-size: 20MB
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:sqlite:${qn.calendar.data-dir}/qn-calendar.db}
+    url: jdbc:sqlite:${qn.calendar.data-dir}/qn-calendar.db
     driver-class-name: org.sqlite.JDBC
-    username: ${SPRING_DATASOURCE_USERNAME:}
-    password: "${SPRING_DATASOURCE_PASSWORD:}"
   jpa:
     database-platform: org.hibernate.community.dialect.SQLiteDialect
     hibernate:
       ddl-auto: update
-    open-in-view: false
-    properties:
-      "[hibernate.format_sql]": true
 
 app:
   desktop:
