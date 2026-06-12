@@ -62,7 +62,7 @@ XLSX 订单导入与工单排程系统。前端使用 Vue 3.5、Vite 8、Vue Rou
 - 后端统一使用 SQLite；默认数据库位置为 `~/.qn-calendar/qn-calendar.db`，可用 `QN_CALENDAR_DATA_DIR` 指定数据目录。
 - Maven package 会在后端打包时构建 Vue 前端，并把静态文件放入 Spring Boot jar。
 - Spring Boot 可直接服务 Vue production build，支持 SPA fallback，且不拦截 `/api/**`。
-- 桌面版可通过 jpackage 生成 Windows `.exe` 与 macOS `.dmg`；启动后可自动开浏览器，并在支持系统托盘的环境提供「打开页面」与「关闭系统」。
+- 桌面版可通过 jpackage 生成 Windows `.exe` 与 macOS `.dmg` / `.pkg`；启动后可自动开浏览器，并在支持系统托盘的环境提供「打开页面」与「关闭系统」。
 - Docker Compose 改为单一后端服务，前端由 Spring Boot 提供，SQLite 数据保存在 Docker volume。
 - 推送 `v*` tag 后，GitHub Actions 会分别在 Windows/macOS runner 用 jpackage 生成安装文件并上传到 GitHub Release。
 
@@ -122,7 +122,7 @@ QN_CALENDAR_DATA_DIR=/absolute/path/to/qn-calendar-data
 
 ## 桌面版打包与发布
 
-jpackage 不能跨平台打包：Windows `.exe` 必须在 Windows runner/环境生成，macOS `.dmg` 必须在 macOS runner/环境生成。本项目已配置 `.github/workflows/release.yml`，推送 `v*` tag 后会自动创建 GitHub Release 并附上安装文件。
+jpackage 不能跨平台打包：Windows `.exe` 必须在 Windows runner/环境生成，macOS `.dmg` / `.pkg` 必须在 macOS runner/环境生成。本项目已配置 `.github/workflows/release.yml`，推送 `v*` tag 后会自动创建 GitHub Release 并附上安装文件。
 
 ```bash
 git tag v1.0.0
@@ -130,3 +130,11 @@ git push origin v1.0.0
 ```
 
 jpackage 要求 installer 版本第一段为正整数；若 tag 使用 `v0.x.x`，GitHub Actions 会把 installer 内部版本转成对应的 `v1.x.x` 格式，但 Release tag 仍维持原本名称。若 repository 维持私有，下载 GitHub Release 安装文件的人仍需要对应的 GitHub 访问权限；要提供给没有权限的用户时，需要改用公开 release repo 或外部发布渠道。
+
+## 桌面版安装、更新与卸载
+
+Windows 使用 `.exe` 安装包；安装后会建立桌面快捷方式与开始菜单入口，并可从 Windows「应用」中卸载。Release workflow 从 `v1.0.2` 起固定 `--win-upgrade-uuid`，后续新版 `.exe` 可识别为同一应用的升级安装包。若从更早版本升级时 Windows 不接受直接覆盖安装，先卸载旧版再安装新版即可。
+
+macOS 同时发布 `.dmg` 与 `.pkg`。`.dmg` 适合手动拖拽到「应用程序」并在更新时替换旧版；`.pkg` 适合使用系统安装器安装或覆盖升级。卸载时删除「应用程序」里的 `QnCalendar.app`。
+
+桌面版数据库不放在安装目录中，默认位于用户目录的 `.qn-calendar/qn-calendar.db`。卸载、覆盖安装或重新安装应用本体不会删除该数据库；若需要彻底清除数据，需手动删除用户目录下的 `.qn-calendar`。

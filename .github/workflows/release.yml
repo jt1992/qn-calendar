@@ -69,6 +69,7 @@ jobs:
             --vendor "Qn Calendar" `
             --win-shortcut `
             --win-menu `
+            --win-upgrade-uuid "2F10A62F-230F-4B84-A7BB-1FEC7386A9A4" `
             --java-options "-Dapp.desktop.enabled=true" `
             --java-options "-Djava.awt.headless=false" `
             --java-options "-Dfile.encoding=UTF-8"
@@ -92,7 +93,7 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      - name: Build macOS installer
+      - name: Build macOS installers
         run: |
           RELEASE_VERSION="${GITHUB_REF_NAME#v}"
           if [[ "$RELEASE_VERSION" == 0 || "$RELEASE_VERSION" == 0.* ]]; then
@@ -101,23 +102,26 @@ jobs:
             VERSION="$RELEASE_VERSION"
           fi
           mkdir -p dist
-          jpackage \
-            --input target \
-            --main-jar app.jar \
-            --dest dist \
-            --name QnCalendar \
-            --type dmg \
-            --app-version "$VERSION" \
-            --vendor "Qn Calendar" \
-            --mac-package-identifier com.qn.calendar \
-            --java-options "-Dapp.desktop.enabled=true" \
-            --java-options "-Djava.awt.headless=false" \
-            --java-options "-Dfile.encoding=UTF-8"
+          for packageType in dmg pkg; do
+            jpackage \
+              --input target \
+              --main-jar app.jar \
+              --dest dist \
+              --name QnCalendar \
+              --type "$packageType" \
+              --app-version "$VERSION" \
+              --vendor "Qn Calendar" \
+              --mac-package-identifier com.qn.calendar \
+              --mac-package-name QnCalendar \
+              --java-options "-Dapp.desktop.enabled=true" \
+              --java-options "-Djava.awt.headless=false" \
+              --java-options "-Dfile.encoding=UTF-8"
+          done
 
       - uses: actions/upload-artifact@v5
         with:
           name: qn-calendar-macos
-          path: dist/*.dmg
+          path: dist/*
 
   publish-release:
     needs:
