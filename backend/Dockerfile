@@ -9,9 +9,15 @@ RUN mvn -q -f backend/pom.xml -DskipTests package
 
 FROM eclipse-temurin:21-jre
 WORKDIR /app
-ENV APP_DESKTOP_ENABLED=false
-ENV QN_CALENDAR_DATA_DIR=/data
-RUN mkdir -p /data
+ENV APP_DESKTOP_ENABLED=false \
+    QN_CALENDAR_DATA_DIR=/data \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends fontconfig fonts-wqy-microhei \
+    && fc-cache -f \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /data
 COPY --from=build /workspace/backend/target/*.jar app.jar
 VOLUME ["/data"]
 EXPOSE 8080

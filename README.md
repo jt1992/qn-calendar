@@ -64,6 +64,7 @@ XLSX 订单导入与工单排程系统。前端使用 Vue 3.5、Vite 8、Vue Rou
 - Spring Boot 可直接服务 Vue production build，支持 SPA fallback，且不拦截 `/api/**`。
 - 桌面版可通过 jpackage 生成 Windows `.exe` 与 macOS `.dmg` / `.pkg`；启动后可自动开浏览器，并在支持系统托盘的环境提供「打开页面」与「关闭系统」。
 - Docker Compose 改为单一后端服务，前端由 Spring Boot 提供，SQLite 数据保存在 Docker volume。
+- Docker runtime 镜像内置文泉驿中文字体并固定 UTF-8 locale，确保 Email PDF 中的中文内容可正常渲染。
 - 推送 `v*` tag 后，GitHub Actions 会分别在 Windows/macOS runner 用 jpackage 生成安装文件并上传到 GitHub Release。
 
 ## 常用指令
@@ -103,7 +104,7 @@ cp .env.example .env
 docker compose up --build
 ```
 
-启动后打开 `http://localhost:8080`。Docker 模式会关闭桌面浏览器与系统托盘功能，SQLite 数据存在 `qn-calendar-data` volume。
+启动后打开 `http://localhost:8080`。Docker 模式会关闭桌面浏览器与系统托盘功能，SQLite 数据存在 `qn-calendar-data` volume，并在镜像内安装中文字体供 PDF 渲染中文内容。
 
 ## 设定
 

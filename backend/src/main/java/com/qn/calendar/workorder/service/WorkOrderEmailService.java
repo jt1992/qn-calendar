@@ -615,7 +615,24 @@ public class WorkOrderEmailService {
       return "符合预期";
     }
 
-    return (minutes > 0 ? "超出 " : "提前 ") + formatStatsDurationText(Math.abs(minutes));
+    return (minutes > 0 ? "超出 " : "提前 ") + formatStatsCompactDurationText(Math.abs(minutes));
+  }
+
+  private static String formatStatsCompactDurationText(int minutes) {
+    int normalizedMinutes = Math.max(0, minutes);
+    int hours = normalizedMinutes / 60;
+    int remainingMinutes = normalizedMinutes % 60;
+    List<String> parts = new ArrayList<>();
+
+    if (hours > 0) {
+      parts.add(hours + "h");
+    }
+
+    if (remainingMinutes > 0) {
+      parts.add(remainingMinutes + "m");
+    }
+
+    return parts.isEmpty() ? "0m" : String.join("", parts);
   }
 
   private static String deltaTone(int minutes) {
