@@ -41,12 +41,12 @@
     <table cellpadding="0" cellspacing="0" width="100%" style="width:100%;max-width:none;border-collapse:collapse;table-layout:fixed;border:1px solid #cfd8e3;">
       <colgroup>
         <col style="width:16%;" />
-        <col style="width:31%;" />
-        <col style="width:8%;" />
-        <col style="width:10%;" />
-        <col style="width:10%;" />
+        <col style="width:34%;" />
+        <col style="width:7%;" />
         <col style="width:8%;" />
         <col style="width:9%;" />
+        <col style="width:7%;" />
+        <col style="width:11%;" />
         <col style="width:8%;" />
       </colgroup>
       <thead>
@@ -77,8 +77,8 @@
           <td style="padding:4px 6px;border:1px solid #d7e0ea;font-size:14px;vertical-align:top;text-align:right;white-space:nowrap;">
             <span
               th:style="${row.deltaTone == 'late'}
-                ? 'display:inline-block;padding:2px 6px;border-radius:999px;background:#fff0ee;color:#d21f1f;font-weight:800;'
-                : (${row.deltaTone == 'early'} ? 'display:inline-block;padding:2px 6px;border-radius:999px;background:#eff6ff;color:#2563eb;font-weight:800;' : 'display:inline-block;padding:2px 6px;border-radius:999px;background:#f3f6f8;color:#4f5d6b;font-weight:800;')"
+                ? 'display:inline-block;padding:2px 5px;border-radius:999px;background:#fff0ee;color:#d21f1f;font-weight:800;line-height:1.05;letter-spacing:0;'
+                : (${row.deltaTone == 'early'} ? 'display:inline-block;padding:2px 5px;border-radius:999px;background:#eff6ff;color:#2563eb;font-weight:800;line-height:1.05;letter-spacing:0;' : 'display:inline-block;padding:2px 5px;border-radius:999px;background:#f3f6f8;color:#4f5d6b;font-weight:800;line-height:1.05;letter-spacing:0;')"
               th:text="${row.deltaText}"
             >
               符合预期

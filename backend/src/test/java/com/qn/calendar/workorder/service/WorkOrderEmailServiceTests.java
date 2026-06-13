@@ -238,12 +238,12 @@ class WorkOrderEmailServiceTests {
                 .contains("weekly-remark")
                 .contains("最晚发货")
                 .contains("display:block;\">最晚发货：")
-                .contains("<span style=\"display:block;font-weight:800;\">备注：</span>")
+                .contains("font-size:11px;line-height:1.12;white-space:pre-line")
                 .contains("white-space:nowrap;")
                 .contains("2026-06-21")
                 .contains("12:00:00")
-                .contains("备注")
                 .contains("买家留言：测试备注")
+                .doesNotContain("<span style=\"display:block;font-weight:800;\">备注：</span>")
                 .doesNotContain("<h1")
                 .doesNotContain("<h2")
                 .doesNotContain("周表 ｜")
@@ -295,7 +295,7 @@ class WorkOrderEmailServiceTests {
         assertThat(row.estimatedDuration()).isEqualTo("3 h");
         assertThat(row.actualDuration()).isEqualTo("2 h 30 m");
         assertThat(row.pausedDuration()).isEqualTo("0 m");
-        assertThat(row.deltaText()).isEqualTo("提前 30 m");
+        assertThat(row.deltaText()).isEqualTo("提前 30m");
         assertThat(row.deltaTone()).isEqualTo("early");
         assertThat(row.hourlyRate()).isEqualTo("¥120.00");
     }
@@ -326,7 +326,7 @@ class WorkOrderEmailServiceTests {
                 .contains("text-align:right")
                 .contains("2026-06")
                 .contains("ORD-DONE")
-                .contains("超出 15 m")
+                .contains("超出 15m")
                 .contains("¥92.31")
                 .doesNotContain(" / 小时")
                 .doesNotContain("<h1")
