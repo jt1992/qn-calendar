@@ -42,9 +42,7 @@ const recipientQuery = ref('')
 const recipientInput = ref(null)
 const recipientMenuOpen = ref(false)
 const activeSuggestionIndex = ref(0)
-const recipientFieldError = ref('')
 let sentMessageTimer = null
-let recipientFieldErrorTimer = null
 
 const form = reactive({
   subject: '',
@@ -53,6 +51,14 @@ const form = reactive({
   dateTo: '',
   month: '',
   completedStatsMonth: ''
+})
+
+const formErrors = reactive({
+  recipients: '',
+  subject: '',
+  dateFrom: '',
+  dateTo: '',
+  month: ''
 })
 
 const recipients = computed(() => selectedRecipients.value.map((recipient) => recipient.email))
@@ -118,7 +124,7 @@ watch(
     recipientQuery.value = ''
     recipientMenuOpen.value = false
     activeSuggestionIndex.value = 0
-    clearRecipientFieldError()
+    clearFormValidation()
 
     await Promise.all([
       refreshEmailSenderSettings(),
@@ -151,15 +157,11 @@ async function submit() {
     return
   }
 
-  if (recipientQuery.value.trim() && !commitRecipientQuery()) {
-    showRecipientFieldError('请选择收件者或输入完整 Email')
-    recipientInput.value?.focus()
-    return
-  }
+  if (!validateForm()) {
+    if (formErrors.recipients) {
+      recipientInput.value?.focus()
+    }
 
-  if (selectedRecipients.value.length === 0) {
-    showRecipientFieldError('请至少加入一位收件者')
-    recipientInput.value?.focus()
     return
   }
 
@@ -176,12 +178,57 @@ async function submit() {
     })
 
     store.clearError()
+    clearFormValidation()
     showSentMessage('Email 已发送')
   } catch (error) {
     store.setError(error.message)
   } finally {
     sending.value = false
   }
+}
+
+function validateForm() {
+  const errors = {
+    recipients: '',
+    subject: '',
+    dateFrom: '',
+    dateTo: '',
+    month: ''
+  }
+
+  if (recipientQuery.value.trim() && !commitRecipientQuery()) {
+    errors.recipients = '请输入完整 Email，或从搜索结果中选取收件者。'
+  } else if (selectedRecipients.value.length === 0) {
+    errors.recipients = '不能为空。'
+  }
+
+  if (!form.subject.trim()) {
+    errors.subject = '不能为空。'
+  }
+
+  if (form.viewType === 'WEEK') {
+    if (!form.dateFrom) {
+      errors.dateFrom = '不能为空。'
+    }
+
+    if (!form.dateTo) {
+      errors.dateTo = '不能为空。'
+    } else if (form.dateFrom && form.dateTo < form.dateFrom) {
+      errors.dateTo = '不能早于开始日期。'
+    }
+  }
+
+  if (form.viewType === 'MONTH' && !form.month) {
+    errors.month = '不能为空。'
+  }
+
+  Object.entries(errors).forEach(([key, message]) => {
+    if (message) {
+      formErrors[key] = message
+    }
+  })
+
+  return !Object.values(errors).some(Boolean)
 }
 
 function resolveDateRange() {
@@ -227,6 +274,10 @@ function currentMonth() {
 }
 
 async function setViewType(viewType) {
+  if (viewType !== form.viewType) {
+    clearScheduleFieldValidation()
+  }
+
   form.viewType = viewType
 
   if (viewType === 'COMPLETED_STATS') {
@@ -285,7 +336,6 @@ function openRecipientMenu() {
 
 function handleRecipientInput() {
   openRecipientMenu()
-  clearRecipientFieldError()
 }
 
 function closeRecipientMenu() {
@@ -297,7 +347,6 @@ function selectRecipient(recipient) {
   recipientQuery.value = ''
   recipientMenuOpen.value = true
   activeSuggestionIndex.value = 0
-  clearRecipientFieldError()
   recipientInput.value?.focus()
 }
 
@@ -348,7 +397,6 @@ function commitRecipientQuery() {
   recipientQuery.value = ''
   recipientMenuOpen.value = true
   activeSuggestionIndex.value = 0
-  clearRecipientFieldError()
   return true
 }
 
@@ -367,7 +415,7 @@ function handleRecipientKeydown(event) {
     event.preventDefault()
 
     if (!commitRecipientQuery()) {
-      showRecipientFieldError('请输入完整 Email，或从搜索结果中选取收件者')
+      showRecipientFieldError('请输入完整 Email，或从搜索结果中选取收件者。')
     }
 
     return
@@ -381,7 +429,7 @@ function handleRecipientKeydown(event) {
       event.preventDefault()
 
       if (!commitRecipientQuery()) {
-        showRecipientFieldError('请输入完整 Email，或从搜索结果中选取收件者')
+        showRecipientFieldError('请输入完整 Email，或从搜索结果中选取收件者。')
       }
     }
 
@@ -415,25 +463,19 @@ function isValidEmail(value) {
 }
 
 function showRecipientFieldError(message) {
-  recipientFieldError.value = message
-
-  if (recipientFieldErrorTimer) {
-    window.clearTimeout(recipientFieldErrorTimer)
-  }
-
-  recipientFieldErrorTimer = window.setTimeout(() => {
-    recipientFieldError.value = ''
-    recipientFieldErrorTimer = null
-  }, 5000)
+  formErrors.recipients = message
 }
 
-function clearRecipientFieldError() {
-  recipientFieldError.value = ''
+function clearScheduleFieldValidation() {
+  formErrors.dateFrom = ''
+  formErrors.dateTo = ''
+  formErrors.month = ''
+}
 
-  if (recipientFieldErrorTimer) {
-    window.clearTimeout(recipientFieldErrorTimer)
-    recipientFieldErrorTimer = null
-  }
+function clearFormValidation() {
+  Object.keys(formErrors).forEach((key) => {
+    formErrors[key] = ''
+  })
 }
 
 function showSentMessage(message) {
@@ -460,13 +502,13 @@ function clearSentMessage() {
 
 onBeforeUnmount(() => {
   clearSentMessage()
-  clearRecipientFieldError()
+  clearFormValidation()
 })
 </script>
 
 <template>
   <div v-if="open" class="dialog-backdrop" role="presentation" @click="emit('close')">
-    <form class="dialog" aria-label="发送排程 Email" @click.stop @submit.prevent="submit">
+    <form class="dialog" aria-label="发送排程 Email" novalidate @click.stop @submit.prevent="submit">
       <div class="dialog-heading">
         <h2>发送排程 Email</h2>
         <button class="icon-only-button" type="button" aria-label="关闭" @click="emit('close')">
@@ -475,11 +517,21 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="dialog-field">
-        <label for="schedule-email-recipients">收件人</label>
+        <label class="form-field-label" for="schedule-email-recipients">
+          收件人
+          <small
+            v-if="formErrors.recipients"
+            id="schedule-email-recipients-error"
+            class="form-field-error"
+            role="alert"
+          >
+            {{ formErrors.recipients }}
+          </small>
+        </label>
         <div class="recipient-combobox">
           <div
             class="recipient-tag-input"
-            :class="{ invalid: recipientFieldError }"
+            :class="{ invalid: formErrors.recipients }"
             @click="recipientInput?.focus()"
           >
             <span
@@ -509,6 +561,8 @@ onBeforeUnmount(() => {
               aria-controls="email-recipient-options"
               :aria-expanded="showRecipientMenu"
               :aria-activedescendant="activeSuggestionId"
+              :aria-describedby="formErrors.recipients ? 'schedule-email-recipients-error' : undefined"
+              :aria-invalid="Boolean(formErrors.recipients)"
               :placeholder="selectedRecipients.length ? '继续添加' : '输入姓名或 Email 搜索'"
               @focus="openRecipientMenu"
               @input="handleRecipientInput"
@@ -543,14 +597,28 @@ onBeforeUnmount(() => {
             </p>
           </div>
         </div>
-        <small v-if="recipientFieldError" class="recipient-field-error" role="alert">
-          {{ recipientFieldError }}
-        </small>
       </div>
 
       <label>
-        主题
-        <input v-model="form.subject" type="text" required readonly />
+        <span class="form-field-label">
+          主题
+          <small
+            v-if="formErrors.subject"
+            id="schedule-email-subject-error"
+            class="form-field-error"
+            role="alert"
+          >
+            {{ formErrors.subject }}
+          </small>
+        </span>
+        <input
+          v-model="form.subject"
+          type="text"
+          required
+          readonly
+          :aria-describedby="formErrors.subject ? 'schedule-email-subject-error' : undefined"
+          :aria-invalid="Boolean(formErrors.subject)"
+        />
       </label>
 
       <div class="email-type-switch" aria-label="Email 类型">
@@ -579,18 +647,67 @@ onBeforeUnmount(() => {
 
       <div v-if="form.viewType === 'WEEK'" class="date-fields">
         <label>
-          开始日期
-          <input v-model="form.dateFrom" type="date" required />
+          <span class="form-field-label">
+            开始日期
+            <small
+              v-if="formErrors.dateFrom"
+              id="schedule-email-date-from-error"
+              class="form-field-error"
+              role="alert"
+            >
+              {{ formErrors.dateFrom }}
+            </small>
+          </span>
+          <input
+            v-model="form.dateFrom"
+            type="date"
+            required
+            :aria-describedby="formErrors.dateFrom ? 'schedule-email-date-from-error' : undefined"
+            :aria-invalid="Boolean(formErrors.dateFrom)"
+          />
         </label>
         <label>
-          结束日期
-          <input v-model="form.dateTo" type="date" :min="form.dateFrom" required />
+          <span class="form-field-label">
+            结束日期
+            <small
+              v-if="formErrors.dateTo"
+              id="schedule-email-date-to-error"
+              class="form-field-error"
+              role="alert"
+            >
+              {{ formErrors.dateTo }}
+            </small>
+          </span>
+          <input
+            v-model="form.dateTo"
+            type="date"
+            :min="form.dateFrom"
+            required
+            :aria-describedby="formErrors.dateTo ? 'schedule-email-date-to-error' : undefined"
+            :aria-invalid="Boolean(formErrors.dateTo)"
+          />
         </label>
       </div>
 
       <label v-else-if="form.viewType === 'MONTH'">
-        月份
-        <MonthPicker v-model="form.month" required aria-label="月份" />
+        <span class="form-field-label">
+          月份
+          <small
+            v-if="formErrors.month"
+            id="schedule-email-month-error"
+            class="form-field-error"
+            role="alert"
+          >
+            {{ formErrors.month }}
+          </small>
+        </span>
+        <MonthPicker
+          v-model="form.month"
+          required
+          aria-label="月份"
+          :aria-describedby="formErrors.month ? 'schedule-email-month-error' : undefined"
+          :aria-invalid="Boolean(formErrors.month)"
+        />
       </label>
 
       <label v-else-if="form.viewType === 'COMPLETED_STATS'">

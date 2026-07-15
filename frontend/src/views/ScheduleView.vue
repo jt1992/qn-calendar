@@ -34,10 +34,6 @@ function clearFocusOnBackground(event) {
   <section class="schedule-layout" aria-label="待排工单" @pointerdown="clearFocusOnBackground">
     <aside class="side-panel">
       <div class="side-heading">
-        <div>
-          <h1>待排工单</h1>
-          <p>上传 XLSX 后拖拽排程</p>
-        </div>
         <WorkOrderImportButton />
       </div>
 

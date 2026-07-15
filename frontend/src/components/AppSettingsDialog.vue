@@ -18,6 +18,7 @@ const emit = defineEmits(['close', 'update-tab'])
 const settingsStore = useAppSettingsStore()
 const activeTab = ref(normalizeTab(props.initialTab))
 const amountInput = ref('')
+const amountError = ref('')
 const fieldError = ref('')
 const savedMessage = ref('')
 const emailEditing = ref(false)
@@ -25,7 +26,7 @@ const recipientDeletingId = ref(null)
 const recipientEditingId = ref(null)
 const recipientNameDraft = ref('')
 const recipientEmailDraft = ref('')
-const recipientEditError = ref('')
+const recipientEditActionError = ref('')
 const recipientNameInput = ref(null)
 let fieldErrorTimer = null
 let savedMessageTimer = null
@@ -39,6 +40,24 @@ const emailForm = reactive({
 })
 
 const recipientForm = reactive({
+  name: '',
+  email: ''
+})
+
+const emailSenderErrors = reactive({
+  senderEmail: '',
+  smtpAuthCode: '',
+  smtpHost: '',
+  smtpPort: '',
+  smtpSecurity: ''
+})
+
+const recipientErrors = reactive({
+  name: '',
+  email: ''
+})
+
+const recipientEditErrors = reactive({
   name: '',
   email: ''
 })
@@ -74,7 +93,13 @@ const submitButtonText = computed(() => {
 watch(
   () => props.initialTab,
   (tab) => {
-    activeTab.value = normalizeTab(tab)
+    const nextTab = normalizeTab(tab)
+
+    if (nextTab !== activeTab.value) {
+      clearFormValidation()
+    }
+
+    activeTab.value = nextTab
   }
 )
 
@@ -88,6 +113,7 @@ watch(
     activeTab.value = normalizeTab(props.initialTab)
     clearFieldError()
     clearSavedMessage()
+    clearFormValidation()
     amountInput.value = formatAmount(settingsStore.settings.estimatedHourlyBaseAmount)
     resetEmailForm()
     resetRecipientForm()
@@ -111,6 +137,7 @@ watch(
 onBeforeUnmount(() => {
   clearFieldError()
   clearSavedMessage()
+  clearFormValidation()
 })
 
 async function submit() {
@@ -143,6 +170,7 @@ async function submitBaseAmount() {
     await settingsStore.saveSettings({
       estimatedHourlyBaseAmount: amount
     })
+    amountError.value = ''
     amountInput.value = formatAmount(settingsStore.settings.estimatedHourlyBaseAmount)
     showSavedMessage('设置已保存')
   } catch (error) {
@@ -162,6 +190,7 @@ async function submitEmailSender() {
 
   try {
     await settingsStore.saveEmailSenderSettings(emailSenderSettings)
+    clearEmailSenderValidation()
     resetEmailForm()
     emailEditing.value = false
     showSavedMessage('设置已保存')
@@ -182,6 +211,7 @@ async function submitEmailRecipient() {
 
   try {
     await settingsStore.createEmailRecipient(recipient)
+    clearRecipientValidation()
     showSavedMessage('收件者已新增')
     resetRecipientForm()
   } catch (error) {
@@ -191,25 +221,21 @@ async function submitEmailRecipient() {
 
 function validateAmount() {
   const value = String(amountInput.value).trim()
+  let error = ''
 
   if (!value) {
-    showFieldError('预估工时基础金额不可为空')
-    return null
+    error = '不能为空。'
+  } else if (!/^\d+(\.\d{1,2})?$/.test(value)) {
+    error = '最多保留 2 位小数。'
+  } else if (!Number.isFinite(Number(value)) || Number(value) <= 0) {
+    error = '必须大于 0。'
   }
 
-  if (!/^\d+(\.\d{1,2})?$/.test(value)) {
-    showFieldError('预估工时基础金额最多保留 2 位小数')
-    return null
+  if (error) {
+    amountError.value = error
   }
 
-  const amount = Number(value)
-
-  if (!Number.isFinite(amount) || amount <= 0) {
-    showFieldError('预估工时基础金额必须大于 0')
-    return null
-  }
-
-  return amount
+  return error ? null : Number(value)
 }
 
 function validateEmailSender() {
@@ -218,34 +244,39 @@ function validateEmailSender() {
   const smtpHost = emailForm.smtpHost.trim()
   const smtpPort = Number(emailForm.smtpPort)
   const smtpSecurity = emailForm.smtpSecurity
-
-  if (!senderEmail) {
-    showFieldError('寄件 Email 不可为空')
-    return null
+  const errors = {
+    senderEmail: '',
+    smtpAuthCode: '',
+    smtpHost: '',
+    smtpPort: '',
+    smtpSecurity: ''
   }
 
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(senderEmail)) {
-    showFieldError('寄件 Email 格式无效')
-    return null
+  if (!senderEmail) {
+    errors.senderEmail = '不能为空。'
+  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(senderEmail)) {
+    errors.senderEmail = '格式无效。'
   }
 
   if (!smtpAuthCode) {
-    showFieldError('授权码不可为空')
-    return null
+    errors.smtpAuthCode = '不能为空。'
   }
 
   if (!smtpHost) {
-    showFieldError('SMTP 服务器不可为空')
-    return null
+    errors.smtpHost = '不能为空。'
   }
 
   if (![465, 587].includes(smtpPort)) {
-    showFieldError('SMTP 端口必须为 465 或 587')
-    return null
+    errors.smtpPort = '必须为 465 或 587。'
   }
 
   if (!['NONE', 'SSL', 'STARTTLS'].includes(smtpSecurity)) {
-    showFieldError('加密方式不可为空')
+    errors.smtpSecurity = '不能为空。'
+  }
+
+  applyValidationErrors(emailSenderErrors, errors)
+
+  if (Object.values(errors).some(Boolean)) {
     return null
   }
 
@@ -261,24 +292,26 @@ function validateEmailSender() {
 function validateEmailRecipient() {
   const name = recipientForm.name.trim()
   const email = recipientForm.email.trim()
-
-  if (!name) {
-    showFieldError('收件人姓名不可为空')
-    return null
+  const errors = {
+    name: '',
+    email: ''
   }
 
-  if (name.length > 120) {
-    showFieldError('收件人姓名最多 120 个字符')
-    return null
+  if (!name) {
+    errors.name = '不能为空。'
+  } else if (name.length > 120) {
+    errors.name = '最多 120 个字符。'
   }
 
   if (!email) {
-    showFieldError('收件 Email 不可为空')
-    return null
+    errors.email = '不能为空。'
+  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    errors.email = '格式无效。'
   }
 
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    showFieldError('收件 Email 格式无效')
+  applyValidationErrors(recipientErrors, errors)
+
+  if (Object.values(errors).some(Boolean)) {
     return null
   }
 
@@ -287,6 +320,11 @@ function validateEmailRecipient() {
 
 function activateTab(tab) {
   const nextTab = normalizeTab(tab)
+
+  if (nextTab !== activeTab.value) {
+    clearFormValidation()
+  }
+
   activeTab.value = nextTab
   clearFieldError()
   clearSavedMessage()
@@ -298,7 +336,8 @@ async function startRecipientEdit(recipient) {
   recipientEditingId.value = recipient.id
   recipientNameDraft.value = recipient.name || ''
   recipientEmailDraft.value = recipient.email
-  recipientEditError.value = ''
+  recipientEditActionError.value = ''
+  clearRecipientEditValidation()
   clearFieldError()
   clearSavedMessage()
   await nextTick()
@@ -312,28 +351,30 @@ function setRecipientNameInput(element) {
 async function saveRecipient(recipient) {
   const name = recipientNameDraft.value.trim()
   const email = recipientEmailDraft.value.trim()
-
-  if (!name) {
-    recipientEditError.value = '收件人姓名不可为空'
-    return
+  const errors = {
+    name: '',
+    email: ''
   }
 
-  if (name.length > 120) {
-    recipientEditError.value = '收件人姓名最多 120 个字符'
-    return
+  if (!name) {
+    errors.name = '不能为空。'
+  } else if (name.length > 120) {
+    errors.name = '最多 120 个字符。'
   }
 
   if (!email) {
-    recipientEditError.value = '收件 Email 不可为空'
+    errors.email = '不能为空。'
+  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    errors.email = '格式无效。'
+  }
+
+  applyValidationErrors(recipientEditErrors, errors)
+
+  if (Object.values(errors).some(Boolean)) {
     return
   }
 
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    recipientEditError.value = '收件 Email 格式无效'
-    return
-  }
-
-  recipientEditError.value = ''
+  recipientEditActionError.value = ''
   clearFieldError()
   clearSavedMessage()
 
@@ -345,7 +386,7 @@ async function saveRecipient(recipient) {
     cancelRecipientEdit()
     showSavedMessage('收件者已更新')
   } catch (error) {
-    recipientEditError.value = error.message
+    recipientEditActionError.value = error.message
   }
 }
 
@@ -353,7 +394,8 @@ function cancelRecipientEdit() {
   recipientEditingId.value = null
   recipientNameDraft.value = ''
   recipientEmailDraft.value = ''
-  recipientEditError.value = ''
+  recipientEditActionError.value = ''
+  clearRecipientEditValidation()
 }
 
 async function removeRecipient(recipient) {
@@ -382,6 +424,7 @@ async function removeRecipient(recipient) {
 
 function startEmailEdit() {
   resetEmailForm()
+  clearEmailSenderValidation()
   emailEditing.value = true
 }
 
@@ -396,6 +439,39 @@ function resetEmailForm() {
 function resetRecipientForm() {
   recipientForm.name = ''
   recipientForm.email = ''
+}
+
+function clearRecipientValidation() {
+  clearValidationErrors(recipientErrors)
+}
+
+function clearEmailSenderValidation() {
+  clearValidationErrors(emailSenderErrors)
+}
+
+function clearRecipientEditValidation() {
+  clearValidationErrors(recipientEditErrors)
+}
+
+function clearFormValidation() {
+  amountError.value = ''
+  clearEmailSenderValidation()
+  clearRecipientValidation()
+  clearRecipientEditValidation()
+}
+
+function clearValidationErrors(errors) {
+  Object.keys(errors).forEach((key) => {
+    errors[key] = ''
+  })
+}
+
+function applyValidationErrors(target, errors) {
+  Object.entries(errors).forEach(([key, message]) => {
+    if (message) {
+      target[key] = message
+    }
+  })
 }
 
 function showFieldError(message) {
@@ -526,13 +602,21 @@ function securityLabel(value) {
 
       <section v-if="activeTab === 'baseAmount'" class="settings-panel" role="tabpanel">
         <label>
-          预估工时基础金额（元/小时）
+          <span class="form-field-label">
+            预估工时基础金额（元/小时）
+            <small v-if="amountError" id="base-amount-error" class="form-field-error" role="alert">
+              {{ amountError }}
+            </small>
+          </span>
           <input
             v-model="amountInput"
             inputmode="decimal"
             type="number"
             min="0.01"
             step="0.01"
+            required
+            :aria-describedby="amountError ? 'base-amount-error' : undefined"
+            :aria-invalid="Boolean(amountError)"
             :disabled="settingsBusy"
           />
         </label>
@@ -552,45 +636,93 @@ function securityLabel(value) {
 
         <div v-else class="email-settings-grid">
           <label>
-            寄件 Email
+            <span class="form-field-label">
+              寄件 Email
+              <small
+                v-if="emailSenderErrors.senderEmail"
+                id="sender-email-error"
+                class="form-field-error"
+                role="alert"
+              >
+                {{ emailSenderErrors.senderEmail }}
+              </small>
+            </span>
             <input
               v-model="emailForm.senderEmail"
               type="email"
               autocomplete="username"
               placeholder="sender@example.com"
               required
+              :aria-describedby="emailSenderErrors.senderEmail ? 'sender-email-error' : undefined"
+              :aria-invalid="Boolean(emailSenderErrors.senderEmail)"
               :disabled="settingsBusy"
             />
           </label>
 
           <label>
-            授权码
+            <span class="form-field-label">
+              授权码
+              <small
+                v-if="emailSenderErrors.smtpAuthCode"
+                id="smtp-auth-code-error"
+                class="form-field-error"
+                role="alert"
+              >
+                {{ emailSenderErrors.smtpAuthCode }}
+              </small>
+            </span>
             <input
               v-model="emailForm.smtpAuthCode"
               type="password"
               autocomplete="current-password"
               required
+              :aria-describedby="emailSenderErrors.smtpAuthCode ? 'smtp-auth-code-error' : undefined"
+              :aria-invalid="Boolean(emailSenderErrors.smtpAuthCode)"
               :disabled="settingsBusy"
             />
           </label>
 
           <label>
-            SMTP 服务器
+            <span class="form-field-label">
+              SMTP 服务器
+              <small
+                v-if="emailSenderErrors.smtpHost"
+                id="smtp-host-error"
+                class="form-field-error"
+                role="alert"
+              >
+                {{ emailSenderErrors.smtpHost }}
+              </small>
+            </span>
             <input
               v-model="emailForm.smtpHost"
               type="text"
               placeholder="smtp.example.com"
               required
+              :aria-describedby="emailSenderErrors.smtpHost ? 'smtp-host-error' : undefined"
+              :aria-invalid="Boolean(emailSenderErrors.smtpHost)"
               :disabled="settingsBusy"
             />
           </label>
 
           <div class="date-fields">
             <label>
-              SMTP 端口
+              <span class="form-field-label">
+                SMTP 端口
+                <small
+                  v-if="emailSenderErrors.smtpPort"
+                  id="smtp-port-error"
+                  class="form-field-error"
+                  role="alert"
+                >
+                  {{ emailSenderErrors.smtpPort }}
+                </small>
+              </span>
               <select
                 v-model="emailForm.smtpPort"
                 required
+                :aria-describedby="emailSenderErrors.smtpPort ? 'smtp-port-error' : undefined"
+                :aria-invalid="Boolean(emailSenderErrors.smtpPort)"
                 :disabled="settingsBusy"
               >
                 <option value="465">465</option>
@@ -598,8 +730,24 @@ function securityLabel(value) {
               </select>
             </label>
             <label>
-              加密方式
-              <select v-model="emailForm.smtpSecurity" :disabled="settingsBusy">
+              <span class="form-field-label">
+                加密方式
+                <small
+                  v-if="emailSenderErrors.smtpSecurity"
+                  id="smtp-security-error"
+                  class="form-field-error"
+                  role="alert"
+                >
+                  {{ emailSenderErrors.smtpSecurity }}
+                </small>
+              </span>
+              <select
+                v-model="emailForm.smtpSecurity"
+                required
+                :aria-describedby="emailSenderErrors.smtpSecurity ? 'smtp-security-error' : undefined"
+                :aria-invalid="Boolean(emailSenderErrors.smtpSecurity)"
+                :disabled="settingsBusy"
+              >
                 <option value="STARTTLS">STARTTLS</option>
                 <option value="SSL">SSL / TLS</option>
                 <option value="NONE">无</option>
@@ -612,19 +760,41 @@ function securityLabel(value) {
       <section v-else class="settings-panel recipient-settings-panel" role="tabpanel">
         <div class="email-recipient-form">
           <label>
-            收件人姓名
+            <span class="form-field-label">
+              收件人姓名
+              <small
+                v-if="recipientErrors.name"
+                id="recipient-name-error"
+                class="form-field-error"
+                role="alert"
+              >
+                {{ recipientErrors.name }}
+              </small>
+            </span>
             <input
               v-model="recipientForm.name"
               type="text"
               maxlength="120"
               autocomplete="name"
-              placeholder="例如：张小姐"
+              placeholder="例如：咩咩"
               required
+              :aria-describedby="recipientErrors.name ? 'recipient-name-error' : undefined"
+              :aria-invalid="Boolean(recipientErrors.name)"
               :disabled="settingsBusy"
             />
           </label>
           <label>
-            收件 Email
+            <span class="form-field-label">
+              收件 Email
+              <small
+                v-if="recipientErrors.email"
+                id="recipient-email-error"
+                class="form-field-error"
+                role="alert"
+              >
+                {{ recipientErrors.email }}
+              </small>
+            </span>
             <input
               v-model="recipientForm.email"
               type="email"
@@ -632,6 +802,8 @@ function securityLabel(value) {
               autocomplete="email"
               placeholder="receiver@example.com"
               required
+              :aria-describedby="recipientErrors.email ? 'recipient-email-error' : undefined"
+              :aria-invalid="Boolean(recipientErrors.email)"
               :disabled="settingsBusy"
             />
           </label>
@@ -657,47 +829,75 @@ function securityLabel(value) {
           >
             <div class="email-recipient-details">
               <div class="email-recipient-fields">
-                <input
-                  v-if="recipientEditingId === recipient.id"
-                  :ref="setRecipientNameInput"
-                  v-model="recipientNameDraft"
-                  class="email-recipient-name-input"
-                  type="text"
-                  maxlength="120"
-                  autocomplete="name"
-                  aria-label="编辑收件人姓名"
-                  placeholder="收件人姓名"
-                  required
-                  autofocus
-                  :disabled="settingsBusy"
-                  @keydown.enter.prevent="saveRecipient(recipient)"
-                  @keydown.esc.prevent="cancelRecipientEdit"
-                />
+                <label v-if="recipientEditingId === recipient.id">
+                  <span class="form-field-label">
+                    收件人姓名
+                    <small
+                      v-if="recipientEditErrors.name"
+                      :id="`recipient-edit-name-error-${recipient.id}`"
+                      class="form-field-error"
+                      role="alert"
+                    >
+                      {{ recipientEditErrors.name }}
+                    </small>
+                  </span>
+                  <input
+                    :ref="setRecipientNameInput"
+                    v-model="recipientNameDraft"
+                    class="email-recipient-name-input"
+                    type="text"
+                    maxlength="120"
+                    autocomplete="name"
+                    aria-label="编辑收件人姓名"
+                    placeholder="收件人姓名"
+                    required
+                    autofocus
+                    :aria-describedby="recipientEditErrors.name ? `recipient-edit-name-error-${recipient.id}` : undefined"
+                    :aria-invalid="Boolean(recipientEditErrors.name)"
+                    :disabled="settingsBusy"
+                    @keydown.enter.prevent="saveRecipient(recipient)"
+                    @keydown.esc.prevent="cancelRecipientEdit"
+                  />
+                </label>
                 <strong v-else class="email-recipient-field-display">
                   {{ recipient.name || '未设置姓名' }}
                 </strong>
-                <input
-                  v-if="recipientEditingId === recipient.id"
-                  v-model="recipientEmailDraft"
-                  type="email"
-                  maxlength="320"
-                  autocomplete="email"
-                  aria-label="编辑收件 Email"
-                  placeholder="收件 Email"
-                  required
-                  :disabled="settingsBusy"
-                  @keydown.enter.prevent="saveRecipient(recipient)"
-                  @keydown.esc.prevent="cancelRecipientEdit"
-                />
+                <label v-if="recipientEditingId === recipient.id">
+                  <span class="form-field-label">
+                    收件 Email
+                    <small
+                      v-if="recipientEditErrors.email"
+                      :id="`recipient-edit-email-error-${recipient.id}`"
+                      class="form-field-error"
+                      role="alert"
+                    >
+                      {{ recipientEditErrors.email }}
+                    </small>
+                  </span>
+                  <input
+                    v-model="recipientEmailDraft"
+                    type="email"
+                    maxlength="320"
+                    autocomplete="email"
+                    aria-label="编辑收件 Email"
+                    placeholder="收件 Email"
+                    required
+                    :aria-describedby="recipientEditErrors.email ? `recipient-edit-email-error-${recipient.id}` : undefined"
+                    :aria-invalid="Boolean(recipientEditErrors.email)"
+                    :disabled="settingsBusy"
+                    @keydown.enter.prevent="saveRecipient(recipient)"
+                    @keydown.esc.prevent="cancelRecipientEdit"
+                  />
+                </label>
                 <span v-else class="email-recipient-field-display">{{ recipient.email }}</span>
               </div>
               <small>{{ recipientMeta(recipient) }}</small>
               <small
-                v-if="recipientEditingId === recipient.id && recipientEditError"
+                v-if="recipientEditingId === recipient.id && recipientEditActionError"
                 class="recipient-edit-error"
                 role="alert"
               >
-                {{ recipientEditError }}
+                {{ recipientEditActionError }}
               </small>
             </div>
             <div class="email-recipient-actions">

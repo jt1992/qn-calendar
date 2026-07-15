@@ -205,22 +205,11 @@ select:disabled {
   min-width: 0;
 }
 
-.side-heading > div {
-  flex: 0 0 auto;
+.side-heading .upload-field {
+  flex: 1 1 auto;
   min-width: 0;
 }
 
-.side-heading .upload-dropzone {
-  flex: 1 1 180px;
-  min-width: 160px;
-}
-
-.side-heading .icon-only-button {
-  flex: 0 0 auto;
-}
-
-.side-heading h1,
-.side-heading p,
 .calendar-header h2,
 .calendar-header p,
 .panel-heading,
@@ -228,13 +217,11 @@ select:disabled {
   margin: 0;
 }
 
-.side-heading h1,
 .calendar-header h2 {
   font-size: 1.35rem;
   letter-spacing: 0;
 }
 
-.side-heading p,
 .calendar-header p {
   color: var(--muted);
   font-size: 0.86rem;
@@ -314,6 +301,10 @@ select:disabled {
   border-color: var(--primary);
   background: var(--primary-soft);
   color: var(--text);
+}
+
+.upload-dropzone.invalid {
+  border-color: var(--danger);
 }
 
 .upload-dropzone span {
@@ -413,6 +404,20 @@ select:disabled {
   padding: 0 8px 2px 0;
   color: var(--muted);
   font-size: 0.9rem;
+}
+
+.panel-heading h1 {
+  margin: 0;
+  color: var(--text);
+  font-size: 1.35rem;
+  letter-spacing: 0;
+}
+
+.pending-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
 }
 
 .count-badge,
@@ -1296,6 +1301,19 @@ select:disabled {
   box-shadow: 0 0 0 3px var(--primary-soft);
 }
 
+.app-shell input[aria-invalid="true"]:not([type="file"]):not(.recipient-tag-search),
+.app-shell select[aria-invalid="true"],
+.app-shell textarea[aria-invalid="true"],
+.app-shell .month-picker[aria-invalid="true"] .month-picker-select {
+  border-color: var(--danger);
+}
+
+.app-shell input[aria-invalid="true"]:not([type="file"]):not(.recipient-tag-search):focus,
+.app-shell select[aria-invalid="true"]:focus,
+.app-shell textarea[aria-invalid="true"]:focus {
+  border-color: var(--danger);
+}
+
 .email-settings-grid {
   display: grid;
   gap: 12px;
@@ -1305,6 +1323,38 @@ select:disabled {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+}
+
+.form-field-label,
+.dialog .form-field-label {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.form-field-error {
+  color: var(--danger);
+  font-size: 0.8rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.upload-field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.upload-field .form-field-label {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.upload-field .upload-dropzone {
+  width: 100%;
 }
 
 .recipient-list-heading,
@@ -1549,12 +1599,6 @@ select:disabled {
 .recipient-tag button:hover,
 .recipient-tag button:focus-visible {
   background: var(--primary-soft);
-}
-
-.recipient-field-error {
-  color: var(--danger);
-  font-size: 0.8rem;
-  font-weight: 800;
 }
 
 .recipient-suggestions {
@@ -1871,10 +1915,6 @@ select:disabled {
   .side-heading {
     align-items: flex-start;
     flex-wrap: wrap;
-  }
-
-  .side-heading .upload-dropzone {
-    flex-basis: 100%;
   }
 
   .order-line {
