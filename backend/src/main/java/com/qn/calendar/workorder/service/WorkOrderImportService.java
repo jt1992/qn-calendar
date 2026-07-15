@@ -62,13 +62,13 @@ public class WorkOrderImportService {
     private static final Pattern EMBEDDED_SHIP_TIME_PATTERN = Pattern.compile(
             "(\\d{4}[-/]\\d{1,2}[-/]\\d{1,2}\\s+\\d{1,2}:\\d{2}(?::\\d{2})?)\\s*前"
     );
-    private static final Pattern MERCHANT_MONTH_DAY_PATTERN = Pattern.compile(
+    private static final Pattern REMARK_MONTH_DAY_PATTERN = Pattern.compile(
             "(?<!\\d)(\\d{1,2})[./月](\\d{1,2})(?:\\s*/\\s*(\\d{1,2}))?(?:号|日)?[^\\n，,。；;]{0,8}(?:发|發|收到)"
     );
-    private static final Pattern MERCHANT_DAY_ONLY_BEFORE_KEYWORD_PATTERN = Pattern.compile(
+    private static final Pattern REMARK_DAY_ONLY_BEFORE_KEYWORD_PATTERN = Pattern.compile(
             "(?<!\\d)(\\d{1,2})号[^\\n，,。；;]{0,8}(?:发|發|收到)"
     );
-    private static final Pattern MERCHANT_DAY_ONLY_AFTER_KEYWORD_PATTERN = Pattern.compile(
+    private static final Pattern REMARK_DAY_ONLY_AFTER_KEYWORD_PATTERN = Pattern.compile(
             "(?:发|發)[^\\n，,。；;]{0,8}(\\d{1,2})号"
     );
 
@@ -323,10 +323,17 @@ public class WorkOrderImportService {
             LocalDateTime orderTime
     ) {
         String merchantRemark = readStringIfPresent(row, headers.get("merchantRemark"), evaluator);
-        Optional<LocalDate> merchantShipDate = parseMerchantShipDate(merchantRemark, orderTime);
+        Optional<LocalDate> merchantShipDate = parseRemarkShipDate(merchantRemark, orderTime);
 
         if (merchantShipDate.isPresent()) {
             return merchantShipDate.get().atTime(END_OF_DAY);
+        }
+
+        String buyerMessage = readStringIfPresent(row, headers.get("buyerMessage"), evaluator);
+        Optional<LocalDate> buyerShipDate = parseRemarkShipDate(buyerMessage, orderTime);
+
+        if (buyerShipDate.isPresent()) {
+            return buyerShipDate.get().atTime(END_OF_DAY);
         }
 
         return readLatestShipTimeFallback(row, headers.get("latestShipTime"), evaluator);
@@ -420,13 +427,13 @@ public class WorkOrderImportService {
         return parseDateTimeText(value).orElse(null);
     }
 
-    private Optional<LocalDate> parseMerchantShipDate(String merchantRemark, LocalDateTime paidAt) {
-        if (merchantRemark == null || merchantRemark.isBlank()) {
+    private Optional<LocalDate> parseRemarkShipDate(String remark, LocalDateTime paidAt) {
+        if (remark == null || remark.isBlank()) {
             return Optional.empty();
         }
 
         int currentYear = LocalDate.now().getYear();
-        Matcher monthDayMatcher = MERCHANT_MONTH_DAY_PATTERN.matcher(merchantRemark);
+        Matcher monthDayMatcher = REMARK_MONTH_DAY_PATTERN.matcher(remark);
 
         if (monthDayMatcher.find()) {
             int month = Integer.parseInt(monthDayMatcher.group(1));
@@ -442,13 +449,13 @@ public class WorkOrderImportService {
             return Optional.empty();
         }
 
-        Matcher dayBeforeKeywordMatcher = MERCHANT_DAY_ONLY_BEFORE_KEYWORD_PATTERN.matcher(merchantRemark);
+        Matcher dayBeforeKeywordMatcher = REMARK_DAY_ONLY_BEFORE_KEYWORD_PATTERN.matcher(remark);
 
         if (dayBeforeKeywordMatcher.find()) {
             return safeDate(currentYear, paidMonth, Integer.parseInt(dayBeforeKeywordMatcher.group(1)));
         }
 
-        Matcher dayAfterKeywordMatcher = MERCHANT_DAY_ONLY_AFTER_KEYWORD_PATTERN.matcher(merchantRemark);
+        Matcher dayAfterKeywordMatcher = REMARK_DAY_ONLY_AFTER_KEYWORD_PATTERN.matcher(remark);
 
         if (dayAfterKeywordMatcher.find()) {
             return safeDate(currentYear, paidMonth, Integer.parseInt(dayAfterKeywordMatcher.group(1)));

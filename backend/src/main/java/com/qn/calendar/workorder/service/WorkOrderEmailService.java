@@ -25,7 +25,6 @@ import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.JavaMailSenderImpl;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import org.thymeleaf.TemplateEngine;
 import org.thymeleaf.context.Context;
@@ -36,6 +35,7 @@ import com.openhtmltopdf.util.XRLog;
 import com.qn.calendar.settings.constant.SmtpSecurity;
 import com.qn.calendar.settings.model.EmailSenderSettings;
 import com.qn.calendar.settings.service.AppSettingsService;
+import com.qn.calendar.settings.service.EmailRecipientService;
 import com.qn.calendar.workorder.constant.ScheduleEmailViewType;
 import com.qn.calendar.workorder.constant.WorkOrderStatus;
 import com.qn.calendar.workorder.dto.CompletedWorkOrderStatsResponse;
@@ -82,6 +82,7 @@ public class WorkOrderEmailService {
   private final WorkOrderSegmentRepository segmentRepository;
   private final WorkOrderSegmentPauseRepository pauseRepository;
   private final AppSettingsService appSettingsService;
+  private final EmailRecipientService emailRecipientService;
   private final TemplateEngine templateEngine;
 
   public WorkOrderEmailService(
@@ -89,15 +90,16 @@ public class WorkOrderEmailService {
       WorkOrderSegmentRepository segmentRepository,
       WorkOrderSegmentPauseRepository pauseRepository,
       AppSettingsService appSettingsService,
+      EmailRecipientService emailRecipientService,
       TemplateEngine templateEngine) {
     this.workOrderRepository = workOrderRepository;
     this.segmentRepository = segmentRepository;
     this.pauseRepository = pauseRepository;
     this.appSettingsService = appSettingsService;
+    this.emailRecipientService = emailRecipientService;
     this.templateEngine = templateEngine;
   }
 
-  @Transactional(readOnly = true)
   public void sendScheduleEmail(ScheduleEmailRequest request) {
     validateRequest(request);
 
@@ -700,6 +702,7 @@ public class WorkOrderEmailService {
       helper.setText("", false);
       addPdfAttachment(helper, attachmentFileName(request), pdf);
       sender.send(message);
+      emailRecipientService.recordUsed(recipients);
     } catch (MessagingException exception) {
       throw new IllegalStateException("排程 Email 创建失败");
     } catch (MailException exception) {

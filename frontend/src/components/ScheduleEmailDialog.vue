@@ -37,10 +37,16 @@ const store = useWorkOrderStore()
 const settingsStore = useAppSettingsStore()
 const sending = ref(false)
 const sentMessage = ref('')
+const selectedRecipients = ref([])
+const recipientQuery = ref('')
+const recipientInput = ref(null)
+const recipientMenuOpen = ref(false)
+const activeSuggestionIndex = ref(0)
+const recipientFieldError = ref('')
 let sentMessageTimer = null
+let recipientFieldErrorTimer = null
 
 const form = reactive({
-  recipients: '',
   subject: '',
   viewType: 'WEEK',
   dateFrom: '',
@@ -49,12 +55,33 @@ const form = reactive({
   completedStatsMonth: ''
 })
 
-const recipients = computed(() =>
-  form.recipients
-    .split(',')
-    .map((email) => email.trim())
-    .filter(Boolean)
-)
+const recipients = computed(() => selectedRecipients.value.map((recipient) => recipient.email))
+const selectedRecipientEmails = computed(() => new Set(
+  recipients.value.map((email) => email.toLowerCase())
+))
+
+const recipientSuggestions = computed(() => {
+  const query = recipientQuery.value.trim().toLowerCase()
+
+  return settingsStore.emailRecipients
+    .filter((recipient) => !selectedRecipientEmails.value.has(recipient.email.toLowerCase()))
+    .filter((recipient) => {
+      if (!query) {
+        return true
+      }
+
+      return recipient.email.toLowerCase().includes(query)
+        || (recipient.name || '').toLowerCase().includes(query)
+    })
+})
+
+const showRecipientMenu = computed(() => recipientMenuOpen.value)
+const hasRecipientSuggestions = computed(() => recipientSuggestions.value.length > 0)
+
+const activeSuggestionId = computed(() => {
+  const recipient = recipientSuggestions.value[activeSuggestionIndex.value]
+  return recipient ? `email-recipient-option-${recipient.id}` : undefined
+})
 
 const emailSenderConfigured = computed(() => Boolean(settingsStore.settings.emailSender?.configured))
 
@@ -88,9 +115,16 @@ watch(
     form.month = monthFromDate(props.dateFrom) || currentMonth()
     form.completedStatsMonth = props.completedStatsMonth || ''
     form.subject = defaultSubject()
+    recipientQuery.value = ''
+    recipientMenuOpen.value = false
+    activeSuggestionIndex.value = 0
+    clearRecipientFieldError()
 
-    await refreshEmailSenderSettings()
-    await refreshCompletedStatsOptions()
+    await Promise.all([
+      refreshEmailSenderSettings(),
+      refreshEmailRecipients(),
+      refreshCompletedStatsOptions()
+    ])
   },
   { immediate: true }
 )
@@ -114,6 +148,18 @@ async function submit() {
       store.setError('请先在全局设置中配置寄件者 SMTP')
     }
 
+    return
+  }
+
+  if (recipientQuery.value.trim() && !commitRecipientQuery()) {
+    showRecipientFieldError('请选择收件者或输入完整 Email')
+    recipientInput.value?.focus()
+    return
+  }
+
+  if (selectedRecipients.value.length === 0) {
+    showRecipientFieldError('请至少加入一位收件者')
+    recipientInput.value?.focus()
     return
   }
 
@@ -224,6 +270,172 @@ async function refreshEmailSenderSettings() {
   }
 }
 
+async function refreshEmailRecipients() {
+  try {
+    await settingsStore.fetchEmailRecipients()
+  } catch (error) {
+    store.setError(error.message)
+  }
+}
+
+function openRecipientMenu() {
+  recipientMenuOpen.value = true
+  activeSuggestionIndex.value = 0
+}
+
+function handleRecipientInput() {
+  openRecipientMenu()
+  clearRecipientFieldError()
+}
+
+function closeRecipientMenu() {
+  recipientMenuOpen.value = false
+}
+
+function selectRecipient(recipient) {
+  addRecipient(recipient)
+  recipientQuery.value = ''
+  recipientMenuOpen.value = true
+  activeSuggestionIndex.value = 0
+  clearRecipientFieldError()
+  recipientInput.value?.focus()
+}
+
+function addRecipient(recipient) {
+  const normalizedEmail = recipient.email.trim().toLowerCase()
+
+  if (selectedRecipientEmails.value.has(normalizedEmail)) {
+    return
+  }
+
+  selectedRecipients.value.push({
+    id: recipient.id || null,
+    name: recipient.name?.trim() || '',
+    email: normalizedEmail
+  })
+}
+
+function removeRecipient(email) {
+  selectedRecipients.value = selectedRecipients.value.filter(
+    (recipient) => recipient.email !== email
+  )
+  recipientInput.value?.focus()
+}
+
+function commitRecipientQuery() {
+  const value = recipientQuery.value.trim()
+
+  if (!value) {
+    return true
+  }
+
+  const normalizedValue = value.toLowerCase()
+  const exactRecipient = settingsStore.emailRecipients.find((recipient) =>
+    recipient.email.toLowerCase() === normalizedValue
+      || recipient.name?.trim().toLowerCase() === normalizedValue
+  )
+
+  if (exactRecipient) {
+    selectRecipient(exactRecipient)
+    return true
+  }
+
+  if (!isValidEmail(value)) {
+    return false
+  }
+
+  addRecipient({ email: value })
+  recipientQuery.value = ''
+  recipientMenuOpen.value = true
+  activeSuggestionIndex.value = 0
+  clearRecipientFieldError()
+  return true
+}
+
+function handleRecipientKeydown(event) {
+  if (event.key === 'Escape') {
+    closeRecipientMenu()
+    return
+  }
+
+  if (event.key === 'Backspace' && !recipientQuery.value && selectedRecipients.value.length > 0) {
+    selectedRecipients.value.pop()
+    return
+  }
+
+  if (event.key === ',') {
+    event.preventDefault()
+
+    if (!commitRecipientQuery()) {
+      showRecipientFieldError('请输入完整 Email，或从搜索结果中选取收件者')
+    }
+
+    return
+  }
+
+  if (!hasRecipientSuggestions.value) {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      openRecipientMenu()
+    } else if (event.key === 'Enter') {
+      event.preventDefault()
+
+      if (!commitRecipientQuery()) {
+        showRecipientFieldError('请输入完整 Email，或从搜索结果中选取收件者')
+      }
+    }
+
+    return
+  }
+
+  if (event.key === 'ArrowDown') {
+    event.preventDefault()
+    activeSuggestionIndex.value = (
+      activeSuggestionIndex.value + 1
+    ) % recipientSuggestions.value.length
+    return
+  }
+
+  if (event.key === 'ArrowUp') {
+    event.preventDefault()
+    activeSuggestionIndex.value = (
+      activeSuggestionIndex.value - 1 + recipientSuggestions.value.length
+    ) % recipientSuggestions.value.length
+    return
+  }
+
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    selectRecipient(recipientSuggestions.value[activeSuggestionIndex.value])
+  }
+}
+
+function isValidEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
+}
+
+function showRecipientFieldError(message) {
+  recipientFieldError.value = message
+
+  if (recipientFieldErrorTimer) {
+    window.clearTimeout(recipientFieldErrorTimer)
+  }
+
+  recipientFieldErrorTimer = window.setTimeout(() => {
+    recipientFieldError.value = ''
+    recipientFieldErrorTimer = null
+  }, 5000)
+}
+
+function clearRecipientFieldError() {
+  recipientFieldError.value = ''
+
+  if (recipientFieldErrorTimer) {
+    window.clearTimeout(recipientFieldErrorTimer)
+    recipientFieldErrorTimer = null
+  }
+}
+
 function showSentMessage(message) {
   sentMessage.value = message
 
@@ -248,6 +460,7 @@ function clearSentMessage() {
 
 onBeforeUnmount(() => {
   clearSentMessage()
+  clearRecipientFieldError()
 })
 </script>
 
@@ -261,10 +474,79 @@ onBeforeUnmount(() => {
         </button>
       </div>
 
-      <label>
-        收件人 Email
-        <input v-model="form.recipients" type="text" placeholder="someone@example.com" required />
-      </label>
+      <div class="dialog-field">
+        <label for="schedule-email-recipients">收件人</label>
+        <div class="recipient-combobox">
+          <div
+            class="recipient-tag-input"
+            :class="{ invalid: recipientFieldError }"
+            @click="recipientInput?.focus()"
+          >
+            <span
+              v-for="recipient in selectedRecipients"
+              :key="recipient.email"
+              class="recipient-tag"
+              :title="recipient.email"
+            >
+              <span>{{ recipient.name || recipient.email }}</span>
+              <button
+                type="button"
+                :aria-label="`移除 ${recipient.name || recipient.email}`"
+                @click.stop="removeRecipient(recipient.email)"
+              >
+                <X :size="13" />
+              </button>
+            </span>
+            <input
+              id="schedule-email-recipients"
+              ref="recipientInput"
+              v-model="recipientQuery"
+              class="recipient-tag-search"
+              type="text"
+              role="combobox"
+              autocomplete="off"
+              aria-autocomplete="list"
+              aria-controls="email-recipient-options"
+              :aria-expanded="showRecipientMenu"
+              :aria-activedescendant="activeSuggestionId"
+              :placeholder="selectedRecipients.length ? '继续添加' : '输入姓名或 Email 搜索'"
+              @focus="openRecipientMenu"
+              @input="handleRecipientInput"
+              @blur="closeRecipientMenu"
+              @keydown="handleRecipientKeydown"
+            />
+          </div>
+          <div
+            v-if="showRecipientMenu"
+            id="email-recipient-options"
+            class="recipient-suggestions"
+            role="listbox"
+          >
+            <button
+              v-for="(recipient, index) in recipientSuggestions"
+              :id="`email-recipient-option-${recipient.id}`"
+              :key="recipient.id"
+              class="recipient-suggestion"
+              :class="{ active: index === activeSuggestionIndex }"
+              type="button"
+              role="option"
+              :aria-selected="index === activeSuggestionIndex"
+              @mousedown.prevent
+              @click="selectRecipient(recipient)"
+            >
+              <strong>{{ recipient.name || recipient.email }}</strong>
+              <span v-if="recipient.name">{{ recipient.email }}</span>
+              <small v-if="recipient.usageCount > 0">已发送 {{ recipient.usageCount }} 次</small>
+            </button>
+            <p v-if="!hasRecipientSuggestions" class="recipient-suggestion-empty">
+              {{ recipientQuery.trim() ? '没有匹配的收件人' : '尚无可选收件人' }}
+            </p>
+          </div>
+        </div>
+        <small v-if="recipientFieldError" class="recipient-field-error" role="alert">
+          {{ recipientFieldError }}
+        </small>
+      </div>
 
       <label>
         主题
