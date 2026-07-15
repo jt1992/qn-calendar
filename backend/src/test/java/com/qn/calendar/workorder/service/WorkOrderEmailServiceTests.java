@@ -111,7 +111,7 @@ class WorkOrderEmailServiceTests {
         assertThat(tickLabels).startsWith("07:00");
         assertThat(tickLabels).endsWith("19:00");
         assertThat(tickLabels).doesNotContain("06:00", "20:00");
-        assertThat(section.timeGridHeightStyle()).startsWith("height:");
+        assertThat(section.timeGridHeightStyle()).isEqualTo("height:707px;");
         assertThat(firstRow(document).timeGridStyle())
                 .contains("position:absolute")
                 .contains("top:")
@@ -119,7 +119,38 @@ class WorkOrderEmailServiceTests {
     }
 
     @Test
-    void weeklyDocumentSplitsRangesLongerThanOneWeekForPrintBreaks() {
+    void weeklyTimeGridFillsPrintablePageAtAnyTrimmedRange() {
+        WorkOrderEmailService.EmailScheduleDocument shortRangeDocument = WorkOrderEmailService.buildScheduleDocument(
+                ScheduleEmailViewType.WEEK,
+                LocalDate.of(2026, 7, 14),
+                LocalDate.of(2026, 7, 20),
+                List.of(order(
+                        "ORD-SHORT",
+                        LocalDateTime.of(2026, 7, 14, 14, 0),
+                        LocalDateTime.of(2026, 7, 14, 22, 0),
+                        WorkOrderStatus.SCHEDULED
+                ))
+        );
+        WorkOrderEmailService.EmailScheduleDocument longRangeDocument = WorkOrderEmailService.buildScheduleDocument(
+                ScheduleEmailViewType.WEEK,
+                LocalDate.of(2026, 4, 1),
+                LocalDate.of(2026, 4, 7),
+                List.of(order(
+                        "ORD-LONG",
+                        LocalDateTime.of(2026, 4, 1, 7, 0),
+                        LocalDateTime.of(2026, 4, 1, 20, 0),
+                        WorkOrderStatus.SCHEDULED
+                ))
+        );
+
+        assertThat(shortRangeDocument.sections().getFirst().timeGridHeightStyle())
+                .isEqualTo("height:707px;");
+        assertThat(longRangeDocument.sections().getFirst().timeGridHeightStyle())
+                .isEqualTo("height:707px;");
+    }
+
+    @Test
+    void weeklyDocumentSplitsRangesLongerThanOneWeekForPrintBreaks() throws Exception {
         WorkOrderSegmentResponse firstWeekOrder = order(
                 "ORD-FIRST",
                 LocalDateTime.of(2026, 6, 8, 9, 0),
@@ -145,6 +176,10 @@ class WorkOrderEmailServiceTests {
         assertThat(document.sections().get(0).pageBreakBefore()).isFalse();
         assertThat(document.sections().get(1).title()).isEqualTo("2026-06-15 - 2026-06-16");
         assertThat(document.sections().get(1).pageBreakBefore()).isTrue();
+        assertPdfPageCount(
+                WorkOrderEmailService.renderLandscapePdf(render(templateEngine(), document)),
+                2
+        );
     }
 
     @Test
@@ -206,7 +241,7 @@ class WorkOrderEmailServiceTests {
     }
 
     @Test
-    void emailTemplateRendersWeeklyAndMonthlyDocuments() {
+    void emailTemplateRendersWeeklyAndMonthlyDocuments() throws Exception {
         WorkOrderSegmentResponse order = order(
                 "ORD-RENDER",
                 LocalDateTime.of(2026, 6, 20, 10, 30),
@@ -235,6 +270,7 @@ class WorkOrderEmailServiceTests {
                 .contains("A4 landscape")
                 .contains("week-timegrid")
                 .contains("time-axis")
+                .contains("font-size:10px;font-weight:900")
                 .contains("10:00")
                 .contains("12:00")
                 .contains("weekly-remark")
@@ -255,6 +291,7 @@ class WorkOrderEmailServiceTests {
         assertThat(monthlyHtml)
                 .contains("ORD-RENDER")
                 .contains("月表 ｜ 2026-06")
+                .contains("height:679px;")
                 .contains("最晚发货")
                 .doesNotContain("week-timegrid")
                 .doesNotContain("time-axis")
@@ -270,6 +307,30 @@ class WorkOrderEmailServiceTests {
                 .doesNotContain("<h2")
                 .doesNotContain("2026-06-21 12:00:00")
                 .doesNotContain("break-inside: avoid");
+        assertPdfPageCount(WorkOrderEmailService.renderLandscapePdf(weeklyHtml), 1);
+        assertPdfPageCount(WorkOrderEmailService.renderLandscapePdf(monthlyHtml), 1);
+    }
+
+    @Test
+    void monthlyCalendarUsesAllPrintableHeightWithoutFooterMessage() throws Exception {
+        WorkOrderSegmentResponse order = order(
+                "ORD-MONTH-END",
+                LocalDateTime.of(2026, 6, 30, 10, 30),
+                LocalDateTime.of(2026, 6, 30, 12, 0),
+                WorkOrderStatus.SCHEDULED
+        );
+        WorkOrderEmailService.EmailScheduleDocument document = WorkOrderEmailService.buildScheduleDocument(
+                ScheduleEmailViewType.MONTH,
+                LocalDate.of(2026, 6, 1),
+                LocalDate.of(2026, 6, 30),
+                List.of(order)
+        );
+
+        String html = render(templateEngine(), document);
+
+        assertThat(document.sections().getFirst().noMoreRowsMessage()).isNull();
+        assertThat(html).contains("height:704px;");
+        assertPdfPageCount(WorkOrderEmailService.renderLandscapePdf(html), 1);
     }
 
     private WorkOrderEmailService.EmailOrderRow firstRow(WorkOrderEmailService.EmailScheduleDocument document) {
@@ -509,6 +570,12 @@ class WorkOrderEmailServiceTests {
             document.getPages().forEach((page) -> {
                 assertThat(page.getMediaBox().getWidth()).isGreaterThan(page.getMediaBox().getHeight());
             });
+        }
+    }
+
+    private void assertPdfPageCount(byte[] pdf, int expectedPageCount) throws Exception {
+        try (PDDocument document = PDDocument.load(new ByteArrayInputStream(pdf))) {
+            assertThat(document.getNumberOfPages()).isEqualTo(expectedPageCount);
         }
     }
 

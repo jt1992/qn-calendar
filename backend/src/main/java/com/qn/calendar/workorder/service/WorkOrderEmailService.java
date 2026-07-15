@@ -62,6 +62,7 @@ public class WorkOrderEmailService {
   private static final DateTimeFormatter MONTH_LABEL_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM");
   private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
   private static final int MINUTES_PER_DAY = 24 * 60;
+  private static final int WEEK_TIME_GRID_HEIGHT_PX = 707;
   private static final List<String> PDF_FONT_PATHS = List.of(
       "/System/Library/Fonts/STHeiti Medium.ttc",
       "/System/Library/Fonts/PingFang.ttc",
@@ -434,16 +435,11 @@ public class WorkOrderEmailService {
     gridStartMinutes = Math.max(0, Math.min(gridStartMinutes, MINUTES_PER_DAY - 60));
     gridEndMinutes = Math.max(gridStartMinutes + 60, Math.min(gridEndMinutes, MINUTES_PER_DAY));
 
-    int durationMinutes = gridEndMinutes - gridStartMinutes;
-    int hourCount = Math.max(1, (int) Math.ceil(durationMinutes / 60.0));
-    int pxPerHour = hourCount <= 8 ? 58 : hourCount <= 12 ? 52 : hourCount <= 16 ? 44 : 36;
-    int gridHeight = Math.max(240, Math.min(620, hourCount * pxPerHour));
-
     return new EmailTimeGrid(
         gridStartMinutes,
         gridEndMinutes,
         buildTimeTicks(gridStartMinutes, gridEndMinutes),
-        "height:" + gridHeight + "px;");
+        "height:" + WEEK_TIME_GRID_HEIGHT_PX + "px;");
   }
 
   private static List<EmailDaySchedule> applyTimeGridStyles(
