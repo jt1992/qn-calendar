@@ -71,7 +71,11 @@ public class AppSettingsService {
     public AppSettingsResponse updateEmailSenderSettings(UpdateEmailSenderSettingsRequest request) {
         String emailSender = trim(request.senderEmail());
         String smtpHost = trim(request.smtpHost());
-        String smtpAuthCode = trim(request.smtpAuthCode());
+        String requestedSmtpAuthCode = trim(request.smtpAuthCode());
+        AppSetting appSetting = getOrCreateSettings();
+        String smtpAuthCode = hasText(requestedSmtpAuthCode)
+                ? requestedSmtpAuthCode
+                : appSetting.getSmtpAuthCode();
         validateEmailSenderSettings(
                 emailSender,
                 smtpHost,
@@ -80,7 +84,6 @@ public class AppSettingsService {
                 smtpAuthCode
         );
 
-        AppSetting appSetting = getOrCreateSettings();
         appSetting.updateEmailSenderSettings(
                 emailSender,
                 smtpHost,

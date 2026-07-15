@@ -20,6 +20,7 @@ public record AppSettingsResponse(
     public record EmailSenderResponse(
             boolean configured,
             String senderEmailMasked,
+            String senderEmail,
             String smtpHost,
             Integer smtpPort,
             SmtpSecurity smtpSecurity
@@ -29,6 +30,7 @@ public record AppSettingsResponse(
             return new EmailSenderResponse(
                     appSetting.isEmailSenderConfigured(),
                     maskEmail(appSetting.getEmailSender()),
+                    appSetting.getEmailSender(),
                     appSetting.getSmtpHost(),
                     appSetting.getSmtpPort(),
                     appSetting.getSmtpSecurity()

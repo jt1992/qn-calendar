@@ -27,7 +27,6 @@ public record UpdateEmailSenderSettingsRequest(
         @NotNull(message = "加密方式不可为空")
         SmtpSecurity smtpSecurity,
 
-        @NotBlank(message = "授权码不可为空")
         @Size(max = 1024, message = "授权码最多 1024 个字符")
         String smtpAuthCode
 ) {
