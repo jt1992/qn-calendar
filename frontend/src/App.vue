@@ -42,7 +42,7 @@ function updateEmailDateRange(range) {
   }
 }
 
-function openSettingsDialog(tab = 'baseAmount') {
+function openSettingsDialog(tab = 'recipients') {
   const nextTab = normalizeSettingsTab(tab)
   settingsDialogOpen.value = true
   settingsTab.value = nextTab
@@ -86,7 +86,7 @@ function openSettingsFromEmail(tab) {
 }
 
 function normalizeSettingsTab(tab) {
-  return tab === 'email' ? 'email' : 'baseAmount'
+  return ['baseAmount', 'email', 'recipients'].includes(tab) ? tab : 'recipients'
 }
 </script>
 

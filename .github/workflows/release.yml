@@ -67,6 +67,7 @@ jobs:
             --type exe `
             --app-version $version `
             --vendor "Qn Calendar" `
+            --win-dir-chooser `
             --win-shortcut `
             --win-menu `
             --win-upgrade-uuid "2F10A62F-230F-4B84-A7BB-1FEC7386A9A4" `

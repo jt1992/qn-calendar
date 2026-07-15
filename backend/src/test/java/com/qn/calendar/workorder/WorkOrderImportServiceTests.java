@@ -190,13 +190,70 @@ class WorkOrderImportServiceTests {
     }
 
     @Test
-    void fallsBackToEarliestEmbeddedShipTimeWhenMerchantRemarkHasNoShipDate() throws Exception {
+    void prefersMerchantRemarkShipDateOverBuyerMessage() throws Exception {
         MockMultipartFile file = xlsxWithRows(
-                List.of("订单编号", "买家实付金额", "商家备注", "应发货时间"),
+                List.of("订单编号", "买家实付金额", "商家备注", "买家留言", "订单付款时间", "应发货时间"),
+                List.of(List.of(
+                        "ORD-MERCHANT-PRIORITY",
+                        "100.00",
+                        "5.22发",
+                        "5.23发",
+                        "2026-05-21 14:38:39",
+                        "2026-06-05 14:38:00"
+                ))
+        );
+
+        ImportWorkOrderResponse response = importService.importXlsx(file);
+
+        assertThat(response.createdCount()).as(response.errors().toString()).isEqualTo(1);
+        assertThat(response.errors()).isEmpty();
+        assertThat(repository.findAll().getFirst().getLatestShipTime()).isEqualTo(LocalDateTime.of(
+                LocalDate.now().getYear(),
+                5,
+                22,
+                23,
+                59,
+                59
+        ));
+    }
+
+    @Test
+    void usesBuyerMessageShipDateBeforeFallback() throws Exception {
+        MockMultipartFile file = xlsxWithRows(
+                List.of("订单编号", "买家实付金额", "商家备注", "买家留言", "订单付款时间", "应发货时间"),
+                List.of(List.of(
+                        "ORD-BUYER-MESSAGE-SHIP-DATE",
+                        "100.00",
+                        "一般备注",
+                        "24号发",
+                        "2026-05-21 14:38:39",
+                        "2026-06-05 14:38:00"
+                ))
+        );
+
+        ImportWorkOrderResponse response = importService.importXlsx(file);
+
+        assertThat(response.createdCount()).as(response.errors().toString()).isEqualTo(1);
+        assertThat(response.errors()).isEmpty();
+        assertThat(repository.findAll().getFirst().getLatestShipTime()).isEqualTo(LocalDateTime.of(
+                LocalDate.now().getYear(),
+                5,
+                24,
+                23,
+                59,
+                59
+        ));
+    }
+
+    @Test
+    void fallsBackToEarliestEmbeddedShipTimeWhenRemarksHaveNoShipDate() throws Exception {
+        MockMultipartFile file = xlsxWithRows(
+                List.of("订单编号", "买家实付金额", "商家备注", "买家留言", "应发货时间"),
                 List.of(List.of(
                         "ORD-SHIP-TEXT",
                         "100.00",
                         "一般备注",
+                        "一般留言",
                         "子订单A： 2026-06-11 22:17前 ; 子订单B： 2026-06-10 09:00前 ; "
                 ))
         );

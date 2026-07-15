@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.io.ByteArrayInputStream;
@@ -20,6 +21,7 @@ import java.util.Properties;
 import com.qn.calendar.settings.constant.SmtpSecurity;
 import com.qn.calendar.settings.model.EmailSenderSettings;
 import com.qn.calendar.settings.service.AppSettingsService;
+import com.qn.calendar.settings.service.EmailRecipientService;
 import com.qn.calendar.workorder.constant.ScheduleEmailViewType;
 import com.qn.calendar.workorder.constant.WorkOrderStatus;
 import com.qn.calendar.workorder.dto.CompletedWorkOrderStatsResponse;
@@ -383,12 +385,14 @@ class WorkOrderEmailServiceTests {
                 "smtp-auth-code"
         );
         when(appSettingsService.getRequiredEmailSenderSettings()).thenReturn(emailSenderSettings);
+        EmailRecipientService emailRecipientService = mock(EmailRecipientService.class);
         CapturingMailSender mailSender = new CapturingMailSender();
         WorkOrderEmailService service = new WorkOrderEmailService(
                 workOrderRepository,
                 segmentRepository,
                 pauseRepository,
                 appSettingsService,
+                emailRecipientService,
                 templateEngine()
         ) {
             @Override
@@ -452,6 +456,9 @@ class WorkOrderEmailServiceTests {
             assertThat(rawMessage.indexOf(currentCase.encodedFilename()))
                     .isLessThan(rawMessage.indexOf("filename=\"=?UTF-8?B?"));
         }
+
+        verify(emailRecipientService, org.mockito.Mockito.times(cases.size()))
+                .recordUsed(List.of("receiver@example.com"));
     }
 
     @Test
