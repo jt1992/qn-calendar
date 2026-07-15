@@ -1,7 +1,9 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
-import { Check, Pencil, Plus, Save, Trash2, X } from '@lucide/vue'
+import { Check, Eye, EyeOff, Pencil, Plus, Save, Trash2, X } from '@lucide/vue'
 import { useAppSettingsStore } from '../stores/appSettingsStore'
+
+const STORED_SMTP_AUTH_CODE = '••••••••'
 
 const props = defineProps({
   open: {
@@ -22,11 +24,14 @@ const amountError = ref('')
 const fieldError = ref('')
 const savedMessage = ref('')
 const emailEditing = ref(false)
+const smtpAuthCodeVisible = ref(false)
 const recipientDeletingId = ref(null)
+const recipientCreating = ref(false)
 const recipientEditingId = ref(null)
 const recipientNameDraft = ref('')
 const recipientEmailDraft = ref('')
 const recipientEditActionError = ref('')
+const recipientCreateNameInput = ref(null)
 const recipientNameInput = ref(null)
 let fieldErrorTimer = null
 let savedMessageTimer = null
@@ -72,19 +77,24 @@ const settingsBusy = computed(() =>
 const showEmailFields = computed(() =>
   activeTab.value === 'email' && (!emailSender.value.configured || emailEditing.value)
 )
-const canSubmitActiveTab = computed(() =>
-  activeTab.value === 'baseAmount' || activeTab.value === 'recipients' || showEmailFields.value
-)
-const activeSaving = computed(() =>
-  activeTab.value === 'recipients' ? settingsStore.recipientSaving : settingsStore.saving
-)
+const canSubmitActiveTab = computed(() => showEmailFields.value)
+const amountChanged = computed(() => !amountMatchesSavedValue())
+const emailSenderChanged = computed(() => {
+  const original = emailSenderFormDefaults()
+
+  return normalizedText(emailForm.senderEmail) !== normalizedText(original.senderEmail) ||
+    normalizedText(emailForm.smtpAuthCode) !== normalizedText(original.smtpAuthCode) ||
+    normalizedText(emailForm.smtpHost) !== normalizedText(original.smtpHost) ||
+    normalizedText(emailForm.smtpPort) !== normalizedText(original.smtpPort) ||
+    normalizedText(emailForm.smtpSecurity) !== normalizedText(original.smtpSecurity)
+})
+const recipientCreateChanged = computed(() => Boolean(
+  normalizedText(recipientForm.name) || normalizedText(recipientForm.email)
+))
+const activeSaving = computed(() => settingsStore.saving)
 const submitButtonText = computed(() => {
   if (activeSaving.value) {
     return '保存中'
-  }
-
-  if (activeTab.value === 'recipients') {
-    return '新增'
   }
 
   return '保存'
@@ -116,7 +126,7 @@ watch(
     clearFormValidation()
     amountInput.value = formatAmount(settingsStore.settings.estimatedHourlyBaseAmount)
     resetEmailForm()
-    resetRecipientForm()
+    cancelRecipientCreate()
     cancelRecipientEdit()
 
     try {
@@ -150,13 +160,13 @@ async function submit() {
     await submitEmailSender()
     return
   }
-
-  if (activeTab.value === 'recipients') {
-    await submitEmailRecipient()
-  }
 }
 
 async function submitBaseAmount() {
+  if (settingsBusy.value || !amountChanged.value) {
+    return
+  }
+
   clearFieldError()
   clearSavedMessage()
 
@@ -179,6 +189,10 @@ async function submitBaseAmount() {
 }
 
 async function submitEmailSender() {
+  if (settingsBusy.value || !emailSenderChanged.value) {
+    return
+  }
+
   clearFieldError()
   clearSavedMessage()
 
@@ -200,6 +214,10 @@ async function submitEmailSender() {
 }
 
 async function submitEmailRecipient() {
+  if (!recipientCreating.value || settingsStore.recipientSaving || !recipientCreateChanged.value) {
+    return
+  }
+
   clearFieldError()
   clearSavedMessage()
 
@@ -211,9 +229,8 @@ async function submitEmailRecipient() {
 
   try {
     await settingsStore.createEmailRecipient(recipient)
-    clearRecipientValidation()
+    cancelRecipientCreate()
     showSavedMessage('收件者已新增')
-    resetRecipientForm()
   } catch (error) {
     showFieldError(error.message)
   }
@@ -241,6 +258,7 @@ function validateAmount() {
 function validateEmailSender() {
   const senderEmail = emailForm.senderEmail.trim()
   const smtpAuthCode = emailForm.smtpAuthCode.trim()
+  const retainStoredAuthCode = emailSender.value.configured && smtpAuthCode === STORED_SMTP_AUTH_CODE
   const smtpHost = emailForm.smtpHost.trim()
   const smtpPort = Number(emailForm.smtpPort)
   const smtpSecurity = emailForm.smtpSecurity
@@ -282,7 +300,7 @@ function validateEmailSender() {
 
   return {
     senderEmail,
-    smtpAuthCode,
+    smtpAuthCode: retainStoredAuthCode ? null : smtpAuthCode,
     smtpHost,
     smtpPort,
     smtpSecurity
@@ -328,8 +346,31 @@ function activateTab(tab) {
   activeTab.value = nextTab
   clearFieldError()
   clearSavedMessage()
+  cancelRecipientCreate()
   cancelRecipientEdit()
   emit('update-tab', nextTab)
+}
+
+async function startRecipientCreate() {
+  if (recipientCreating.value || recipientEditingId.value !== null) {
+    return
+  }
+
+  recipientCreating.value = true
+  resetRecipientForm()
+  clearRecipientValidation()
+  clearFieldError()
+  clearSavedMessage()
+  await nextTick()
+  recipientCreateNameInput.value?.focus()
+}
+
+function cancelRecipientCreate() {
+  recipientCreating.value = false
+  resetRecipientForm()
+  clearRecipientValidation()
+  clearFieldError()
+  clearSavedMessage()
 }
 
 async function startRecipientEdit(recipient) {
@@ -349,6 +390,10 @@ function setRecipientNameInput(element) {
 }
 
 async function saveRecipient(recipient) {
+  if (settingsBusy.value || !recipientHasChanges(recipient)) {
+    return
+  }
+
   const name = recipientNameDraft.value.trim()
   const email = recipientEmailDraft.value.trim()
   const errors = {
@@ -428,12 +473,49 @@ function startEmailEdit() {
   emailEditing.value = true
 }
 
+function cancelEmailEdit() {
+  resetEmailForm()
+  clearEmailSenderValidation()
+  clearFieldError()
+  clearSavedMessage()
+  emailEditing.value = false
+}
+
 function resetEmailForm() {
-  emailForm.senderEmail = ''
-  emailForm.smtpAuthCode = ''
-  emailForm.smtpHost = emailSender.value.smtpHost || ''
-  emailForm.smtpPort = emailSender.value.smtpPort ? String(emailSender.value.smtpPort) : '465'
-  emailForm.smtpSecurity = emailSender.value.smtpSecurity || 'SSL'
+  const defaults = emailSenderFormDefaults()
+
+  smtpAuthCodeVisible.value = false
+  Object.assign(emailForm, defaults)
+}
+
+function emailSenderFormDefaults() {
+  return {
+    senderEmail: emailSender.value.senderEmail || '',
+    smtpAuthCode: emailSender.value.configured ? STORED_SMTP_AUTH_CODE : '',
+    smtpHost: emailSender.value.smtpHost || '',
+    smtpPort: emailSender.value.smtpPort ? String(emailSender.value.smtpPort) : '465',
+    smtpSecurity: emailSender.value.smtpSecurity || 'SSL'
+  }
+}
+
+function amountMatchesSavedValue() {
+  const current = normalizedText(amountInput.value)
+  const saved = normalizedText(formatAmount(settingsStore.settings.estimatedHourlyBaseAmount))
+
+  if (current === saved) {
+    return true
+  }
+
+  return /^\d+(\.\d{1,2})?$/.test(current) && Number(current) === Number(saved)
+}
+
+function recipientHasChanges(recipient) {
+  return normalizedText(recipientNameDraft.value) !== normalizedText(recipient.name) ||
+    normalizedText(recipientEmailDraft.value) !== normalizedText(recipient.email)
+}
+
+function normalizedText(value) {
+  return String(value ?? '').trim()
 }
 
 function resetRecipientForm() {
@@ -601,36 +683,54 @@ function securityLabel(value) {
       </div>
 
       <section v-if="activeTab === 'baseAmount'" class="settings-panel" role="tabpanel">
-        <label>
-          <span class="form-field-label">
-            预估工时基础金额（元/小时）
-            <small v-if="amountError" id="base-amount-error" class="form-field-error" role="alert">
-              {{ amountError }}
-            </small>
-          </span>
-          <input
-            v-model="amountInput"
-            inputmode="decimal"
-            type="number"
-            min="0.01"
-            step="0.01"
-            required
-            :aria-describedby="amountError ? 'base-amount-error' : undefined"
-            :aria-invalid="Boolean(amountError)"
-            :disabled="settingsBusy"
-          />
-        </label>
+        <div class="base-amount-row">
+          <label class="base-amount-field">
+            <span class="form-field-label">
+              预估工时基础金额（元/小时）
+              <small v-if="amountError" id="base-amount-error" class="form-field-error" role="alert">
+                {{ amountError }}
+              </small>
+            </span>
+            <input
+              v-model="amountInput"
+              inputmode="decimal"
+              type="number"
+              min="0.01"
+              step="0.01"
+              required
+              :aria-describedby="amountError ? 'base-amount-error' : undefined"
+              :aria-invalid="Boolean(amountError)"
+              :disabled="settingsBusy"
+              @keydown.enter.prevent="submitBaseAmount"
+            />
+          </label>
+          <div class="dialog-actions">
+            <span v-if="savedMessage" class="dialog-status" role="status">
+              {{ savedMessage }}
+            </span>
+            <button
+              class="icon-button primary-action"
+              type="submit"
+              :disabled="settingsBusy || !amountChanged"
+            >
+              <span v-if="activeSaving" class="loading-spinner" aria-hidden="true"></span>
+              <Save v-else :size="18" />
+              {{ submitButtonText }}
+            </button>
+          </div>
+        </div>
       </section>
 
       <section v-else-if="activeTab === 'email'" class="settings-panel" role="tabpanel">
         <div v-if="emailSender.configured && !emailEditing" class="email-sender-summary">
-          <span>已设置寄件者</span>
-          <strong>{{ emailSender.senderEmailMasked || '已配置' }}</strong>
-          <span v-if="emailSender.smtpHost" class="settings-meta">
-            {{ emailSender.smtpHost }}:{{ emailSender.smtpPort }} · {{ securityLabel(emailSender.smtpSecurity) }}
-          </span>
+          <div class="email-sender-details">
+            <strong>{{ emailSender.senderEmailMasked || '已配置' }}</strong>
+            <span v-if="emailSender.smtpHost" class="settings-meta">
+              {{ emailSender.smtpHost }}:{{ emailSender.smtpPort }} · {{ securityLabel(emailSender.smtpSecurity) }}
+            </span>
+          </div>
           <button class="text-button" type="button" @click="startEmailEdit">
-            要更换寄件者
+            更换寄件者
           </button>
         </div>
 
@@ -656,11 +756,12 @@ function securityLabel(value) {
               :aria-describedby="emailSenderErrors.senderEmail ? 'sender-email-error' : undefined"
               :aria-invalid="Boolean(emailSenderErrors.senderEmail)"
               :disabled="settingsBusy"
+              @keydown.enter.prevent="submitEmailSender"
             />
           </label>
 
-          <label>
-            <span class="form-field-label">
+          <div class="dialog-field">
+            <label for="smtp-auth-code" class="form-field-label">
               授权码
               <small
                 v-if="emailSenderErrors.smtpAuthCode"
@@ -670,17 +771,32 @@ function securityLabel(value) {
               >
                 {{ emailSenderErrors.smtpAuthCode }}
               </small>
-            </span>
-            <input
-              v-model="emailForm.smtpAuthCode"
-              type="password"
-              autocomplete="current-password"
-              required
-              :aria-describedby="emailSenderErrors.smtpAuthCode ? 'smtp-auth-code-error' : undefined"
-              :aria-invalid="Boolean(emailSenderErrors.smtpAuthCode)"
-              :disabled="settingsBusy"
-            />
-          </label>
+            </label>
+            <div class="password-input">
+              <input
+                id="smtp-auth-code"
+                v-model="emailForm.smtpAuthCode"
+                :type="smtpAuthCodeVisible ? 'text' : 'password'"
+                autocomplete="current-password"
+                required
+                :aria-describedby="emailSenderErrors.smtpAuthCode ? 'smtp-auth-code-error' : undefined"
+                :aria-invalid="Boolean(emailSenderErrors.smtpAuthCode)"
+                :disabled="settingsBusy"
+                @keydown.enter.prevent="submitEmailSender"
+              />
+              <button
+                class="icon-only-button password-visibility-button"
+                type="button"
+                :aria-label="smtpAuthCodeVisible ? '隐藏授权码' : '显示授权码'"
+                :aria-pressed="smtpAuthCodeVisible"
+                :disabled="settingsBusy"
+                @click="smtpAuthCodeVisible = !smtpAuthCodeVisible"
+              >
+                <EyeOff v-if="smtpAuthCodeVisible" :size="18" />
+                <Eye v-else :size="18" />
+              </button>
+            </div>
+          </div>
 
           <label>
             <span class="form-field-label">
@@ -702,6 +818,7 @@ function securityLabel(value) {
               :aria-describedby="emailSenderErrors.smtpHost ? 'smtp-host-error' : undefined"
               :aria-invalid="Boolean(emailSenderErrors.smtpHost)"
               :disabled="settingsBusy"
+              @keydown.enter.prevent="submitEmailSender"
             />
           </label>
 
@@ -758,70 +875,121 @@ function securityLabel(value) {
       </section>
 
       <section v-else class="settings-panel recipient-settings-panel" role="tabpanel">
-        <div class="email-recipient-form">
-          <label>
-            <span class="form-field-label">
-              收件人姓名
-              <small
-                v-if="recipientErrors.name"
-                id="recipient-name-error"
-                class="form-field-error"
-                role="alert"
-              >
-                {{ recipientErrors.name }}
-              </small>
-            </span>
-            <input
-              v-model="recipientForm.name"
-              type="text"
-              maxlength="120"
-              autocomplete="name"
-              placeholder="例如：咩咩"
-              required
-              :aria-describedby="recipientErrors.name ? 'recipient-name-error' : undefined"
-              :aria-invalid="Boolean(recipientErrors.name)"
-              :disabled="settingsBusy"
-            />
-          </label>
-          <label>
-            <span class="form-field-label">
-              收件 Email
-              <small
-                v-if="recipientErrors.email"
-                id="recipient-email-error"
-                class="form-field-error"
-                role="alert"
-              >
-                {{ recipientErrors.email }}
-              </small>
-            </span>
-            <input
-              v-model="recipientForm.email"
-              type="email"
-              maxlength="320"
-              autocomplete="email"
-              placeholder="receiver@example.com"
-              required
-              :aria-describedby="recipientErrors.email ? 'recipient-email-error' : undefined"
-              :aria-invalid="Boolean(recipientErrors.email)"
-              :disabled="settingsBusy"
-            />
-          </label>
-        </div>
-
         <div class="recipient-list-heading">
           <div>
             <h3>常用与寄送过的收件者</h3>
             <p>成功寄送的新 Email 会自动加入此列表。</p>
           </div>
-          <span class="count-badge">{{ settingsStore.emailRecipients.length }}</span>
+          <div class="dialog-actions">
+            <span v-if="savedMessage" class="dialog-status" role="status">
+              {{ savedMessage }}
+            </span>
+            <button
+              class="icon-button primary-action"
+              type="button"
+              :disabled="settingsBusy || recipientCreating || recipientEditingId !== null"
+              @click="startRecipientCreate"
+            >
+              <Plus :size="18" />
+              新增
+            </button>
+          </div>
         </div>
 
         <p v-if="settingsStore.recipientsLoading" class="recipient-empty">载入中...</p>
-        <p v-else-if="settingsStore.emailRecipients.length === 0" class="recipient-empty">
+        <p
+          v-else-if="!recipientCreating && settingsStore.emailRecipients.length === 0"
+          class="recipient-empty"
+        >
           尚无收件者
         </p>
         <div v-else class="email-recipient-list">
+          <article v-if="recipientCreating" class="email-recipient-item">
+            <div class="email-recipient-details">
+              <div class="email-recipient-fields">
+                <label>
+                  <span class="form-field-label">
+                    收件人姓名
+                    <small
+                      v-if="recipientErrors.name"
+                      id="recipient-name-error"
+                      class="form-field-error"
+                      role="alert"
+                    >
+                      {{ recipientErrors.name }}
+                    </small>
+                  </span>
+                  <input
+                    ref="recipientCreateNameInput"
+                    v-model="recipientForm.name"
+                    class="email-recipient-name-input"
+                    type="text"
+                    maxlength="120"
+                    autocomplete="name"
+                    placeholder="例如：咩咩"
+                    required
+                    :aria-describedby="recipientErrors.name ? 'recipient-name-error' : undefined"
+                    :aria-invalid="Boolean(recipientErrors.name)"
+                    :disabled="settingsBusy"
+                    @keydown.enter.prevent="submitEmailRecipient"
+                    @keydown.esc.prevent="cancelRecipientCreate"
+                  />
+                </label>
+                <label>
+                  <span class="form-field-label">
+                    收件 Email
+                    <small
+                      v-if="recipientErrors.email"
+                      id="recipient-email-error"
+                      class="form-field-error"
+                      role="alert"
+                    >
+                      {{ recipientErrors.email }}
+                    </small>
+                  </span>
+                  <input
+                    v-model="recipientForm.email"
+                    type="email"
+                    maxlength="320"
+                    autocomplete="email"
+                    placeholder="miemie@example.com"
+                    required
+                    :aria-describedby="recipientErrors.email ? 'recipient-email-error' : undefined"
+                    :aria-invalid="Boolean(recipientErrors.email)"
+                    :disabled="settingsBusy"
+                    @keydown.enter.prevent="submitEmailRecipient"
+                    @keydown.esc.prevent="cancelRecipientCreate"
+                  />
+                </label>
+              </div>
+              <small>尚未保存</small>
+            </div>
+            <div class="email-recipient-actions">
+              <button
+                class="icon-only-button"
+                type="button"
+                aria-label="取消新增收件者"
+                :disabled="settingsBusy"
+                @click="cancelRecipientCreate"
+              >
+                <X :size="16" />
+              </button>
+              <button
+                class="icon-only-button confirm-action"
+                type="button"
+                aria-label="保存新增收件者"
+                :disabled="settingsBusy || !recipientCreateChanged"
+                @click="submitEmailRecipient"
+              >
+                <span
+                  v-if="settingsStore.recipientSaving"
+                  class="loading-spinner"
+                  aria-hidden="true"
+                ></span>
+                <Check v-else :size="16" />
+              </button>
+            </div>
+          </article>
           <article
             v-for="recipient in settingsStore.emailRecipients"
             :key="recipient.id"
@@ -916,7 +1084,7 @@ function securityLabel(value) {
                 class="icon-only-button confirm-action"
                 type="button"
                 :aria-label="`确认编辑 ${recipient.email}`"
-                :disabled="settingsBusy"
+                :disabled="settingsBusy || !recipientHasChanges(recipient)"
                 @click="saveRecipient(recipient)"
               >
                 <span
@@ -931,7 +1099,7 @@ function securityLabel(value) {
                 class="icon-only-button"
                 type="button"
                 :aria-label="`编辑 ${recipient.name || recipient.email}`"
-                :disabled="settingsBusy"
+                :disabled="settingsBusy || recipientCreating"
                 @click="startRecipientEdit(recipient)"
               >
                 <Pencil :size="16" />
@@ -941,7 +1109,7 @@ function securityLabel(value) {
                 class="icon-only-button danger-action"
                 type="button"
                 :aria-label="`删除 ${recipient.name || recipient.email}`"
-                :disabled="settingsBusy"
+                :disabled="settingsBusy || recipientCreating"
                 @click="removeRecipient(recipient)"
               >
                 <span
@@ -958,18 +1126,29 @@ function securityLabel(value) {
 
       <p v-if="fieldError" class="dialog-error" role="alert">{{ fieldError }}</p>
 
-      <div class="dialog-actions">
-        <span v-if="savedMessage" class="dialog-status" role="status">
+      <div
+        v-if="(savedMessage && activeTab === 'email') || canSubmitActiveTab"
+        class="dialog-actions"
+      >
+        <span v-if="savedMessage && activeTab === 'email'" class="dialog-status" role="status">
           {{ savedMessage }}
         </span>
+        <button
+          v-if="activeTab === 'email' && emailSender.configured && emailEditing"
+          class="text-button"
+          type="button"
+          :disabled="settingsBusy"
+          @click="cancelEmailEdit"
+        >
+          取消
+        </button>
         <button
           v-if="canSubmitActiveTab"
           class="icon-button primary-action"
           type="submit"
-          :disabled="settingsBusy"
+          :disabled="settingsBusy || !emailSenderChanged"
         >
           <span v-if="activeSaving" class="loading-spinner" aria-hidden="true"></span>
-          <Plus v-else-if="activeTab === 'recipients'" :size="18" />
           <Save v-else :size="18" />
           {{ submitButtonText }}
         </button>

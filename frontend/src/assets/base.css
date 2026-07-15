@@ -1092,17 +1092,8 @@ select:disabled {
   width: 70px;
 }
 
-.stats-heading h1,
 .stats-heading p {
   margin: 0;
-}
-
-.stats-heading h1 {
-  font-size: 1.35rem;
-  letter-spacing: 0;
-}
-
-.stats-heading p {
   color: var(--muted);
   font-size: 0.86rem;
 }
@@ -1319,9 +1310,52 @@ select:disabled {
   gap: 12px;
 }
 
-.email-recipient-form {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.password-input {
+  position: relative;
+  min-width: 0;
+}
+
+.dialog .password-input input {
+  padding-right: 48px;
+}
+
+.password-visibility-button {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  min-height: 34px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  transform: translateY(-50%);
+}
+
+.password-visibility-button:hover {
+  border-color: transparent;
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.password-visibility-button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+.password-visibility-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.base-amount-field {
+  width: 34%;
+  min-width: 160px;
+  max-width: 100%;
+}
+
+.base-amount-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
   gap: 12px;
 }
 
@@ -1476,13 +1510,21 @@ select:disabled {
 }
 
 .email-sender-summary {
-  display: grid;
-  gap: 8px;
-  align-items: start;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 12px;
   background: var(--surface-soft);
+}
+
+.email-sender-details {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 8px;
+  min-width: 0;
 }
 
 .email-sender-summary span {
@@ -1497,7 +1539,7 @@ select:disabled {
 }
 
 .email-sender-summary .text-button {
-  justify-self: start;
+  flex: 0 0 auto;
 }
 
 .settings-meta {
@@ -1892,10 +1934,6 @@ select:disabled {
   .date-fields {
     align-items: stretch;
     flex-direction: column;
-  }
-
-  .email-recipient-form {
-    grid-template-columns: 1fr;
   }
 
   .stats-heading {

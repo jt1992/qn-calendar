@@ -67,6 +67,7 @@ class AppSettingsServiceTests {
 
         assertThat(settings.emailSender().configured()).isTrue();
         assertThat(settings.emailSender().senderEmailMasked()).isEqualTo("s***@example.com");
+        assertThat(settings.emailSender().senderEmail()).isEqualTo("sender@example.com");
         assertThat(settings.emailSender().smtpHost()).isEqualTo("smtp.example.com");
         assertThat(settings.emailSender().smtpPort()).isEqualTo(587);
         assertThat(settings.emailSender().smtpSecurity()).isEqualTo(SmtpSecurity.STARTTLS);
@@ -78,5 +79,40 @@ class AppSettingsServiceTests {
         assertThat(emailSenderSettings.smtpPort()).isEqualTo(587);
         assertThat(emailSenderSettings.smtpSecurity()).isEqualTo(SmtpSecurity.STARTTLS);
         assertThat(emailSenderSettings.smtpAuthCode()).isEqualTo("smtp-auth-code");
+    }
+
+    @Test
+    void updateEmailSenderSettingsRetainsExistingAuthCodeWhenOmitted() {
+        service.updateEmailSenderSettings(new UpdateEmailSenderSettingsRequest(
+                "sender@example.com",
+                "smtp.example.com",
+                465,
+                SmtpSecurity.SSL,
+                "smtp-auth-code"
+        ));
+
+        var settings = service.updateEmailSenderSettings(new UpdateEmailSenderSettingsRequest(
+                "updated@example.com",
+                "smtp.updated.example.com",
+                587,
+                SmtpSecurity.STARTTLS,
+                null
+        ));
+
+        assertThat(settings.emailSender().senderEmail()).isEqualTo("updated@example.com");
+        assertThat(service.getRequiredEmailSenderSettings().smtpAuthCode()).isEqualTo("smtp-auth-code");
+    }
+
+    @Test
+    void updateEmailSenderSettingsRequiresAuthCodeForInitialConfiguration() {
+        assertThatThrownBy(() -> service.updateEmailSenderSettings(new UpdateEmailSenderSettingsRequest(
+                "sender@example.com",
+                "smtp.example.com",
+                465,
+                SmtpSecurity.SSL,
+                null
+        )))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("授权码不可为空");
     }
 }

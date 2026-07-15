@@ -79,7 +79,6 @@ function formatHourlyRate(value) {
   <section class="stats-panel" aria-label="完工统计表">
     <header class="stats-heading">
       <div>
-        <h1>完工统计表</h1>
         <p>已完成工单的预估与实际工时对照</p>
       </div>
       <div class="stats-heading-actions">
@@ -100,7 +99,7 @@ function formatHourlyRate(value) {
         >
           全部
         </button>
-        <span class="count-badge">{{ stats.length }}</span>
+        <span class="count-badge">共 {{ stats.length }} 笔</span>
       </div>
     </header>
 
