@@ -1,5 +1,6 @@
 package com.qn.calendar.workorder.service;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -31,15 +32,18 @@ public class WorkOrderSegmentService {
     private final WorkOrderRepository workOrderRepository;
     private final WorkOrderSegmentRepository segmentRepository;
     private final WorkOrderSegmentPauseRepository pauseRepository;
+    private final Clock clock;
 
     public WorkOrderSegmentService(
             WorkOrderRepository workOrderRepository,
             WorkOrderSegmentRepository segmentRepository,
-            WorkOrderSegmentPauseRepository pauseRepository
+            WorkOrderSegmentPauseRepository pauseRepository,
+            Clock clock
     ) {
         this.workOrderRepository = workOrderRepository;
         this.segmentRepository = segmentRepository;
         this.pauseRepository = pauseRepository;
+        this.clock = clock;
     }
 
     @Transactional
@@ -58,10 +62,14 @@ public class WorkOrderSegmentService {
                 .orElseThrow(() -> new IllegalArgumentException("找不到工单片段"));
         WorkOrder workOrder = segment.getWorkOrder();
 
-        validateScheduleStartLock(segment, request.scheduledStart(), request.scheduledEnd());
+        boolean shouldPruneInvalidPauses = validatePausedSegmentUpdate(
+                segment,
+                request.scheduledStart(),
+                request.scheduledEnd()
+        );
         validateSchedule(workOrder, request.scheduledStart(), request.scheduledEnd());
         segment.updateSchedule(request.scheduledStart(), request.scheduledEnd());
-        return normalize(workOrder);
+        return normalize(workOrder, shouldPruneInvalidPauses ? segment : null);
     }
 
     @Transactional
@@ -69,6 +77,10 @@ public class WorkOrderSegmentService {
         WorkOrderSegment segment = segmentRepository.findById(segmentId)
                 .orElseThrow(() -> new IllegalArgumentException("找不到工单片段"));
         WorkOrder workOrder = segment.getWorkOrder();
+
+        if (segment.getScheduledStart().toLocalDate().isEqual(LocalDate.now(clock))) {
+            return deleteAllSegments(workOrder.getId());
+        }
 
         pauseRepository.deleteBySegmentId(segmentId);
         segmentRepository.delete(segment);
@@ -87,7 +99,7 @@ public class WorkOrderSegmentService {
         }
 
         validateSplit(segment, request.splitAt());
-        validateScheduleStartLock(segment, segment.getScheduledStart(), request.splitAt());
+        validateSplitAgainstPauseHistory(segment, request.splitAt());
         segment.updateSchedule(segment.getScheduledStart(), request.splitAt());
         segmentRepository.save(new WorkOrderSegment(workOrder, request.splitAt(), originalEnd));
         List<WorkOrderSegment> segments = segmentRepository.findByWorkOrderIdOrderByScheduledStartAscScheduledEndAscIdAsc(
@@ -206,6 +218,13 @@ public class WorkOrderSegmentService {
     }
 
     private WorkOrderSegmentListResponse normalize(WorkOrder workOrder) {
+        return normalize(workOrder, null);
+    }
+
+    private WorkOrderSegmentListResponse normalize(
+            WorkOrder workOrder,
+            WorkOrderSegment pauseCleanupSegment
+    ) {
         List<WorkOrderSegment> segments = new ArrayList<>(
                 segmentRepository.findByWorkOrderIdOrderByScheduledStartAscScheduledEndAscIdAsc(workOrder.getId())
         );
@@ -230,8 +249,11 @@ public class WorkOrderSegmentService {
                 if (next.getScheduledEnd().isAfter(current.getScheduledEnd())) {
                     current.updateSchedule(current.getScheduledStart(), next.getScheduledEnd());
                 }
-                pauseRepository.deleteBySegmentId(next.getId());
+                movePauses(next, current);
                 segmentRepository.delete(next);
+                if (pauseCleanupSegment == next) {
+                    pauseCleanupSegment = current;
+                }
             } else {
                 normalized.add(current);
                 current = next;
@@ -239,6 +261,10 @@ public class WorkOrderSegmentService {
         }
 
         normalized.add(current);
+
+        if (pauseCleanupSegment != null) {
+            deletePausesOutsideSegment(pauseCleanupSegment);
+        }
 
         int totalMinutes = normalized.stream()
                 .mapToInt(WorkOrderTimeUtils::segmentMinutes)
@@ -374,25 +400,67 @@ public class WorkOrderSegmentService {
         }
     }
 
-    private void validateScheduleStartLock(
+    private boolean validatePausedSegmentUpdate(
             WorkOrderSegment segment,
             LocalDateTime requestedStart,
             LocalDateTime requestedEnd
     ) {
-        Optional<WorkOrderSegmentPause> latestPause = latestPause(segment.getId());
+        if (!isScheduleStartLocked(segment, latestPause(segment.getId()))) {
+            return false;
+        }
 
-        if (!isScheduleStartLocked(segment, latestPause)) {
-            return;
+        Duration originalDuration = Duration.between(segment.getScheduledStart(), segment.getScheduledEnd());
+        Duration requestedDuration = Duration.between(requestedStart, requestedEnd);
+
+        if (requestedDuration.equals(originalDuration)) {
+            return true;
         }
 
         if (!requestedStart.isEqual(segment.getScheduledStart())) {
-            throw new IllegalStateException("已开始计时的工单不可调整开始时间");
+            throw new IllegalStateException("已开始计时的工单调整工时时不可修改开始时间");
         }
 
-        LocalDateTime minEnd = WorkOrderTimeUtils.roundUpToScheduleBoundary(latestPause.orElseThrow().getPausedAt());
-        if (requestedEnd.isBefore(minEnd)) {
-            throw new IllegalArgumentException("排程结束时间不可早于最后暂停时间");
+        if (requestedEnd.isBefore(segment.getScheduledEnd())) {
+            throw new IllegalStateException("已开始计时的工单只能向后延长结束时间");
         }
+
+        return true;
+    }
+
+    private void movePauses(WorkOrderSegment source, WorkOrderSegment target) {
+        List<WorkOrderSegmentPause> pauses = pauseRepository.findBySegmentIdOrderByPausedAtAscIdAsc(source.getId());
+
+        if (pauses.isEmpty()) {
+            return;
+        }
+
+        pauses.forEach((pause) -> pause.moveToSegment(target));
+        pauseRepository.saveAllAndFlush(pauses);
+    }
+
+    private void deletePausesOutsideSegment(WorkOrderSegment segment) {
+        List<WorkOrderSegmentPause> invalidPauses = pauseRepository
+                .findBySegmentIdOrderByPausedAtAscIdAsc(segment.getId())
+                .stream()
+                .filter((pause) -> !isPauseWithinSegment(pause, segment))
+                .toList();
+
+        if (!invalidPauses.isEmpty()) {
+            pauseRepository.deleteAllInBatch(invalidPauses);
+        }
+    }
+
+    private boolean isPauseWithinSegment(WorkOrderSegmentPause pause, WorkOrderSegment segment) {
+        if (!isWithinInclusive(pause.getPausedAt(), segment.getScheduledStart(), segment.getScheduledEnd())) {
+            return false;
+        }
+
+        return pause.getResumedAt() == null
+                || isWithinInclusive(pause.getResumedAt(), segment.getScheduledStart(), segment.getScheduledEnd());
+    }
+
+    private boolean isWithinInclusive(LocalDateTime value, LocalDateTime start, LocalDateTime end) {
+        return !value.isBefore(start) && !value.isAfter(end);
     }
 
     private boolean isScheduleStartLocked(
@@ -401,7 +469,7 @@ public class WorkOrderSegmentService {
     ) {
         return latestPause.isPresent()
                 && segment.getWorkOrder().getStatus() != WorkOrderStatus.DONE
-                && segment.getScheduledStart().toLocalDate().isEqual(LocalDate.now());
+                && segment.getScheduledStart().toLocalDate().isEqual(LocalDate.now(clock));
     }
 
     private Optional<WorkOrderSegmentPause> latestPause(Long segmentId) {
@@ -409,7 +477,7 @@ public class WorkOrderSegmentService {
     }
 
     private LocalDateTime currentTime() {
-        return normalizeClockTime(LocalDateTime.now());
+        return normalizeClockTime(LocalDateTime.now(clock));
     }
 
     private LocalDateTime normalizeClockTime(LocalDateTime value) {
@@ -453,6 +521,19 @@ public class WorkOrderSegmentService {
 
         if (!splitAt.isAfter(segment.getScheduledStart()) || !splitAt.isBefore(segment.getScheduledEnd())) {
             throw new IllegalArgumentException("拆分时间必须位于片段内");
+        }
+    }
+
+    private void validateSplitAgainstPauseHistory(WorkOrderSegment segment, LocalDateTime splitAt) {
+        Optional<WorkOrderSegmentPause> latestPause = latestPause(segment.getId());
+
+        if (!isScheduleStartLocked(segment, latestPause)) {
+            return;
+        }
+
+        LocalDateTime minEnd = WorkOrderTimeUtils.roundUpToScheduleBoundary(latestPause.orElseThrow().getPausedAt());
+        if (splitAt.isBefore(minEnd)) {
+            throw new IllegalArgumentException("拆分时间不可早于最后暂停时间");
         }
     }
 

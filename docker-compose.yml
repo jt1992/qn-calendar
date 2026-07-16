@@ -5,8 +5,11 @@ services:
       dockerfile: backend/Dockerfile
     environment:
       APP_DESKTOP_ENABLED: "false"
+      APP_TIME_ZONE: ${APP_TIME_ZONE:-Asia/Shanghai}
       QN_CALENDAR_DATA_DIR: /data
       SERVER_PORT: ${SERVER_PORT:-8080}
+      # Keep SQLite epoch decoding compatible with databases written by UTC containers.
+      TZ: UTC
     ports:
       - "${SERVER_PORT:-8080}:${SERVER_PORT:-8080}"
     volumes:

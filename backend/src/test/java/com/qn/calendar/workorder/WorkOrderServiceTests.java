@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 import com.qn.calendar.workorder.constant.WorkOrderStatus;
@@ -41,6 +43,9 @@ class WorkOrderServiceTests {
 
     @Autowired
     private WorkOrderSegmentPauseRepository pauseRepository;
+
+    @Autowired
+    private Clock clock;
 
     @BeforeEach
     void setUp() {
@@ -102,13 +107,19 @@ class WorkOrderServiceTests {
 
     @Test
     void unschedulesWorkOrderBackToPending() {
-        WorkOrder workOrder = repository.save(order("ORD-UNSCHEDULE"));
-        workOrder.schedule(
-                LocalDateTime.of(2026, 6, 8, 9, 0),
-                LocalDateTime.of(2026, 6, 8, 10, 30),
-                90
+        LocalDate today = LocalDate.now(clock);
+        WorkOrder workOrder = repository.save(order(
+                "ORD-UNSCHEDULE",
+                false,
+                today.plusDays(1).atTime(18, 0)
+        ));
+        var scheduled = scheduleService.schedule(
+                workOrder.getId(),
+                new ScheduleWorkOrderRequest(today.atTime(7, 0), today.atTime(10, 0))
         );
-        repository.saveAndFlush(workOrder);
+        Long segmentId = scheduled.segments().getFirst().segmentId();
+        segmentService.pauseSegment(segmentId, today.atTime(8, 0));
+        segmentService.resumeSegment(segmentId, today.atTime(8, 15));
 
         WorkOrder updated = service.unschedule(workOrder.getId());
 
@@ -116,6 +127,9 @@ class WorkOrderServiceTests {
         assertThat(updated.getScheduledStart()).isNull();
         assertThat(updated.getScheduledEnd()).isNull();
         assertThat(updated.getActualMinutes()).isEqualTo(updated.getEstimatedMinutes());
+        assertThat(segmentRepository.findByWorkOrderIdOrderByScheduledStartAscScheduledEndAscIdAsc(workOrder.getId()))
+                .isEmpty();
+        assertThat(pauseRepository.findByWorkOrderId(workOrder.getId())).isEmpty();
     }
 
     @Test
@@ -125,6 +139,32 @@ class WorkOrderServiceTests {
         assertThatThrownBy(() -> service.unschedule(workOrder.getId()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("工单尚未排入日历");
+    }
+
+    @Test
+    void deletesPendingWorkOrder() {
+        WorkOrder workOrder = repository.save(order("ORD-DELETE-PENDING"));
+
+        service.deletePendingWorkOrder(workOrder.getId());
+
+        assertThat(repository.findById(workOrder.getId())).isEmpty();
+    }
+
+    @Test
+    void rejectsDeletingScheduledWorkOrder() {
+        WorkOrder workOrder = repository.save(order("ORD-DELETE-SCHEDULED"));
+        scheduleService.schedule(
+                workOrder.getId(),
+                new ScheduleWorkOrderRequest(
+                        LocalDateTime.of(2026, 6, 8, 9, 0),
+                        LocalDateTime.of(2026, 6, 8, 10, 0)
+                )
+        );
+
+        assertThatThrownBy(() -> service.deletePendingWorkOrder(workOrder.getId()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("只有待排工单可删除");
+        assertThat(repository.findById(workOrder.getId())).isPresent();
     }
 
     @Test

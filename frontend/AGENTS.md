@@ -16,6 +16,7 @@
 
 - 上傳 XLSX。
 - XLSX 上傳必須同時支援點擊選檔與拖曳上傳。
+- XLSX 重複匯入既有訂單後，前端必須同時刷新待排清單與目前可見日曆；匯入結果顯示新增與更新筆數，錯誤列明細持續顯示。
 - 顯示待排工單。
 - 顯示週 / 月日曆。
 - 讓待排工單可拖曳到日曆。
@@ -40,6 +41,7 @@
 - SaaS / 營運工具風格應安靜、實用、資訊密度適中。
 - 使用明確的工作區：待排工單、日曆、Email Dialog。
 - 按鈕優先使用 icon + 清楚文字；若專案已有 icon library，優先使用該 library。
+- 畫面需要補充欄位、格式或操作說明時，優先使用可重用的 `src/components/HelpTooltip.vue`，不要在各元件重複實作 tooltip 互動與無障礙屬性；問號圖示應緊貼對應標題，並在 hover 或鍵盤 focus 時直接顯示說明，不做成必須點擊才展開的按鈕。
 - 日曆工具列按鈕要保持緊湊；窄視口下 Email、週/月、上一段/今天/下一段仍應維持在同一操作列。
 - 日曆標題與右側 Email / 週月 / 導覽控制應維持同一個 header row；標題下方說明放在日期下面，窄視口可縮小間距與字級，不要把操作列換到下一列。
 - 全域 box model 使用 `box-sizing: border-box`，並包含 pseudo-elements。
@@ -80,6 +82,7 @@
 - 待排工單最晚發貨以時鐘 icon 取代文字標籤，使用紅字顯示，不可截斷，時鐘 icon 要與文字垂直對齊。
 - 待排與日曆上的工時長度顯示使用 `x小時x分鐘`，不要使用小數小時如 `4.08h`。
 - 待排工單 click / focus 時，日曆週檢視需要顯示該工單最晚發貨時間紅線。
+- 待排工單卡片第三列的最晚發貨時間右側提供刪除按鈕；刪除前要確認，操作按鈕不可觸發卡片拖曳，並需提供明確的 accessible name、loading 與 disabled 狀態。
 
 ## FullCalendar 規則
 
@@ -98,7 +101,7 @@
 - 最晚發貨時間紅線必須是直線，不可使用圓角或看起來像卡片邊框的樣式。
 - 日曆工單事件卡片必須完整顯示最晚發貨時間；窄視口不可截斷。
 - 日曆工單卡片不提供 `X` 關閉 / 移出按鈕。
-- 日曆工單直接拖出日曆範圍後放開時，事件應立即從日曆消失並回到待排工單，不播放回彈到原位的動畫。
+- 日曆工單直接拖出日曆範圍後放開時，事件應立即從日曆消失，不播放回彈到原位的動畫；今日片段要取消整張工單排程，非今日片段只刪除被拖出的片段。
 - 日曆工單不使用彈出詳細卡執行完成；完成 / 取消完成應放在日曆事件卡片上。
 - 日曆片段點完成時，若目前時間已超過該片段結束時間，後端會先把該片段結束時間延長到完成時間，再標記完成。
 - 日曆工單卡片右上角操作按鈕可半透明常駐，hover / focus 時變清楚，但不可擠壓或遮擋主要資訊。
@@ -110,7 +113,8 @@
 - 日曆工單拖曳中的原 event / mirror 應比靜止狀態更透明，讓落點與警示更容易辨識。
 - 日曆工單拖曳游標使用 `grab` / `grabbing`，resize 游標使用上下調整語意的 `ns-resize`。
 - 週檢視日曆工單上下邊緣的 resize hit area 要比 FullCalendar 預設值更大，約 14px，方便延長 / 縮短工時。
-- 今天且已產生暫停記錄的日曆工單必須鎖定開始時間：不可整體拖動或上邊緣 resize，只允許下邊緣調整，結束時間不可早於最後一次暫停時間。
+- 今天且已有暫停記錄的未完成工單仍可整體拖動；後端會在移動後清除不再有效的暫停資料，前端不可用 `scheduleStartLocked` 將事件設為不可拖動。
+- 今天且已有暫停記錄的未完成工單只允許由下邊緣延後結束時間；不可從上邊緣 resize，也不可縮短結束時間，前端需在送出 API 前阻擋。
 - 時間粒度為 15 分鐘。
 - 不同訂單編號的工單不可重疊。
 - 同一訂單編號的分割片段若時間相鄰或重疊，允許前端操作送出並交由後端自動融合。
@@ -191,11 +195,12 @@ eventClassNames(info) {
 | 行為 | FullCalendar 事件 | API |
 |---|---|---|
 | 待排工單拖到日曆 | `eventReceive` | `PATCH /api/work-orders/{id}/schedule` |
-| 日曆內拖動 | `eventDrop` | `PATCH /api/work-orders/{id}/schedule` |
-| 調整工時長度 | `eventResize` | `PATCH /api/work-orders/{id}/schedule` |
+| 日曆內拖動 | `eventDrop` | `PATCH /api/work-orders/segments/{segmentId}` |
+| 調整工時長度 | `eventResize` | `PATCH /api/work-orders/segments/{segmentId}` |
 | 點完成 | 自訂按鈕或 `eventClick` | `PATCH /api/work-orders/{id}/done` |
 | 取消完成 | 自訂按鈕 | `PATCH /api/work-orders/{id}/reopen` |
-| 移出日曆 | 拖出日曆範圍後放開 | `DELETE /api/work-orders/segments/{segmentId}` |
+| 片段移出日曆 | 拖出日曆範圍後放開 | `DELETE /api/work-orders/segments/{segmentId}`；後端依北京業務日期決定整單或單片段移除 |
+| 刪除待排工單 | 待排卡片刪除按鈕 | `DELETE /api/work-orders/{id}` |
 | 發送 Email | Button click | `POST /api/work-orders/schedule-email` |
 
 Email Dialog 開啟時，開始日期與結束日期預設為目前日曆焦點所在週的週起訖。
@@ -209,6 +214,7 @@ Email Dialog 開啟時，開始日期與結束日期預設為目前日曆焦點�
 - `importXlsx(file)`
 - `fetchPendingWorkOrders()`
 - `fetchCalendarEvents(dateFrom, dateTo)`
+- `deleteWorkOrder(id)`
 - `scheduleWorkOrder(id, start, end)`
 - `markAsDone(id)`
 - `reopen(id)`

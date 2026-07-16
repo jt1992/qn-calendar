@@ -69,6 +69,10 @@ public class WorkOrderSegmentPause {
         this.resumedAt = resumedAt;
     }
 
+    public void moveToSegment(WorkOrderSegment segment) {
+        this.segment = segment;
+    }
+
     public Long getId() {
         return id;
     }

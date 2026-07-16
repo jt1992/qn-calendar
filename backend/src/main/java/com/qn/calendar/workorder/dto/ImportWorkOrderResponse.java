@@ -4,7 +4,7 @@ import java.util.List;
 
 public record ImportWorkOrderResponse(
         int createdCount,
-        int skippedCount,
+        int updatedCount,
         List<ImportRowError> errors
 ) {
 }

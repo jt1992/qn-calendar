@@ -38,6 +38,7 @@ const eventTooltip = ref(null)
 const ignoreNextCalendarClick = ref(false)
 const localFocusedWorkOrder = ref(null)
 const scheduleGranularityMinutes = 15
+const businessTimeZone = 'Asia/Shanghai'
 const allowPastScheduling = ref(getInitialAllowPastScheduling())
 
 const effectiveFocusedWorkOrder = computed(() => props.focusedWorkOrder || localFocusedWorkOrder.value)
@@ -144,13 +145,13 @@ const calendarOptions = computed(() => ({
   eventContent,
   datesSet: handleDatesSet,
   eventAllow,
-  eventDragStart: (info) => handleInteractionStart(info, '拖拽排程'),
+  eventDragStart: (info) => handleInteractionStart(info, '拖拽排程', 'move'),
   eventDragStop: handleEventDragStop,
   eventReceive: handleEventReceive,
-  eventDrop: handleEventMove,
-  eventResizeStart: (info) => handleInteractionStart(info, '调整工时'),
+  eventDrop: (info) => handleEventMove(info, 'move'),
+  eventResizeStart: (info) => handleInteractionStart(info, '调整工时', 'resize'),
   eventResizeStop: handleInteractionStop,
-  eventResize: handleEventMove,
+  eventResize: (info) => handleEventMove(info, 'resize'),
   eventClick: handleEventClick,
   eventDidMount: bindEventTooltip,
   eventClassNames: (info) => eventClassNames(info, focusedWorkOrderId.value)
@@ -187,19 +188,30 @@ function eventAllow(dropInfo, draggedEvent) {
     start,
     end,
     latest,
-    minScheduleStart(),
-    interactionOriginalStart(draggedEvent)
+    minScheduleStart()
   )
+  const resizeValidation = activeInteraction.value?.kind === 'resize'
+    ? validatePauseHistoryResize(
+        draggedEvent,
+        scheduleWindow,
+        activeInteraction.value.start,
+        activeInteraction.value.end
+      )
+    : { valid: true, invalidReason: '' }
+  const valid = scheduleWindow.valid && resizeValidation.valid
+  const invalidReason = scheduleWindow.valid
+    ? resizeValidation.invalidReason
+    : scheduleWindow.invalidReason
 
   updateInteractionPreview(
     interactionAction.value,
     scheduleWindow.start,
     scheduleWindow.end,
     latest,
-    scheduleWindow.valid,
-    scheduleWindow.invalidReason
+    valid,
+    invalidReason
   )
-  return scheduleWindow.valid
+  return valid
 }
 
 async function handleDatesSet(info) {
@@ -380,7 +392,7 @@ async function handleEventReceive(info) {
   }
 }
 
-async function handleEventMove(info) {
+async function handleEventMove(info, interactionKind) {
   try {
     const start = normalizeScheduleBoundary(normalizeScheduleStart(info.event.start))
     const rawEnd = currentView.value === 'timeGridWeek'
@@ -395,12 +407,24 @@ async function handleEventMove(info) {
       start,
       end,
       latest,
-      minScheduleStart(),
-      info.oldEvent?.start || interactionOriginalStart(info.event)
+      minScheduleStart()
     )
 
     if (!scheduleWindow.valid) {
       throw new Error(scheduleWindow.invalidReason || '排程时间不可用')
+    }
+
+    if (interactionKind === 'resize') {
+      const resizeValidation = validatePauseHistoryResize(
+        info.event,
+        scheduleWindow,
+        info.oldEvent?.start,
+        info.oldEvent?.end
+      )
+
+      if (!resizeValidation.valid) {
+        throw new Error(resizeValidation.invalidReason)
+      }
     }
 
     await store.updateWorkOrderSegment(
@@ -558,7 +582,8 @@ function calendarEventClassNamesFromProps(extendedProps, existingClassNames, foc
     'work-order-done',
     'work-order-urgent',
     'work-order-overdue',
-    'work-order-paused'
+    'work-order-paused',
+    'work-order-pause-history-resize'
   ])
   const classNames = new Set(
     (Array.isArray(existingClassNames) ? existingClassNames : []).filter(
@@ -584,6 +609,10 @@ function calendarEventClassNamesFromProps(extendedProps, existingClassNames, foc
 
   if (extendedProps.paused) {
     classNames.add('work-order-paused')
+  }
+
+  if (extendedProps.status !== 'DONE' && extendedProps.scheduleStartLocked) {
+    classNames.add('work-order-pause-history-resize')
   }
 
   return [...classNames]
@@ -619,6 +648,13 @@ function eventClassNames(info, focusedId) {
 
   if (info.event.extendedProps.paused) {
     classNames.push('work-order-paused')
+  }
+
+  if (
+    info.event.extendedProps.status !== 'DONE'
+    && info.event.extendedProps.scheduleStartLocked
+  ) {
+    classNames.push('work-order-pause-history-resize')
   }
 
   return classNames
@@ -679,22 +715,51 @@ function toggleAllowPastScheduling(event) {
 }
 
 async function unscheduleEvent(event, options = {}) {
-  const { removeImmediately = false } = options
+  const { removeImmediately = false, optimisticallyRemoveWholeWorkOrder = false } = options
 
   try {
     if (removeImmediately) {
-      event.remove()
+      if (optimisticallyRemoveWholeWorkOrder) {
+        removeVisibleWorkOrderEvents(event.extendedProps.workOrderId)
+      } else {
+        event.remove()
+      }
       hideEventTooltip()
     }
 
     const response = await store.deleteWorkOrderSegment(event.extendedProps.segmentId)
-
     if (response.segments.length === 0) {
-      emit('focus-order', null)
+      clearFocusedWorkOrder()
     }
   } catch (error) {
     store.setError(error.message)
     await store.refreshCalendarEvents()
+  }
+}
+
+function removeVisibleWorkOrderEvents(workOrderId) {
+  const calendarApi = calendarRef.value?.getApi()
+
+  if (!calendarApi || !workOrderId) {
+    return
+  }
+
+  const removeDeadlineMarker = focusedWorkOrderId.value
+    && String(focusedWorkOrderId.value) === String(workOrderId)
+
+  for (const calendarEvent of calendarApi.getEvents()) {
+    if (calendarEvent.extendedProps.isDeadlineMarker) {
+      if (removeDeadlineMarker) {
+        calendarEvent.remove()
+      }
+      continue
+    }
+
+    if (
+      String(calendarEvent.extendedProps.workOrderId) === String(workOrderId)
+    ) {
+      calendarEvent.remove()
+    }
   }
 }
 
@@ -719,7 +784,11 @@ function handleEventDragStop(info) {
     && info.event.extendedProps.segmentId
     && isPointerOutsideCalendar(info.jsEvent)
   ) {
-    unscheduleEvent(info.event, { removeImmediately: true })
+    const originalStart = interactionOriginalStart(info.event)
+    unscheduleEvent(info.event, {
+      removeImmediately: true,
+      optimisticallyRemoveWholeWorkOrder: Boolean(originalStart && isBusinessToday(originalStart))
+    })
   }
 
   handleInteractionStop()
@@ -774,7 +843,7 @@ function canShowPauseButton(event) {
   return isSameDate(event.start, now) && now >= event.start
 }
 
-function handleInteractionStart(info, action) {
+function handleInteractionStart(info, action, kind) {
   if (info.event.extendedProps.isDeadlineMarker) {
     return
   }
@@ -783,14 +852,16 @@ function handleInteractionStart(info, action) {
   interactionAction.value = action
   activeInteraction.value = {
     segmentId: String(info.event.extendedProps.segmentId || ''),
-    start: info.event.start ? new Date(info.event.start) : null
+    kind,
+    start: info.event.start ? new Date(info.event.start) : null,
+    end: info.event.end ? new Date(info.event.end) : null
   }
   const start = normalizeScheduleBoundary(info.event.start)
   const end = normalizeScheduleBoundary(info.event.end || addMinutes(start, info.event.extendedProps.actualMinutes))
   const latest = info.event.extendedProps.latestShipTime
     ? new Date(info.event.extendedProps.latestShipTime)
     : null
-  const scheduleWindow = resolveNonOverlappingWindow(info.event, start, end, latest, minScheduleStart(), info.event.start)
+  const scheduleWindow = resolveNonOverlappingWindow(info.event, start, end, latest, minScheduleStart())
 
   updateInteractionPreview(
     action,
@@ -829,7 +900,7 @@ function resolveSplitAt(event) {
   return addMinutes(event.start, offsetMinutes)
 }
 
-function resolveNonOverlappingWindow(draggedEvent, start, end, latest, minStart, originalStart = null) {
+function resolveNonOverlappingWindow(draggedEvent, start, end, latest, minStart) {
   const duration = diffMinutes(start, end)
   const directWindow = { start, end }
 
@@ -842,10 +913,10 @@ function resolveNonOverlappingWindow(draggedEvent, start, end, latest, minStart,
   }
 
   if (getDifferentWorkOrderOverlaps(draggedEvent, start, end).length === 0) {
-    return withScheduleWindowValidation(draggedEvent, directWindow, latest, minStart, originalStart)
+    return withScheduleWindowValidation(directWindow, latest, minStart)
   }
 
-  const directValidation = withScheduleWindowValidation(draggedEvent, directWindow, latest, minStart, originalStart)
+  const directValidation = withScheduleWindowValidation(directWindow, latest, minStart)
 
   if (!directValidation.valid) {
     return directValidation
@@ -856,7 +927,7 @@ function resolveNonOverlappingWindow(draggedEvent, start, end, latest, minStart,
     buildAdjacentWindow(draggedEvent, start, duration, 'after')
   ]
     .filter(Boolean)
-    .map((candidate) => withScheduleWindowValidation(draggedEvent, candidate, latest, minStart, originalStart))
+    .map((candidate) => withScheduleWindowValidation(candidate, latest, minStart))
     .filter((candidate) => candidate.valid)
     .sort((left, right) => {
       const leftShift = Math.abs(left.start.getTime() - start.getTime())
@@ -901,17 +972,7 @@ function buildAdjacentWindow(draggedEvent, desiredStart, duration, direction) {
   return null
 }
 
-function withScheduleWindowValidation(draggedEvent, scheduleWindow, latest, minStart, originalStart) {
-  const lockedValidation = validateLockedScheduleWindow(draggedEvent, scheduleWindow, originalStart)
-
-  if (!lockedValidation.valid) {
-    return {
-      ...scheduleWindow,
-      valid: false,
-      invalidReason: lockedValidation.invalidReason
-    }
-  }
-
+function withScheduleWindowValidation(scheduleWindow, latest, minStart) {
   const minStartAllowed = !minStart || scheduleWindow.start >= minStart
   const deadlineAllowed = !latest || scheduleWindow.end <= latest
 
@@ -924,38 +985,34 @@ function withScheduleWindowValidation(draggedEvent, scheduleWindow, latest, minS
   }
 }
 
-function validateLockedScheduleWindow(draggedEvent, scheduleWindow, originalStart) {
-  if (!draggedEvent.extendedProps.scheduleStartLocked) {
+function validatePauseHistoryResize(event, scheduleWindow, originalStart, originalEnd) {
+  if (!isPauseHistoryResizeRestricted(event)) {
     return { valid: true, invalidReason: '' }
   }
 
-  const lockedStart = originalStart ? normalizeScheduleBoundary(originalStart) : null
+  const normalizedOriginalStart = originalStart ? normalizeScheduleBoundary(originalStart) : null
+  const normalizedOriginalEnd = originalEnd ? normalizeScheduleBoundary(originalEnd) : null
 
-  if (lockedStart && scheduleWindow.start.getTime() !== lockedStart.getTime()) {
+  if (normalizedOriginalStart && scheduleWindow.start.getTime() !== normalizedOriginalStart.getTime()) {
     return {
       valid: false,
-      invalidReason: '已开始计时的工单不可调整开始时间'
+      invalidReason: '今日有暂停记录的工单不可从顶部调整时间'
     }
   }
 
-  const minEnd = minLockedScheduleEnd(draggedEvent)
-  if (minEnd && scheduleWindow.end < minEnd) {
+  if (normalizedOriginalEnd && scheduleWindow.end <= normalizedOriginalEnd) {
     return {
       valid: false,
-      invalidReason: '排程结束时间不可早于最后暂停时间'
+      invalidReason: '今日有暂停记录的工单只可延后结束时间'
     }
   }
 
   return { valid: true, invalidReason: '' }
 }
 
-function minLockedScheduleEnd(draggedEvent) {
-  if (!draggedEvent.extendedProps.latestPausedAt) {
-    return null
-  }
-
-  const latestPausedAt = new Date(draggedEvent.extendedProps.latestPausedAt)
-  return Number.isNaN(latestPausedAt.getTime()) ? null : normalizeScheduleBoundary(latestPausedAt)
+function isPauseHistoryResizeRestricted(event) {
+  return event.extendedProps.status !== 'DONE'
+    && Boolean(event.extendedProps.scheduleStartLocked)
 }
 
 function interactionOriginalStart(event) {
@@ -1111,6 +1168,21 @@ function isSameDate(left, right) {
   return left.getFullYear() === right.getFullYear()
     && left.getMonth() === right.getMonth()
     && left.getDate() === right.getDate()
+}
+
+function isBusinessToday(value) {
+  return toDateOnly(value) === dateOnlyInTimeZone(new Date(), businessTimeZone)
+}
+
+function dateOnlyInTimeZone(value, timeZone) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(value)
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
+  return `${values.year}-${values.month}-${values.day}`
 }
 
 function parseDateOnly(value) {

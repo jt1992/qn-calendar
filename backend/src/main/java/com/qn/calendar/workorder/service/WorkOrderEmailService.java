@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.text.NumberFormat;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -85,6 +86,7 @@ public class WorkOrderEmailService {
   private final AppSettingsService appSettingsService;
   private final EmailRecipientService emailRecipientService;
   private final TemplateEngine templateEngine;
+  private final Clock clock;
 
   public WorkOrderEmailService(
       WorkOrderRepository workOrderRepository,
@@ -92,13 +94,15 @@ public class WorkOrderEmailService {
       WorkOrderSegmentPauseRepository pauseRepository,
       AppSettingsService appSettingsService,
       EmailRecipientService emailRecipientService,
-      TemplateEngine templateEngine) {
+      TemplateEngine templateEngine,
+      Clock clock) {
     this.workOrderRepository = workOrderRepository;
     this.segmentRepository = segmentRepository;
     this.pauseRepository = pauseRepository;
     this.appSettingsService = appSettingsService;
     this.emailRecipientService = emailRecipientService;
     this.templateEngine = templateEngine;
+    this.clock = clock;
   }
 
   public void sendScheduleEmail(ScheduleEmailRequest request) {
@@ -284,7 +288,7 @@ public class WorkOrderEmailService {
   }
 
   private int pausedMinutes(Long workOrderId, LocalDateTime completedAt) {
-    LocalDateTime fallbackEnd = completedAt == null ? LocalDateTime.now() : completedAt;
+    LocalDateTime fallbackEnd = completedAt == null ? LocalDateTime.now(clock) : completedAt;
     return WorkOrderTimeUtils.pauseMinutes(pauseRepository.findByWorkOrderId(workOrderId), fallbackEnd);
   }
 

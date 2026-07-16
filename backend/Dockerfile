@@ -9,8 +9,12 @@ RUN mvn -q -f backend/pom.xml -DskipTests package
 
 FROM eclipse-temurin:21-jre
 WORKDIR /app
+# SQLite persists LocalDateTime values as epoch timestamps. Keep the JVM in UTC so
+# databases created by earlier releases are decoded without an eight-hour shift.
 ENV APP_DESKTOP_ENABLED=false \
+    APP_TIME_ZONE=Asia/Shanghai \
     QN_CALENDAR_DATA_DIR=/data \
+    TZ=UTC \
     LANG=C.UTF-8 \
     LC_ALL=C.UTF-8
 RUN apt-get update \
@@ -21,4 +25,4 @@ RUN apt-get update \
 COPY --from=build /workspace/backend/target/*.jar app.jar
 VOLUME ["/data"]
 EXPOSE 8080
-ENTRYPOINT ["java", "-Djava.awt.headless=true", "-jar", "app.jar"]
+ENTRYPOINT ["java", "-Djava.awt.headless=true", "-Duser.timezone=UTC", "-jar", "app.jar"]

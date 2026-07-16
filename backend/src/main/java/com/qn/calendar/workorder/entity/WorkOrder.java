@@ -163,9 +163,26 @@ public class WorkOrder {
         this.actualMinutes = actualMinutes;
     }
 
-    public void updateOrderTimeIfMissing(LocalDateTime orderTime) {
-        if (this.orderTime == null && orderTime != null) {
-            this.orderTime = orderTime;
+    public void updateImportedDetails(
+            String remark,
+            BigDecimal price,
+            int estimatedMinutes,
+            boolean urgent,
+            LocalDateTime latestShipTime,
+            LocalDateTime orderTime
+    ) {
+        boolean actualMinutesFollowEstimate = this.status == WorkOrderStatus.PENDING
+                && this.actualMinutes == this.estimatedMinutes;
+
+        this.remark = remark;
+        this.price = price;
+        this.estimatedMinutes = estimatedMinutes;
+        this.urgent = urgent;
+        this.latestShipTime = latestShipTime;
+        this.orderTime = orderTime;
+
+        if (actualMinutesFollowEstimate) {
+            this.actualMinutes = estimatedMinutes;
         }
     }
 

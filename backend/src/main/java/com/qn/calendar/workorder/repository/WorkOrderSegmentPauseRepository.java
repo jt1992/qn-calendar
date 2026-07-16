@@ -20,6 +20,8 @@ public interface WorkOrderSegmentPauseRepository extends JpaRepository<WorkOrder
 
     boolean existsBySegmentIdAndResumedAtIsNull(Long segmentId);
 
+    List<WorkOrderSegmentPause> findBySegmentIdOrderByPausedAtAscIdAsc(Long segmentId);
+
     @Query("""
             select pause
             from WorkOrderSegmentPause pause
