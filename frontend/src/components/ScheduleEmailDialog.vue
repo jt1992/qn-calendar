@@ -507,7 +507,12 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div v-if="open" class="dialog-backdrop" role="presentation" @click="emit('close')">
+  <div
+    v-if="open"
+    class="dialog-backdrop email-dialog-backdrop"
+    role="presentation"
+    @click="emit('close')"
+  >
     <form class="dialog" aria-label="发送排程 Email" novalidate @click.stop @submit.prevent="submit">
       <div class="dialog-heading">
         <h2>发送排程 Email</h2>
@@ -590,7 +595,6 @@ onBeforeUnmount(() => {
             >
               <strong>{{ recipient.name || recipient.email }}</strong>
               <span v-if="recipient.name">{{ recipient.email }}</span>
-              <small v-if="recipient.usageCount > 0">已发送 {{ recipient.usageCount }} 次</small>
             </button>
             <p v-if="!hasRecipientSuggestions" class="recipient-suggestion-empty">
               {{ recipientQuery.trim() ? '没有匹配的收件人' : '尚无可选收件人' }}
