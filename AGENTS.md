@@ -100,6 +100,11 @@ Use any available PR-creation path that works in the current environment
 require a specific CLI command. The other phrases remain as fine-grained
 controls if the user wants to step through individually.
 
+For this repository, publish through the configured SSH Git remote and the
+GitHub connector/API path that has already succeeded in this workspace. Do
+not use GitHub CLI (`gh`) authentication or `gh pr create` unless the user
+explicitly asks for it.
+
 PRs opened by the agent must be ready-for-review PRs, not draft PRs,
 unless the user explicitly asks for a draft.
 
