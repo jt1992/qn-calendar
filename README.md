@@ -137,7 +137,7 @@ jpackage 要求 installer 版本第一段为正整数；若 tag 使用 `v0.x.x`�
 
 ## 桌面版安装、更新与卸载
 
-Windows 使用 `.exe` 安装包；安装时可选择应用程序的安装目录，安装后会建立桌面快捷方式与开始菜单入口，并可从 Windows「应用」中卸载。Release workflow 从 `v1.0.2` 起固定 `--win-upgrade-uuid`，后续新版 `.exe` 可识别为同一应用的升级安装包。若从更早版本升级时 Windows 不接受直接覆盖安装，先卸载旧版再安装新版即可。
+Windows 使用 `.exe` 安装包，安装向导固定使用简体中文（`zh_CN`）；Windows 自身提供的 UAC 等系统窗口仍跟随系统显示语言。安装时可选择应用程序的安装目录，安装后会建立桌面快捷方式与开始菜单入口，并可从 Windows「应用」中卸载。Release workflow 从 `v1.0.2` 起固定 `--win-upgrade-uuid`，后续新版 `.exe` 可识别为同一应用的升级安装包。若从更早版本升级时 Windows 不接受直接覆盖安装，先卸载旧版再安装新版即可。
 
 macOS 同时发布 `.dmg` 与 `.pkg`。`.dmg` 适合手动拖拽到「应用程序」并在更新时替换旧版；`.pkg` 适合使用系统安装器安装或覆盖升级。卸载时删除「应用程序」里的 `QnCalendar.app`。
 
