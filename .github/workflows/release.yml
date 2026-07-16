@@ -56,10 +56,24 @@ jobs:
           }
 
       - name: Build Windows installer
+        id: windows_package
         shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          $releaseVersion = "${{ github.ref_name }}" -replace '^v', ''
+          $releaseVersion = $env:RELEASE_TAG -replace '^v', ''
           $version = if ($releaseVersion -match '^0(\.|$)') { "1$($releaseVersion.Substring(1))" } else { $releaseVersion }
+          $iconPath = "frontend/public/favicon.ico"
+          $iconBytes = [System.IO.File]::ReadAllBytes($iconPath)
+          if ($iconBytes.Length -lt 6) {
+            throw "Windows application icon is not a valid ICO file: $iconPath"
+          }
+
+          $iconCount = [System.BitConverter]::ToUInt16($iconBytes, 4)
+          if ($iconBytes[0] -ne 0 -or $iconBytes[1] -ne 0 -or $iconBytes[2] -ne 1 -or $iconBytes[3] -ne 0 -or $iconCount -lt 1) {
+            throw "Windows application icon is not a valid ICO file: $iconPath"
+          }
+
           mkdir dist
           $env:JAVA_TOOL_OPTIONS = "-Duser.language=zh -Duser.country=CN"
           jpackage `
@@ -69,10 +83,12 @@ jobs:
             --name QnCalendar `
             --type exe `
             --resource-dir packaging/windows `
+            --icon $iconPath `
             --app-version $version `
             --vendor "Qn Calendar" `
             --win-dir-chooser `
             --win-shortcut `
+            --win-shortcut-prompt `
             --win-menu `
             --win-upgrade-uuid "2F10A62F-230F-4B84-A7BB-1FEC7386A9A4" `
             --verbose `
@@ -80,10 +96,26 @@ jobs:
             --java-options "-Djava.awt.headless=false" `
             --java-options "-Dfile.encoding=UTF-8"
 
+          $generatedInstallers = @(Get-ChildItem -LiteralPath dist -Filter "*.exe")
+          if ($generatedInstallers.Count -ne 1) {
+            throw "Expected exactly one generated Windows installer, found $($generatedInstallers.Count)."
+          }
+
+          $installerFileName = "QnCalendar-Setup-$($releaseVersion).exe"
+          $installerRelativePath = "dist/$installerFileName"
+          Move-Item -LiteralPath $generatedInstallers[0].FullName -Destination $installerRelativePath
+
+          if (-not (Test-Path -LiteralPath $installerRelativePath -PathType Leaf)) {
+            throw "Windows installer was not created at $installerRelativePath."
+          }
+
+          Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "installer_path=$installerRelativePath"
+
       - uses: actions/upload-artifact@v6
         with:
           name: qn-calendar-windows
-          path: dist/*.exe
+          path: ${{ steps.windows_package.outputs.installer_path }}
+          if-no-files-found: error
 
   build-macos:
     needs: build-jar
@@ -147,4 +179,8 @@ jobs:
 
       - uses: softprops/action-gh-release@v3
         with:
-          files: release-assets/*
+          files: |
+            release-assets/QnCalendar-Setup-*.exe
+            release-assets/*.dmg
+            release-assets/*.pkg
+          fail_on_unmatched_files: true

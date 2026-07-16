@@ -70,8 +70,8 @@ XLSX 订单导入与工单排程系统。前端使用 Vue 3.5、Vite 8、Vue Rou
 - SMTP 寄件者设置保存在 SQLite 的全局设置中，本机与 Docker Compose 都通过应用内设置读取寄件账号、授权码、服务器、端口与加密方式。
 - 后端统一使用 SQLite；默认数据库位置为 `~/.qn-calendar/qn-calendar.db`，可用 `QN_CALENDAR_DATA_DIR` 指定数据目录。
 - Maven package 会在后端打包时构建 Vue 前端，并把静态文件放入 Spring Boot jar。
-- Spring Boot 可直接服务 Vue production build，支持 SPA fallback，且不拦截 `/api/**`。
-- 桌面版可通过 jpackage 生成 Windows `.exe` 与 macOS `.dmg` / `.pkg`；启动后可自动打开浏览器，并在支持系统托盘的环境提供英文 `Open page` 与 `Exit` 选项。
+- Spring Boot 可直接服务 Vue production build，支持 SPA fallback，且不拦截 `/api/**`；入口 HTML、SPA 路由与 favicon 禁止浏览器缓存，Vite 内容哈希静态资源使用一年期 immutable 缓存。
+- 桌面版可通过 jpackage 生成 Windows `.exe` 与 macOS `.dmg` / `.pkg`；Windows 安装器会保留开始菜单入口，并让用户选择是否建立桌面快捷方式。应用启动后会自动打开带启动识别码的本地页面，并在支持系统托盘的环境提供英文 `Open page` 与 `Exit` 选项；重复启动时只会打开既有页面，不会启动第二个后端。
 - Docker Compose 改为单一后端服务，前端由 Spring Boot 提供，SQLite 数据保存在 Docker volume。
 - Docker runtime 镜像内置文泉驿中文字体并固定 UTF-8 locale，确保 Email PDF 中的中文内容可正常渲染；业务日期与「今天」默认按北京时间 `Asia/Shanghai` 判断。为兼容既有 SQLite epoch 数据，Docker/JVM 的持久化运行时仍固定为 UTC，两者职责分开。
 - 推送 `v*` tag 后，GitHub Actions 会分别在 Windows/macOS runner 用 jpackage 生成安装文件并上传到 GitHub Release。
@@ -138,13 +138,17 @@ QN_CALENDAR_DATA_DIR=/absolute/path/to/qn-calendar-data java -jar target/qn-cale
 
 ## 桌面版打包与发布
 
-jpackage 不能跨平台打包：Windows `.exe` 必须在 Windows runner/环境生成，macOS `.dmg` / `.pkg` 必须在 macOS runner/环境生成。本项目已配置 `.github/workflows/release.yml`，推送 `v*` tag 后会自动创建 GitHub Release 并附上安装文件。
+jpackage 不能跨平台打包：Windows `.exe` 必须在 Windows runner/环境生成，macOS `.dmg` / `.pkg` 必须在 macOS runner/环境生成。本项目已配置 `.github/workflows/release.yml`，推送 `v*` tag 后会自动创建 GitHub Release，并以 `QnCalendar-Setup-<releaseVersion>.exe` 命名 Windows 安装包。
 
 jpackage 要求 installer 版本第一段为正整数；若 tag 使用 `v0.x.x`，GitHub Actions 会把 installer 内部版本转成对应的 `v1.x.x` 格式，但 Release tag 仍维持原本名称。若 repository 维持私有，下载 GitHub Release 安装文件的人仍需要对应的 GitHub 访问权限；要提供给没有权限的用户时，需要改用公开 release repo 或外部发布渠道。
 
 ## 桌面版安装、更新与卸载
 
-Windows 使用 `.exe` 安装包；这个 `.exe` 是 jpackage 的安装器启动程序，内部嵌入由 WiX 生成的 MSI，用户只需运行 `.exe`，不需要另外取得或开启 MSI。安装向导固定使用简体中文（`zh_CN`）；Windows 自身提供的 UAC 等系统窗口仍跟随系统显示语言。自 `v1.1.0` 起，安装时可选择应用程序的安装目录，安装后会建立桌面快捷方式与开始菜单入口，并可从 Windows「应用」中卸载。
+Windows 使用 `QnCalendar-Setup-<releaseVersion>.exe` 安装包；这个 `.exe` 是 jpackage 的安装器启动程序，内部嵌入由 WiX 生成的 MSI，用户只需运行 `.exe`，不需要另外取得或开启 MSI。安装向导固定使用简体中文（`zh_CN`）；Windows 自身提供的 UAC 等系统窗口仍跟随系统显示语言。安装时可选择应用程序的安装目录，以及是否建立桌面快捷方式，桌面快捷方式选项默认勾选；开始菜单入口会始终保留，并可从 Windows「应用」中卸载。
+
+桌面快捷方式与开始菜单入口都会启动已安装的 `QnCalendar.exe`；后端准备完成后，应用会自动打开默认的 `http://localhost:8080`，若覆盖服务端端口则使用实际端口。从系统托盘选择 `Exit` 关闭应用后，可再次使用任一入口重新启动后端。它们不是只会打开网址的 `.url` 文件，因此后端停止时仍可正常作为启动入口。
+
+安装完成后，下载的 `QnCalendar-Setup-<releaseVersion>.exe` 只用于安装或升级，可以由用户手动删除。安装程序不会自动删除这个文件，也不会主动删除用户下载目录中的其他文件。
 
 已发布的 `v1.0.0` 与后续版本固定使用相同的 `--win-upgrade-uuid`，因此 Windows Installer 会将它们识别为同一应用。升级时即使选择的新安装目录与旧目录不同，也会先卸载已注册的旧版本及旧安装目录，再将新版安装到新目录，不会保留两套已注册版本并存。旧安装目录会在卸载阶段清理，请勿将数据库或其他用户文件手动放入该目录。
 
