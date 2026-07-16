@@ -399,18 +399,11 @@ select:disabled {
 .panel-heading {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   min-height: 30px;
-  padding: 0 8px 2px 0;
+  padding: 0 0 2px;
   color: var(--muted);
   font-size: 0.9rem;
-}
-
-.panel-heading h1 {
-  margin: 0;
-  color: var(--text);
-  font-size: 1.35rem;
-  letter-spacing: 0;
 }
 
 .pending-count {
@@ -1141,8 +1134,11 @@ select:disabled {
   color: var(--text);
 }
 
+.stats-order-no {
+  width: calc(22ch + 28px);
+}
+
 .stats-remark {
-  max-width: 260px;
   overflow-wrap: anywhere;
 }
 
