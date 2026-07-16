@@ -60,6 +60,8 @@ jobs:
           $version = if ($releaseVersion -match '^0(\.|$)') { "1$($releaseVersion.Substring(1))" } else { $releaseVersion }
           mkdir dist
           jpackage `
+            -J-Duser.language=zh `
+            -J-Duser.country=CN `
             --input target `
             --main-jar app.jar `
             --dest dist `
