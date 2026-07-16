@@ -1175,6 +1175,7 @@ select:disabled {
   background: rgba(0, 0, 0, 0.52);
 }
 
+.email-dialog-backdrop,
 .settings-dialog-backdrop {
   place-items: start center;
   padding-top: 84px;
@@ -1656,8 +1657,9 @@ select:disabled {
 }
 
 .recipient-suggestion {
-  display: grid;
-  gap: 2px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
   width: 100%;
   border: 0;
   border-radius: 8px;
@@ -1673,14 +1675,15 @@ select:disabled {
 }
 
 .recipient-suggestion strong,
-.recipient-suggestion span,
-.recipient-suggestion small {
+.recipient-suggestion span {
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.recipient-suggestion span,
-.recipient-suggestion small {
+.recipient-suggestion span {
+  flex: 1 1 auto;
   color: var(--muted);
   font-size: 0.78rem;
   font-weight: 700;
@@ -1915,6 +1918,7 @@ select:disabled {
     padding: 10px;
   }
 
+  .email-dialog-backdrop,
   .settings-dialog-backdrop {
     padding-top: 76px;
   }
