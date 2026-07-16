@@ -68,7 +68,7 @@ XLSX 订单导入与工单排程系统。前端使用 Vue 3.5、Vite 8、Vue Rou
 - 后端统一使用 SQLite；默认数据库位置为 `~/.qn-calendar/qn-calendar.db`，可用 `QN_CALENDAR_DATA_DIR` 指定数据目录。
 - Maven package 会在后端打包时构建 Vue 前端，并把静态文件放入 Spring Boot jar。
 - Spring Boot 可直接服务 Vue production build，支持 SPA fallback，且不拦截 `/api/**`。
-- 桌面版可通过 jpackage 生成 Windows `.exe` 与 macOS `.dmg` / `.pkg`；启动后可自动开浏览器，并在支持系统托盘的环境提供「打开页面」与「关闭系统」。
+- 桌面版可通过 jpackage 生成 Windows `.exe` 与 macOS `.dmg` / `.pkg`；启动后可自动开浏览器，并在支持系统托盘的环境提供「打开页面」与「关闭系统」。Windows 系统托盘会优先使用系统菜单字体，并在必要时回退到微软雅黑或宋体，避免中文选项显示为缺字方框；若系统没有可用中文字形，则改用英文选项确保仍可操作。
 - Docker Compose 改为单一后端服务，前端由 Spring Boot 提供，SQLite 数据保存在 Docker volume。
 - Docker runtime 镜像内置文泉驿中文字体并固定 UTF-8 locale，确保 Email PDF 中的中文内容可正常渲染。
 - 推送 `v*` tag 后，GitHub Actions 会分别在 Windows/macOS runner 用 jpackage 生成安装文件并上传到 GitHub Release。
