@@ -68,7 +68,7 @@ XLSX 订单导入与工单排程系统。前端使用 Vue 3.5、Vite 8、Vue Rou
 - 后端统一使用 SQLite；默认数据库位置为 `~/.qn-calendar/qn-calendar.db`，可用 `QN_CALENDAR_DATA_DIR` 指定数据目录。
 - Maven package 会在后端打包时构建 Vue 前端，并把静态文件放入 Spring Boot jar。
 - Spring Boot 可直接服务 Vue production build，支持 SPA fallback，且不拦截 `/api/**`。
-- 桌面版可通过 jpackage 生成 Windows `.exe` 与 macOS `.dmg` / `.pkg`；启动后可自动开浏览器，并在支持系统托盘的环境提供「打开页面」与「关闭系统」。Windows 系统托盘会优先使用系统菜单字体，并在必要时回退到微软雅黑或宋体，避免中文选项显示为缺字方框；若系统没有可用中文字形，则改用英文选项确保仍可操作。
+- 桌面版可通过 jpackage 生成 Windows `.exe` 与 macOS `.dmg` / `.pkg`；启动后可自动打开浏览器，并在支持系统托盘的环境提供英文 `Open page` 与 `Exit` 选项。
 - Docker Compose 改为单一后端服务，前端由 Spring Boot 提供，SQLite 数据保存在 Docker volume。
 - Docker runtime 镜像内置文泉驿中文字体并固定 UTF-8 locale，确保 Email PDF 中的中文内容可正常渲染。
 - 推送 `v*` tag 后，GitHub Actions 会分别在 Windows/macOS runner 用 jpackage 生成安装文件并上传到 GitHub Release。
@@ -140,7 +140,11 @@ jpackage 要求 installer 版本第一段为正整数；若 tag 使用 `v0.x.x`�
 
 ## 桌面版安装、更新与卸载
 
-Windows 使用 `.exe` 安装包，安装向导固定使用简体中文（`zh_CN`）；Windows 自身提供的 UAC 等系统窗口仍跟随系统显示语言。自 `v1.1.0` 起，安装时可选择应用程序的安装目录，安装后会建立桌面快捷方式与开始菜单入口，并可从 Windows「应用」中卸载。已发布的 `v1.0.0` 与后续版本固定使用相同的 `--win-upgrade-uuid`，可识别为同一应用的升级安装包。
+Windows 使用 `.exe` 安装包；这个 `.exe` 是 jpackage 的安装器启动程序，内部嵌入由 WiX 生成的 MSI，用户只需运行 `.exe`，不需要另外取得或开启 MSI。安装向导固定使用简体中文（`zh_CN`）；Windows 自身提供的 UAC 等系统窗口仍跟随系统显示语言。自 `v1.1.0` 起，安装时可选择应用程序的安装目录，安装后会建立桌面快捷方式与开始菜单入口，并可从 Windows「应用」中卸载。
+
+已发布的 `v1.0.0` 与后续版本固定使用相同的 `--win-upgrade-uuid`，因此 Windows Installer 会将它们识别为同一应用。升级时即使选择的新安装目录与旧目录不同，也会先卸载已注册的旧版本及旧安装目录，再将新版安装到新目录，不会保留两套已注册版本并存。旧安装目录会在卸载阶段清理，请勿将数据库或其他用户文件手动放入该目录。
+
+包含此配置的 Windows 安装包在升级、修复或卸载前若发现 `QnCalendar.exe` 正在运行，会先发送 Windows 的正常结束工作阶段消息并等待最多 30 秒，让 JVM、Spring 与 SQLite 依正常关闭流程释放资源；不会使用 `taskkill /F` 或其他强制结束方式。若应用程序仍未退出，安装程序会停止并提示从系统托盘选择 `Exit` 后重试，不会继续替换仍被占用的程序文件。
 
 macOS 同时发布 `.dmg` 与 `.pkg`。`.dmg` 适合手动拖拽到「应用程序」并在更新时替换旧版；`.pkg` 适合使用系统安装器安装或覆盖升级。卸载时删除「应用程序」里的 `QnCalendar.app`。
 

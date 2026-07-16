@@ -10,11 +10,9 @@ import java.awt.MenuItem;
 import java.awt.PopupMenu;
 import java.awt.RenderingHints;
 import java.awt.SystemTray;
-import java.awt.Toolkit;
 import java.awt.TrayIcon;
 import java.awt.image.BufferedImage;
 import java.net.URI;
-import java.util.Locale;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,15 +27,8 @@ import org.springframework.stereotype.Component;
 public class DesktopSystemTrayManager {
 
     private static final Logger log = LoggerFactory.getLogger(DesktopSystemTrayManager.class);
-    private static final String OPEN_PAGE_LABEL = "打开页面";
-    private static final String EXIT_APPLICATION_LABEL = "关闭系统";
-    private static final String TRAY_MENU_TEXT = OPEN_PAGE_LABEL + EXIT_APPLICATION_LABEL;
-    private static final String WINDOWS_MENU_FONT_PROPERTY = "win.menu.font";
-    private static final String[] WINDOWS_CJK_FONT_FAMILIES = {
-            "Microsoft YaHei UI",
-            "Microsoft YaHei",
-            "SimSun"
-    };
+    private static final String OPEN_PAGE_LABEL = "Open page";
+    private static final String EXIT_APPLICATION_LABEL = "Exit";
 
     private final DesktopBrowser desktopBrowser;
     private final LocalApplicationUrl localApplicationUrl;
@@ -59,14 +50,10 @@ public class DesktopSystemTrayManager {
         TrayIcon trayIcon = new TrayIcon(createTrayImage(), "Qn Calendar");
         trayIcon.setImageAutoSize(true);
 
-        boolean windows = isWindows();
-        Font trayMenuFont = windows ? resolveWindowsTrayMenuFont() : null;
-        boolean useChineseLabels = !windows || trayMenuFont != null;
-
-        MenuItem openItem = new MenuItem(useChineseLabels ? OPEN_PAGE_LABEL : "Open page");
+        MenuItem openItem = new MenuItem(OPEN_PAGE_LABEL);
         openItem.addActionListener(action -> desktopBrowser.open(applicationUri));
 
-        MenuItem exitItem = new MenuItem(useChineseLabels ? EXIT_APPLICATION_LABEL : "Exit");
+        MenuItem exitItem = new MenuItem(EXIT_APPLICATION_LABEL);
         exitItem.addActionListener(action -> {
             systemTray.remove(trayIcon);
             int exitCode = SpringApplication.exit(event.getApplicationContext(), () -> 0);
@@ -74,12 +61,6 @@ public class DesktopSystemTrayManager {
         });
 
         PopupMenu popupMenu = new PopupMenu();
-
-        if (trayMenuFont != null) {
-            popupMenu.setFont(trayMenuFont);
-            openItem.setFont(trayMenuFont);
-            exitItem.setFont(trayMenuFont);
-        }
 
         popupMenu.add(openItem);
         popupMenu.addSeparator();
@@ -93,36 +74,6 @@ public class DesktopSystemTrayManager {
         } catch (AWTException exception) {
             log.warn("Failed to add system tray icon.", exception);
         }
-    }
-
-    private Font resolveWindowsTrayMenuFont() {
-        Object systemMenuFont = Toolkit.getDefaultToolkit().getDesktopProperty(WINDOWS_MENU_FONT_PROPERTY);
-
-        if (systemMenuFont instanceof Font font && canDisplayTrayMenuText(font)) {
-            log.info("Use Windows system menu font '{}' for the system tray menu.", font.getFamily());
-            return font;
-        }
-
-        int fontSize = systemMenuFont instanceof Font font ? Math.max(font.getSize(), 12) : 12;
-        for (String candidate : WINDOWS_CJK_FONT_FAMILIES) {
-            Font font = new Font(candidate, Font.PLAIN, fontSize);
-
-            if (candidate.equalsIgnoreCase(font.getFamily(Locale.ENGLISH)) && canDisplayTrayMenuText(font)) {
-                log.info("Use fallback Windows CJK font '{}' for the system tray menu.", font.getFamily());
-                return font;
-            }
-        }
-
-        log.warn("No Windows font can display the Chinese system tray labels; use English labels instead.");
-        return null;
-    }
-
-    private boolean canDisplayTrayMenuText(Font font) {
-        return font.canDisplayUpTo(TRAY_MENU_TEXT) == -1;
-    }
-
-    private boolean isWindows() {
-        return System.getProperty("os.name", "").startsWith("Windows");
     }
 
     private Image createTrayImage() {
