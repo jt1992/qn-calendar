@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import {
+  deleteWorkOrder as deleteWorkOrderRequest,
   deleteWorkOrderSegment,
   getCalendarWorkOrders,
   getCompletedWorkOrderStats,
@@ -13,7 +14,6 @@ import {
   scheduleWorkOrder,
   sendScheduleEmail,
   splitWorkOrderSegment,
-  unscheduleWorkOrder,
   updateWorkOrderSegment,
   updateWorkOrderDuration
 } from '../api/workOrders'
@@ -40,8 +40,11 @@ export const useWorkOrderStore = defineStore('workOrders', {
 
       try {
         this.importResult = await importWorkOrders(file)
-        this.setNotice(`新增 ${this.importResult.createdCount} 笔，跳过 ${this.importResult.skippedCount} 笔`)
-        await this.fetchPendingWorkOrders()
+        this.setNotice(`新增 ${this.importResult.createdCount} 笔，更新 ${this.importResult.updatedCount} 笔`)
+        await Promise.all([
+          this.fetchPendingWorkOrders(),
+          this.refreshCalendarEvents()
+        ])
       } catch (error) {
         this.setError(error.message)
         throw error
@@ -52,6 +55,11 @@ export const useWorkOrderStore = defineStore('workOrders', {
 
     async fetchPendingWorkOrders() {
       this.pendingWorkOrders = sortPendingWorkOrders(await getPendingWorkOrders())
+    },
+
+    async deleteWorkOrder(id) {
+      await deleteWorkOrderRequest(id)
+      await this.fetchPendingWorkOrders()
     },
 
     async fetchCalendarEvents(dateFrom, dateTo) {
@@ -105,13 +113,6 @@ export const useWorkOrderStore = defineStore('workOrders', {
           pendingWorkOrder.id === workOrder.id ? workOrder : pendingWorkOrder
         )
       )
-      return workOrder
-    },
-
-    async unscheduleWorkOrder(id) {
-      const workOrder = await unscheduleWorkOrder(id)
-      await this.fetchPendingWorkOrders()
-      await this.refreshCalendarEvents()
       return workOrder
     },
 
@@ -204,7 +205,7 @@ function toCalendarEvent(segment) {
     title: `${segment.urgent ? '加急 ' : ''}${segment.orderNo}`,
     start: segment.scheduledStart,
     end: segment.scheduledEnd,
-    startEditable: !segment.scheduleStartLocked,
+    startEditable: true,
     durationEditable: true,
     extendedProps: {
       segmentId: segment.segmentId || segment.id,

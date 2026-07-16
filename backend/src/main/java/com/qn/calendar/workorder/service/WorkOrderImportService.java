@@ -3,13 +3,15 @@ package com.qn.calendar.workorder.service;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -33,7 +35,6 @@ import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.ss.usermodel.WorkbookFactory;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -74,14 +75,17 @@ public class WorkOrderImportService {
 
     private final WorkOrderRepository repository;
     private final AppSettingsService appSettingsService;
+    private final Clock clock;
     private final DataFormatter formatter = new DataFormatter(Locale.CHINA);
 
     public WorkOrderImportService(
             WorkOrderRepository repository,
-            AppSettingsService appSettingsService
+            AppSettingsService appSettingsService,
+            Clock clock
     ) {
         this.repository = repository;
         this.appSettingsService = appSettingsService;
+        this.clock = clock;
     }
 
     @Transactional
@@ -101,11 +105,9 @@ public class WorkOrderImportService {
             Map<String, Integer> headers = readHeaders(sheet, evaluator);
             validateRequiredHeaders(headers);
 
-            int createdCount = 0;
-            int skippedCount = 0;
             BigDecimal estimatedHourlyBaseAmount = appSettingsService.getEstimatedHourlyBaseAmount();
-            List<ImportRowError> errors = new java.util.ArrayList<>();
-            Set<String> seenOrderNumbers = new HashSet<>();
+            List<ImportRowError> errors = new ArrayList<>();
+            Map<String, ParsedWorkOrder> parsedWorkOrders = new LinkedHashMap<>();
 
             for (int rowIndex = 1; rowIndex <= sheet.getLastRowNum(); rowIndex++) {
                 Row row = sheet.getRow(rowIndex);
@@ -117,62 +119,87 @@ public class WorkOrderImportService {
                 int rowNumber = rowIndex + 1;
 
                 try {
-                    String orderNo = readString(row, headers.get("orderNo"), evaluator);
-
-                    if (orderNo.isBlank()) {
-                        throw new IllegalArgumentException("订单编号不可为空");
-                    }
-
-                    if (!seenOrderNumbers.add(orderNo)) {
-                        skippedCount++;
-                        continue;
-                    }
-
-                    Optional<WorkOrder> existingWorkOrder = repository.findByOrderNo(orderNo);
-
-                    if (existingWorkOrder.isPresent()) {
-                        existingWorkOrder.get().updateOrderTimeIfMissing(readOrderTime(row, headers, evaluator));
-                        skippedCount++;
-                        continue;
-                    }
-
-                    BigDecimal price = readPrice(row, headers.get("price"), evaluator);
-                    boolean urgent = headers.containsKey("urgent")
-                            && readUrgent(row, headers.get("urgent"), evaluator);
-                    String buyerMessage = readStringIfPresent(row, headers.get("buyerMessage"), evaluator);
-                    String merchantRemark = readStringIfPresent(row, headers.get("merchantRemark"), evaluator);
-                    String remark = buildRemark(buyerMessage, merchantRemark);
-                    LocalDateTime orderTime = readOrderTime(row, headers, evaluator);
-                    LocalDateTime latestShipTime = readLatestShipTime(
+                    ParsedWorkOrder parsedWorkOrder = parseWorkOrder(
                             row,
                             headers,
                             evaluator,
-                            orderTime
+                            estimatedHourlyBaseAmount
                     );
-                    int estimatedMinutes = calculateEstimatedMinutes(price, estimatedHourlyBaseAmount);
-
-                    repository.save(new WorkOrder(
-                            orderNo,
-                            null,
-                            remark,
-                            price,
-                            estimatedMinutes,
-                            urgent,
-                            latestShipTime,
-                            orderTime
-                    ));
-                    createdCount++;
-                } catch (DataIntegrityViolationException exception) {
-                    skippedCount++;
+                    parsedWorkOrders.put(parsedWorkOrder.orderNo(), parsedWorkOrder);
                 } catch (RuntimeException exception) {
                     errors.add(new ImportRowError(rowNumber, exception.getMessage()));
                 }
             }
 
-            return new ImportWorkOrderResponse(createdCount, skippedCount, errors);
+            int createdCount = 0;
+            int updatedCount = 0;
+
+            for (ParsedWorkOrder parsedWorkOrder : parsedWorkOrders.values()) {
+                Optional<WorkOrder> existingWorkOrder = repository.findByOrderNo(parsedWorkOrder.orderNo());
+
+                if (existingWorkOrder.isPresent()) {
+                    existingWorkOrder.get().updateImportedDetails(
+                            parsedWorkOrder.remark(),
+                            parsedWorkOrder.price(),
+                            parsedWorkOrder.estimatedMinutes(),
+                            parsedWorkOrder.urgent(),
+                            parsedWorkOrder.latestShipTime(),
+                            parsedWorkOrder.orderTime()
+                    );
+                    updatedCount++;
+                    continue;
+                }
+
+                repository.save(new WorkOrder(
+                        parsedWorkOrder.orderNo(),
+                        null,
+                        parsedWorkOrder.remark(),
+                        parsedWorkOrder.price(),
+                        parsedWorkOrder.estimatedMinutes(),
+                        parsedWorkOrder.urgent(),
+                        parsedWorkOrder.latestShipTime(),
+                        parsedWorkOrder.orderTime()
+                ));
+                createdCount++;
+            }
+
+            return new ImportWorkOrderResponse(createdCount, updatedCount, errors);
         } catch (IOException exception) {
             throw new IllegalArgumentException("无法读取 XLSX 文件");
         }
+    }
+
+    private ParsedWorkOrder parseWorkOrder(
+            Row row,
+            Map<String, Integer> headers,
+            FormulaEvaluator evaluator,
+            BigDecimal estimatedHourlyBaseAmount
+    ) {
+        String orderNo = readString(row, headers.get("orderNo"), evaluator);
+
+        if (orderNo.isBlank()) {
+            throw new IllegalArgumentException("订单编号不可为空");
+        }
+
+        BigDecimal price = readPrice(row, headers.get("price"), evaluator);
+        boolean urgent = headers.containsKey("urgent")
+                && readUrgent(row, headers.get("urgent"), evaluator);
+        String buyerMessage = readStringIfPresent(row, headers.get("buyerMessage"), evaluator);
+        String merchantRemark = readStringIfPresent(row, headers.get("merchantRemark"), evaluator);
+        String remark = buildRemark(buyerMessage, merchantRemark);
+        LocalDateTime orderTime = readOrderTime(row, headers, evaluator);
+        LocalDateTime latestShipTime = readLatestShipTime(row, headers, evaluator, orderTime);
+        int estimatedMinutes = calculateEstimatedMinutes(price, estimatedHourlyBaseAmount);
+
+        return new ParsedWorkOrder(
+                orderNo,
+                remark,
+                price,
+                estimatedMinutes,
+                urgent,
+                latestShipTime,
+                orderTime
+        );
     }
 
     private Map<String, Integer> readHeaders(Sheet sheet, FormulaEvaluator evaluator) {
@@ -424,7 +451,10 @@ public class WorkOrderImportService {
             return null;
         }
 
-        return parseDateTimeText(value).orElse(null);
+        return parseDateTimeText(value)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "订单时间格式不正确，请使用 yyyy-MM-dd 或 yyyy-MM-dd HH:mm:ss"
+                ));
     }
 
     private Optional<LocalDate> parseRemarkShipDate(String remark, LocalDateTime paidAt) {
@@ -432,7 +462,7 @@ public class WorkOrderImportService {
             return Optional.empty();
         }
 
-        int currentYear = LocalDate.now().getYear();
+        int currentYear = LocalDate.now(clock).getYear();
         Matcher monthDayMatcher = REMARK_MONTH_DAY_PATTERN.matcher(remark);
 
         if (monthDayMatcher.find()) {
@@ -480,5 +510,16 @@ public class WorkOrderImportService {
 
     private boolean isDateOnly(LocalDateTime dateTime) {
         return dateTime.toLocalTime().equals(LocalTime.MIDNIGHT);
+    }
+
+    private record ParsedWorkOrder(
+            String orderNo,
+            String remark,
+            BigDecimal price,
+            int estimatedMinutes,
+            boolean urgent,
+            LocalDateTime latestShipTime,
+            LocalDateTime orderTime
+    ) {
     }
 }

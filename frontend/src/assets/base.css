@@ -468,7 +468,7 @@ select:disabled {
 
 .pending-order-card {
   display: grid;
-  gap: 10px;
+  grid-template-columns: minmax(0, 1fr);
   min-width: 0;
   min-height: 132px;
   border: 1px solid var(--line-strong);
@@ -480,8 +480,43 @@ select:disabled {
   cursor: grab;
 }
 
+.pending-order-content {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.pending-order-actions {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.pending-delete-button {
+  flex: 0 0 auto;
+  color: var(--danger);
+}
+
+.pending-delete-button:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.pending-delete-button:focus-visible {
+  border-color: var(--primary);
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--primary-soft);
+}
+
 .pending-order-card:active {
   cursor: grabbing;
+}
+
+.pending-order-card.deleting,
+.pending-order-card.deleting:active {
+  cursor: wait;
 }
 
 .pending-order-card:hover {
@@ -538,6 +573,7 @@ select:disabled {
 .order-meta {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   min-width: 0;
   color: var(--muted);
   font-size: 0.9rem;
@@ -590,6 +626,7 @@ select:disabled {
 .ship-deadline {
   display: flex;
   align-items: center;
+  flex: 1 1 auto;
   gap: 5px;
   min-width: 0;
   color: var(--danger);
@@ -765,6 +802,11 @@ select:disabled {
 
 .fc .fc-timegrid-event .fc-event-resizer-start {
   top: -7px;
+}
+
+.fc .fc-timegrid-event.work-order-pause-history-resize .fc-event-resizer-start {
+  display: none !important;
+  pointer-events: none;
 }
 
 .fc .fc-timegrid-event .fc-event-resizer-end {
@@ -1381,9 +1423,18 @@ select:disabled {
 }
 
 .upload-field .form-field-label {
+  align-items: center;
+  justify-content: flex-start;
+  column-gap: 4px;
+  row-gap: 2px;
+  padding-inline: 6px;
   color: var(--muted);
   font-size: 0.76rem;
   font-weight: 800;
+}
+
+.upload-field .form-field-error {
+  margin-left: 2px;
 }
 
 .upload-field .upload-dropzone {

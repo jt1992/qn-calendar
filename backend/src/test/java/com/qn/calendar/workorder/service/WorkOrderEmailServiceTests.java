@@ -12,8 +12,10 @@ import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Locale;
 import java.util.Properties;
@@ -454,7 +456,8 @@ class WorkOrderEmailServiceTests {
                 pauseRepository,
                 appSettingsService,
                 emailRecipientService,
-                templateEngine()
+                templateEngine(),
+                Clock.system(ZoneId.of("Asia/Shanghai"))
         ) {
             @Override
             JavaMailSender createMailSender(EmailSenderSettings settings) {

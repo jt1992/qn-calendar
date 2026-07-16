@@ -21,6 +21,18 @@ function focusWorkOrder(workOrder) {
   focusedWorkOrder.value = workOrder
 }
 
+function clearFocusedWorkOrder() {
+  focusedWorkOrder.value = null
+}
+
+function clearDeletedWorkOrderFocus(workOrderId) {
+  const focusedId = focusedWorkOrder.value?.id || focusedWorkOrder.value?.workOrderId
+
+  if (focusedId && String(focusedId) === String(workOrderId)) {
+    clearFocusedWorkOrder()
+  }
+}
+
 function clearFocusOnBackground(event) {
   if (event.target?.closest?.('.pending-order-card, .fc-event, .fc-event-mirror, .fc-event-resizer')) {
     return
@@ -34,13 +46,13 @@ function clearFocusOnBackground(event) {
   <section class="schedule-layout" aria-label="待排工单" @pointerdown="clearFocusOnBackground">
     <aside class="side-panel">
       <div class="side-heading">
-        <WorkOrderImportButton />
+        <WorkOrderImportButton @imported="clearFocusedWorkOrder" />
       </div>
 
-      <div v-if="store.error" class="message error-message">
+      <div v-if="store.error" class="message error-message" role="alert">
         {{ store.error }}
       </div>
-      <div v-else-if="store.notice" class="message success-message">
+      <div v-else-if="store.notice" class="message success-message" role="status">
         {{ store.notice }}
       </div>
 
@@ -56,6 +68,7 @@ function clearFocusOnBackground(event) {
       <PendingWorkOrderList
         :work-orders="store.pendingWorkOrders"
         @focus-order="focusWorkOrder"
+        @work-order-deleted="clearDeletedWorkOrderFocus"
       />
     </aside>
 

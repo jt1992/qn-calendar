@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Draggable } from '@fullcalendar/interaction'
-import { Clock, Minus, Plus } from '@lucide/vue'
+import { Clock, Minus, Plus, Trash2 } from '@lucide/vue'
 import { useWorkOrderStore } from '../stores/workOrderStore'
 
 const props = defineProps({
@@ -11,10 +11,11 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['focus-order'])
+const emit = defineEmits(['focus-order', 'work-order-deleted'])
 const store = useWorkOrderStore()
 const listRef = ref(null)
 const updatingDurations = ref(new Set())
+const deletingWorkOrders = ref(new Set())
 const orderTooltip = ref(null)
 const tooltipPosition = ref({ x: 0, y: 0 })
 const scheduleGranularityMinutes = 15
@@ -36,7 +37,7 @@ const orderTooltipStyle = computed(() => {
 
 onMounted(() => {
   draggable = new Draggable(listRef.value, {
-    itemSelector: '.pending-order-card',
+    itemSelector: '.pending-order-card:not(.deleting)',
     eventData(eventElement) {
       return JSON.parse(eventElement.dataset.event)
     }
@@ -100,6 +101,41 @@ function setDurationUpdating(id, updating) {
 
 function isDurationUpdating(id) {
   return updatingDurations.value.has(id)
+}
+
+function setWorkOrderDeleting(id, deleting) {
+  const next = new Set(deletingWorkOrders.value)
+
+  if (deleting) {
+    next.add(id)
+  } else {
+    next.delete(id)
+  }
+
+  deletingWorkOrders.value = next
+}
+
+function isWorkOrderDeleting(id) {
+  return deletingWorkOrders.value.has(id)
+}
+
+async function removeWorkOrder(workOrder) {
+  if (!window.confirm(`确定删除工单 ${workOrder.orderNo}？此操作无法撤销。`)) {
+    return
+  }
+
+  setWorkOrderDeleting(workOrder.id, true)
+  hideOrderTooltip()
+
+  try {
+    await store.deleteWorkOrder(workOrder.id)
+    store.setNotice(`工单 ${workOrder.orderNo} 已删除`)
+    emit('work-order-deleted', workOrder.id)
+  } catch (error) {
+    store.setError(error.message)
+  } finally {
+    setWorkOrderDeleting(workOrder.id, false)
+  }
 }
 
 async function adjustDuration(workOrder, deltaMinutes) {
@@ -199,8 +235,14 @@ function hideOrderTooltip() {
         v-for="workOrder in workOrders"
         :key="workOrder.id"
         class="pending-order-card"
-        :class="{ urgent: workOrder.urgent }"
-        :data-event="JSON.stringify(toExternalEvent(workOrder))"
+        :class="{
+          urgent: workOrder.urgent,
+          deleting: isWorkOrderDeleting(workOrder.id)
+        }"
+        :data-event="isWorkOrderDeleting(workOrder.id)
+          ? undefined
+          : JSON.stringify(toExternalEvent(workOrder))"
+        :aria-busy="isWorkOrderDeleting(workOrder.id)"
         tabindex="0"
         @click="(event) => focusOrder(workOrder, event)"
         @focus="(event) => focusOrder(workOrder, event)"
@@ -210,53 +252,83 @@ function hideOrderTooltip() {
         @mousemove="moveOrderTooltip"
         @mouseleave="hideOrderTooltip"
       >
-        <div class="order-line">
-          <div class="order-summary">
-            <strong>#{{ workOrder.orderNo }}</strong>
+        <div class="pending-order-content">
+          <div class="order-line">
+            <div class="order-summary">
+              <strong>#{{ workOrder.orderNo }}</strong>
+            </div>
+            <div class="order-badges">
+              <span class="status-badge" :class="`status-${workOrder.status.toLowerCase()}`">
+                {{ statusLabel(workOrder.status) }}
+              </span>
+              <span v-if="workOrder.urgent" class="urgent-badge">加急</span>
+            </div>
           </div>
-          <div class="order-badges">
-            <span class="status-badge" :class="`status-${workOrder.status.toLowerCase()}`">
-              {{ statusLabel(workOrder.status) }}
+          <div class="order-detail-line">
+            <span class="order-price">订单价格 {{ formatMoney(workOrder.price) }}</span>
+            <div
+              class="duration-control"
+              aria-label="每次按钮调整 15 分钟"
+              @mousedown.stop
+              @pointerdown.stop
+              @dragstart.stop
+            >
+              <button
+                type="button"
+                aria-label="减少工时"
+                :disabled="isWorkOrderDeleting(workOrder.id)
+                  || isDurationUpdating(workOrder.id)
+                  || durationMinutes(workOrder) <= scheduleGranularityMinutes"
+                @click.stop="adjustDuration(workOrder, -scheduleGranularityMinutes)"
+              >
+                <Minus :size="14" />
+              </button>
+              <span class="duration-value">{{ formatDurationText(durationMinutes(workOrder)) }}</span>
+              <button
+                type="button"
+                aria-label="增加工时"
+                :disabled="isWorkOrderDeleting(workOrder.id) || isDurationUpdating(workOrder.id)"
+                @click.stop="adjustDuration(workOrder, scheduleGranularityMinutes)"
+              >
+                <Plus :size="14" />
+              </button>
+            </div>
+          </div>
+          <div class="order-meta">
+            <span
+              class="ship-deadline"
+              :aria-label="`最晚发货时间 ${formatShipTime(workOrder.latestShipTime)}`"
+            >
+              <Clock :size="14" aria-hidden="true" />
+              <span>{{ formatShipTime(workOrder.latestShipTime) }}</span>
             </span>
-            <span v-if="workOrder.urgent" class="urgent-badge">加急</span>
-          </div>
-        </div>
-        <div class="order-detail-line">
-          <span class="order-price">订单价格 {{ formatMoney(workOrder.price) }}</span>
-          <div
-            class="duration-control"
-            aria-label="每次按钮调整 15 分钟"
-            @mousedown.stop
-            @pointerdown.stop
-            @dragstart.stop
-          >
-            <button
-              type="button"
-              aria-label="减少工时"
-              :disabled="isDurationUpdating(workOrder.id) || durationMinutes(workOrder) <= scheduleGranularityMinutes"
-              @click.stop="adjustDuration(workOrder, -scheduleGranularityMinutes)"
+
+            <div
+              class="pending-order-actions"
+              @mousedown.stop
+              @pointerdown.stop
+              @dragstart.stop
+              @mouseover.stop
+              @mousemove.stop
+              @mouseenter="hideOrderTooltip"
             >
-              <Minus :size="14" />
-            </button>
-            <span class="duration-value">{{ formatDurationText(durationMinutes(workOrder)) }}</span>
-            <button
-              type="button"
-              aria-label="增加工时"
-              :disabled="isDurationUpdating(workOrder.id)"
-              @click.stop="adjustDuration(workOrder, scheduleGranularityMinutes)"
-            >
-              <Plus :size="14" />
-            </button>
+              <button
+                type="button"
+                class="icon-only-button pending-delete-button"
+                :aria-label="`删除工单 ${workOrder.orderNo}`"
+                :aria-busy="isWorkOrderDeleting(workOrder.id)"
+                :disabled="isWorkOrderDeleting(workOrder.id)"
+                @click.stop="removeWorkOrder(workOrder)"
+              >
+                <span
+                  v-if="isWorkOrderDeleting(workOrder.id)"
+                  class="loading-spinner"
+                  aria-hidden="true"
+                ></span>
+                <Trash2 v-else :size="16" aria-hidden="true" />
+              </button>
+            </div>
           </div>
-        </div>
-        <div class="order-meta">
-          <span
-            class="ship-deadline"
-            :aria-label="`最晚发货时间 ${formatShipTime(workOrder.latestShipTime)}`"
-          >
-            <Clock :size="14" aria-hidden="true" />
-            <span>{{ formatShipTime(workOrder.latestShipTime) }}</span>
-          </span>
         </div>
       </article>
 

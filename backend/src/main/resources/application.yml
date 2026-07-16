@@ -19,6 +19,7 @@ spring:
       ddl-auto: update
 
 app:
+  time-zone: ${APP_TIME_ZONE:Asia/Shanghai}
   desktop:
     enabled: ${APP_DESKTOP_ENABLED:false}
     open-browser-on-startup: ${APP_DESKTOP_OPEN_BROWSER:true}

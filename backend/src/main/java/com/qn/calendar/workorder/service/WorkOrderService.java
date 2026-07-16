@@ -1,5 +1,6 @@
 package com.qn.calendar.workorder.service;
 
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -26,15 +27,18 @@ public class WorkOrderService {
     private final WorkOrderRepository repository;
     private final WorkOrderSegmentRepository segmentRepository;
     private final WorkOrderSegmentPauseRepository pauseRepository;
+    private final Clock clock;
 
     public WorkOrderService(
             WorkOrderRepository repository,
             WorkOrderSegmentRepository segmentRepository,
-            WorkOrderSegmentPauseRepository pauseRepository
+            WorkOrderSegmentPauseRepository pauseRepository,
+            Clock clock
     ) {
         this.repository = repository;
         this.segmentRepository = segmentRepository;
         this.pauseRepository = pauseRepository;
+        this.clock = clock;
     }
 
     @Transactional(readOnly = true)
@@ -97,7 +101,7 @@ public class WorkOrderService {
         WorkOrder workOrder = repository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("找不到工单"));
 
-        workOrder.markDone(LocalDateTime.now());
+        workOrder.markDone(LocalDateTime.now(clock));
         return workOrder;
     }
 
@@ -124,9 +128,22 @@ public class WorkOrderService {
             throw new IllegalStateException("工单尚未排入日历");
         }
 
+        pauseRepository.deleteByWorkOrderId(id);
         segmentRepository.deleteByWorkOrderId(id);
         workOrder.unschedule();
         return workOrder;
+    }
+
+    @Transactional
+    public void deletePendingWorkOrder(Long id) {
+        WorkOrder workOrder = repository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("找不到工单"));
+
+        if (workOrder.getStatus() != WorkOrderStatus.PENDING) {
+            throw new IllegalStateException("只有待排工单可删除");
+        }
+
+        repository.delete(workOrder);
     }
 
     @Transactional
@@ -143,7 +160,9 @@ public class WorkOrderService {
     }
 
     private int pausedMinutes(WorkOrder workOrder) {
-        LocalDateTime fallbackEnd = workOrder.getCompletedAt() == null ? LocalDateTime.now() : workOrder.getCompletedAt();
+        LocalDateTime fallbackEnd = workOrder.getCompletedAt() == null
+                ? LocalDateTime.now(clock)
+                : workOrder.getCompletedAt();
         return WorkOrderTimeUtils.pauseMinutes(pauseRepository.findByWorkOrderId(workOrder.getId()), fallbackEnd);
     }
 
@@ -153,7 +172,7 @@ public class WorkOrderService {
     ) {
         return latestPause.isPresent()
                 && segment.getWorkOrder().getStatus() != WorkOrderStatus.DONE
-                && segment.getScheduledStart().toLocalDate().isEqual(LocalDate.now());
+                && segment.getScheduledStart().toLocalDate().isEqual(LocalDate.now(clock));
     }
 
     private Optional<WorkOrderSegmentPause> latestPause(Long segmentId) {

@@ -138,6 +138,12 @@ public class WorkOrderController {
         return WorkOrderResponse.from(workOrderService.unschedule(id));
     }
 
+    @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deletePendingWorkOrder(@PathVariable Long id) {
+        workOrderService.deletePendingWorkOrder(id);
+    }
+
     @PatchMapping("/{id}/done")
     public WorkOrderResponse markAsDone(@PathVariable Long id) {
         return WorkOrderResponse.from(workOrderService.markAsDone(id));

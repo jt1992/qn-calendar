@@ -10,6 +10,7 @@ import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Properties;
@@ -121,6 +122,7 @@ class WorkOrderEmailTransactionTests {
                 WorkOrderSegmentPauseRepository pauseRepository,
                 EmailRecipientService emailRecipientService,
                 TemplateEngine templateEngine,
+                Clock clock,
                 @Qualifier("transactionTestMailSender") JavaMailSender mailSender
         ) {
             AppSettingsService appSettingsService = mock(AppSettingsService.class);
@@ -138,7 +140,8 @@ class WorkOrderEmailTransactionTests {
                     pauseRepository,
                     appSettingsService,
                     emailRecipientService,
-                    templateEngine
+                    templateEngine,
+                    clock
             ) {
                 @Override
                 JavaMailSender createMailSender(EmailSenderSettings settings) {

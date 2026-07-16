@@ -1,8 +1,10 @@
 <script setup>
 import { ref } from 'vue'
 import { Upload } from '@lucide/vue'
+import HelpTooltip from './HelpTooltip.vue'
 import { useWorkOrderStore } from '../stores/workOrderStore'
 
+const emit = defineEmits(['imported'])
 const store = useWorkOrderStore()
 const fileInput = ref(null)
 const isDragging = ref(false)
@@ -34,6 +36,7 @@ async function uploadFile(file) {
 
   await store.importXlsx(file)
   fileError.value = ''
+  emit('imported')
 }
 
 async function handleDrop(event) {
@@ -51,7 +54,17 @@ async function handleDrop(event) {
 <template>
   <div class="upload-field">
     <span class="form-field-label">
-      XLSX 文件
+      <span>XLSX 文件</span>
+      <HelpTooltip aria-label="查看 XLSX 字段说明">
+        <p>
+          <strong>必填：</strong>
+          订单编号、买家实付金额、应发货时间
+        </p>
+        <p>
+          <strong>选填：</strong>
+          备注标签、买家留言、商家备注、订单付款时间
+        </p>
+      </HelpTooltip>
       <small v-if="fileError" id="xlsx-file-error" class="form-field-error" role="alert">
         {{ fileError }}
       </small>

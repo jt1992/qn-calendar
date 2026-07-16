@@ -18,6 +18,10 @@ export async function getPendingWorkOrders() {
   return data
 }
 
+export async function deleteWorkOrder(id) {
+  await http.delete(`/api/work-orders/${id}`)
+}
+
 export async function getCalendarWorkOrders(dateFrom, dateTo) {
   const { data } = await http.get('/api/work-orders/calendar', {
     params: {
@@ -70,11 +74,6 @@ export async function updateWorkOrderDuration(id, actualMinutes) {
     actualMinutes
   })
 
-  return data
-}
-
-export async function unscheduleWorkOrder(id) {
-  const { data } = await http.patch(`/api/work-orders/${id}/unschedule`)
   return data
 }
 
