@@ -59,9 +59,8 @@ jobs:
           $releaseVersion = "${{ github.ref_name }}" -replace '^v', ''
           $version = if ($releaseVersion -match '^0(\.|$)') { "1$($releaseVersion.Substring(1))" } else { $releaseVersion }
           mkdir dist
+          $env:JAVA_TOOL_OPTIONS = "-Duser.language=zh -Duser.country=CN"
           jpackage `
-            -J-Duser.language=zh `
-            -J-Duser.country=CN `
             --input target `
             --main-jar app.jar `
             --dest dist `
