@@ -34,6 +34,8 @@ jobs:
     needs: build-jar
     runs-on: windows-2025-vs2026
     steps:
+      - uses: actions/checkout@v6
+
       - uses: actions/download-artifact@v7
         with:
           name: qn-calendar-jar
@@ -66,12 +68,14 @@ jobs:
             --dest dist `
             --name QnCalendar `
             --type exe `
+            --resource-dir packaging/windows `
             --app-version $version `
             --vendor "Qn Calendar" `
             --win-dir-chooser `
             --win-shortcut `
             --win-menu `
             --win-upgrade-uuid "2F10A62F-230F-4B84-A7BB-1FEC7386A9A4" `
+            --verbose `
             --java-options "-Dapp.desktop.enabled=true" `
             --java-options "-Djava.awt.headless=false" `
             --java-options "-Dfile.encoding=UTF-8"
