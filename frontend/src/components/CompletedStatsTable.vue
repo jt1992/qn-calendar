@@ -107,7 +107,7 @@ function formatHourlyRate(value) {
       <table class="stats-table">
         <thead>
           <tr>
-            <th>订单编号</th>
+            <th class="stats-order-no">订单编号</th>
             <th>订单备注</th>
             <th class="stats-number">订单价格</th>
             <th class="stats-number">预估工时</th>
@@ -119,7 +119,7 @@ function formatHourlyRate(value) {
         </thead>
         <tbody>
           <tr v-for="row in stats" :key="row.id">
-            <td>
+            <td class="stats-order-no">
               <strong>{{ row.orderNo }}</strong>
             </td>
             <td class="stats-remark">{{ displayText(row.remark) }}</td>

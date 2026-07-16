@@ -187,7 +187,6 @@ function hideOrderTooltip() {
 <template>
   <section class="pending-panel" aria-label="待排工单清单">
     <div class="panel-heading">
-      <h1>待排工单</h1>
       <span class="pending-count">
         还有
         <span class="count-badge">{{ workOrders.length }}</span>
