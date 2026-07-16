@@ -1216,9 +1216,11 @@ select:disabled {
 .settings-tabs {
   display: flex;
   align-items: flex-end;
+  flex: 0 0 auto;
   gap: 28px;
+  min-height: 45px;
   border-bottom: 1px solid var(--line);
-  overflow-x: auto;
+  overflow: visible;
 }
 
 .settings-tabs button {
@@ -1398,8 +1400,6 @@ select:disabled {
 
 .recipient-list-heading {
   justify-content: space-between;
-  border-top: 1px solid var(--line);
-  padding-top: 14px;
 }
 
 .recipient-list-heading h3,
