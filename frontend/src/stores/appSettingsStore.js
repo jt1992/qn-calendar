@@ -15,6 +15,7 @@ export const useAppSettingsStore = defineStore('appSettings', {
   state: () => ({
     settings: {
       estimatedHourlyBaseAmount: 100,
+      weekViewDefaultStartTime: '06:00',
       emailSender: {
         configured: false,
         senderEmailMasked: '',
@@ -25,6 +26,7 @@ export const useAppSettingsStore = defineStore('appSettings', {
       }
     },
     emailRecipients: [],
+    settingsLoaded: false,
     loading: false,
     saving: false,
     recipientsLoading: false,
@@ -39,6 +41,8 @@ export const useAppSettingsStore = defineStore('appSettings', {
 
       try {
         this.settings = await getAppSettings()
+        this.settingsLoaded = true
+        return this.settings
       } catch (error) {
         this.setError(error.message)
         throw error
@@ -47,12 +51,22 @@ export const useAppSettingsStore = defineStore('appSettings', {
       }
     },
 
+    async ensureSettingsLoaded() {
+      if (this.settingsLoaded) {
+        return this.settings
+      }
+
+      return this.fetchSettings()
+    },
+
     async saveSettings(settings) {
       this.saving = true
       this.clearError()
 
       try {
         this.settings = await updateAppSettings(settings)
+        this.settingsLoaded = true
+        return this.settings
       } catch (error) {
         this.setError(error.message)
         throw error
@@ -67,6 +81,8 @@ export const useAppSettingsStore = defineStore('appSettings', {
 
       try {
         this.settings = await updateEmailSenderSettings(settings)
+        this.settingsLoaded = true
+        return this.settings
       } catch (error) {
         this.setError(error.message)
         throw error

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
+import java.time.LocalTime;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -133,7 +134,10 @@ class WorkOrderImportServiceTests {
 
     @Test
     void usesSavedHourlyBaseAmountWhenImportingNewOrders() throws Exception {
-        appSettingsService.updateSettings(new UpdateAppSettingsRequest(BigDecimal.valueOf(200)));
+        appSettingsService.updateSettings(new UpdateAppSettingsRequest(
+                BigDecimal.valueOf(200),
+                LocalTime.of(6, 0)
+        ));
         MockMultipartFile file = xlsxWithOneOrder("ORD-BASE-AMOUNT", BigDecimal.valueOf(250), LocalDateTime.of(2026, 6, 10, 0, 0));
 
         ImportWorkOrderResponse response = importService.importXlsx(file);

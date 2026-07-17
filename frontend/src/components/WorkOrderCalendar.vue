@@ -5,6 +5,7 @@ import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
 import interactionPlugin from '@fullcalendar/interaction'
 import { ChevronLeft, ChevronRight } from '@lucide/vue'
+import { useAppSettingsStore } from '../stores/appSettingsStore'
 import { useWorkOrderStore } from '../stores/workOrderStore'
 
 const props = defineProps({
@@ -20,6 +21,7 @@ const props = defineProps({
 
 const emit = defineEmits(['range-change', 'focus-order'])
 const store = useWorkOrderStore()
+const settingsStore = useAppSettingsStore()
 const calendarViewStorageKey = 'qn-calendar-view'
 const calendarDateStorageKey = 'qn-calendar-date'
 const allowPastSchedulingStorageKey = 'qn-calendar-allow-past-scheduling'
@@ -38,8 +40,11 @@ const eventTooltip = ref(null)
 const ignoreNextCalendarClick = ref(false)
 const localFocusedWorkOrder = ref(null)
 const scheduleGranularityMinutes = 15
+const eventClickDragThresholdPixels = 6
+const defaultWeekViewStartMinutes = 6 * 60
 const businessTimeZone = 'Asia/Shanghai'
 const allowPastScheduling = ref(getInitialAllowPastScheduling())
+let calendarEventPointerInteraction = null
 
 const effectiveFocusedWorkOrder = computed(() => props.focusedWorkOrder || localFocusedWorkOrder.value)
 const focusedWorkOrderId = computed(() => {
@@ -120,6 +125,7 @@ const calendarOptions = computed(() => ({
   slotDuration: '00:30:00',
   slotLabelInterval: '01:00:00',
   snapDuration: '00:15:00',
+  scrollTime: '06:00:00',
   slotLabelFormat: {
     hour: '2-digit',
     minute: '2-digit',
@@ -159,6 +165,7 @@ const calendarOptions = computed(() => ({
 
 onMounted(() => {
   window.addEventListener('pointermove', handlePointerMove, { passive: true })
+  window.addEventListener('pointercancel', cancelCalendarEventPointerInteraction, { passive: true })
   window.addEventListener('pointerup', clearInteractionPreview)
   window.addEventListener('pointerdown', handleGlobalFocusPointerDown)
   window.addEventListener('click', handleGlobalFocusClick)
@@ -166,6 +173,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('pointermove', handlePointerMove)
+  window.removeEventListener('pointercancel', cancelCalendarEventPointerInteraction)
   window.removeEventListener('pointerup', clearInteractionPreview)
   window.removeEventListener('pointerdown', handleGlobalFocusPointerDown)
   window.removeEventListener('click', handleGlobalFocusClick)
@@ -232,10 +240,78 @@ async function handleDatesSet(info) {
   })
 
   try {
-    await store.fetchCalendarEvents(dateFrom, dateTo)
+    await Promise.all([
+      store.fetchCalendarEvents(dateFrom, dateTo),
+      settingsStore.ensureSettingsLoaded().catch((error) => {
+        store.setError(error.message)
+      })
+    ])
+
+    if (info.view.type === 'timeGridWeek') {
+      await nextTick()
+      scrollWeekToVisibleStart(info.start, info.end)
+    }
   } catch (error) {
     store.setError(error.message)
   }
+}
+
+function scrollWeekToVisibleStart(rangeStart, rangeEnd) {
+  const eventStartMinutes = store.calendarEvents
+    .map((event) => visibleEventStartMinutes(event, rangeStart, rangeEnd))
+    .filter((minutes) => minutes !== null)
+  const configuredStartMinutes = parseTimeOfDayMinutes(
+    settingsStore.settings.weekViewDefaultStartTime,
+    defaultWeekViewStartMinutes
+  )
+  const startMinutes = eventStartMinutes.length > 0
+    ? Math.min(...eventStartMinutes)
+    : configuredStartMinutes
+
+  calendarRef.value?.getApi().scrollToTime(formatScrollTime(startMinutes))
+}
+
+function visibleEventStartMinutes(event, rangeStart, rangeEnd) {
+  if (event.extendedProps?.isDeadlineMarker) {
+    return null
+  }
+
+  const eventStart = new Date(event.start)
+  const eventEnd = new Date(event.end)
+
+  if (Number.isNaN(eventStart.getTime())
+      || Number.isNaN(eventEnd.getTime())
+      || eventStart >= rangeEnd
+      || eventEnd <= rangeStart) {
+    return null
+  }
+
+  const visibleStart = new Date(Math.max(eventStart.getTime(), rangeStart.getTime()))
+  const visibleEnd = new Date(Math.min(eventEnd.getTime(), rangeEnd.getTime()))
+  const nextDayStart = new Date(visibleStart)
+  nextDayStart.setHours(24, 0, 0, 0)
+
+  if (nextDayStart < visibleEnd) {
+    return 0
+  }
+
+  return visibleStart.getHours() * 60 + visibleStart.getMinutes()
+}
+
+function parseTimeOfDayMinutes(value, fallbackMinutes) {
+  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(String(value || ''))
+
+  if (!match) {
+    return fallbackMinutes
+  }
+
+  return Number(match[1]) * 60 + Number(match[2])
+}
+
+function formatScrollTime(minutes) {
+  const hours = Math.floor(minutes / 60)
+  const remainingMinutes = minutes % 60
+  return `${String(hours).padStart(2, '0')}:${String(remainingMinutes).padStart(2, '0')}:00`
 }
 
 function dayHeaderContent(info) {
@@ -359,6 +435,9 @@ function bindEventTooltip(info) {
   }
 
   info.el.__workOrderCalendarEvent = info.event
+  info.el.addEventListener('pointerdown', (event) => {
+    startCalendarEventPointerInteraction(info.event, event)
+  })
   info.el.addEventListener('mouseenter', (event) => showEventTooltip(info.event, event))
   info.el.addEventListener('mousemove', moveEventTooltip)
   info.el.addEventListener('mouseleave', hideEventTooltip)
@@ -440,12 +519,23 @@ async function handleEventMove(info, interactionKind) {
   }
 }
 
-function handleEventClick(info) {
+async function handleEventClick(info) {
   if (info.event.extendedProps.isDeadlineMarker) {
     return
   }
 
+  const segmentId = String(info.event.extendedProps.segmentId || '')
+  const wasDragged = calendarEventPointerInteraction?.segmentId === segmentId
+    && calendarEventPointerInteraction.dragged
+  calendarEventPointerInteraction = null
   focusEvent(info.event)
+
+  if (wasDragged || ignoreNextCalendarClick.value) {
+    return
+  }
+
+  hideEventTooltip()
+  await store.copyOrderNumber(info.event.extendedProps.orderNo || info.event.title)
 }
 
 function focusEvent(event) {
@@ -795,6 +885,10 @@ function handleEventDragStop(info) {
 }
 
 function handleInteractionStop() {
+  if (calendarEventPointerInteraction) {
+    calendarEventPointerInteraction.dragged = true
+  }
+
   ignoreNextCalendarClick.value = true
   activeInteraction.value = null
   window.setTimeout(() => {
@@ -809,7 +903,44 @@ function handlePointerMove(event) {
     y: event.clientY
   }
 
+  trackCalendarEventPointerMovement(event)
+
   updateEventTooltipFromPointer(event)
+}
+
+function startCalendarEventPointerInteraction(event, pointerEvent) {
+  if (pointerEvent.button !== 0) {
+    calendarEventPointerInteraction = null
+    return
+  }
+
+  calendarEventPointerInteraction = {
+    pointerId: pointerEvent.pointerId,
+    segmentId: String(event.extendedProps.segmentId || ''),
+    startX: pointerEvent.clientX,
+    startY: pointerEvent.clientY,
+    dragged: false
+  }
+}
+
+function trackCalendarEventPointerMovement(event) {
+  if (!calendarEventPointerInteraction
+      || calendarEventPointerInteraction.pointerId !== event.pointerId) {
+    return
+  }
+
+  const movedX = event.clientX - calendarEventPointerInteraction.startX
+  const movedY = event.clientY - calendarEventPointerInteraction.startY
+
+  if (Math.hypot(movedX, movedY) >= eventClickDragThresholdPixels) {
+    calendarEventPointerInteraction.dragged = true
+  }
+}
+
+function cancelCalendarEventPointerInteraction(event) {
+  if (calendarEventPointerInteraction?.pointerId === event.pointerId) {
+    calendarEventPointerInteraction.dragged = true
+  }
 }
 
 async function toggleEventDone(event) {

@@ -2,6 +2,7 @@ package com.qn.calendar.settings.entity;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 
 import com.qn.calendar.settings.constant.SmtpSecurity;
 
@@ -23,6 +24,9 @@ public class AppSetting {
 
     @Column(name = "estimated_hourly_base_amount", nullable = false, precision = 14, scale = 2)
     private BigDecimal estimatedHourlyBaseAmount;
+
+    @Column(name = "week_view_default_start_time")
+    private LocalTime weekViewDefaultStartTime;
 
     @Column(name = "email_sender", length = 320)
     private String emailSender;
@@ -46,9 +50,14 @@ public class AppSetting {
     protected AppSetting() {
     }
 
-    public AppSetting(Long id, BigDecimal estimatedHourlyBaseAmount) {
+    public AppSetting(
+            Long id,
+            BigDecimal estimatedHourlyBaseAmount,
+            LocalTime weekViewDefaultStartTime
+    ) {
         this.id = id;
         this.estimatedHourlyBaseAmount = estimatedHourlyBaseAmount;
+        this.weekViewDefaultStartTime = weekViewDefaultStartTime;
     }
 
     @PrePersist
@@ -57,8 +66,12 @@ public class AppSetting {
         this.updatedAt = LocalDateTime.now();
     }
 
-    public void updateEstimatedHourlyBaseAmount(BigDecimal estimatedHourlyBaseAmount) {
+    public void updateBasicSettings(
+            BigDecimal estimatedHourlyBaseAmount,
+            LocalTime weekViewDefaultStartTime
+    ) {
         this.estimatedHourlyBaseAmount = estimatedHourlyBaseAmount;
+        this.weekViewDefaultStartTime = weekViewDefaultStartTime;
     }
 
     public void updateEmailSenderSettings(
@@ -85,6 +98,10 @@ public class AppSetting {
 
     public BigDecimal getEstimatedHourlyBaseAmount() {
         return estimatedHourlyBaseAmount;
+    }
+
+    public LocalTime getWeekViewDefaultStartTime() {
+        return weekViewDefaultStartTime;
     }
 
     public String getEmailSender() {

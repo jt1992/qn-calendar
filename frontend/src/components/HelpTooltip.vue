@@ -123,7 +123,11 @@ function updatePosition() {
 <style scoped>
 .help-tooltip {
   display: inline-flex;
+  align-items: center;
+  align-self: center;
   flex: 0 0 auto;
+  line-height: 1;
+  vertical-align: middle;
 }
 
 .help-tooltip-trigger {
@@ -135,6 +139,7 @@ function updatePosition() {
   border-radius: 999px;
   color: var(--muted);
   cursor: help;
+  line-height: 1;
 }
 
 .help-tooltip-trigger:hover {

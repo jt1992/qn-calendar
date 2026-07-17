@@ -20,6 +20,8 @@ import {
 
 let errorTimer = null
 let noticeTimer = null
+export const ORDER_NUMBER_COPY_NOTICE = '复制订单编号成功'
+const ORDER_NUMBER_COPY_NOTICE_DURATION_MS = 3000
 
 export const useWorkOrderStore = defineStore('workOrders', {
   state: () => ({
@@ -34,6 +36,21 @@ export const useWorkOrderStore = defineStore('workOrders', {
   }),
 
   actions: {
+    async copyOrderNumber(orderNo) {
+      const value = String(orderNo)
+
+      try {
+        await navigator.clipboard.writeText(value)
+      } catch {
+        if (!copyTextWithFallback(value)) {
+          this.setError('复制订单编号失败，请手动复制')
+          return
+        }
+      }
+
+      this.setNotice(ORDER_NUMBER_COPY_NOTICE, ORDER_NUMBER_COPY_NOTICE_DURATION_MS)
+    },
+
     async importXlsx(file) {
       this.loading = true
       this.clearError()
@@ -159,7 +176,7 @@ export const useWorkOrderStore = defineStore('workOrders', {
       }, 5000)
     },
 
-    setNotice(message) {
+    setNotice(message, durationMs = 5000) {
       this.notice = message
       this.error = ''
 
@@ -170,7 +187,7 @@ export const useWorkOrderStore = defineStore('workOrders', {
       noticeTimer = window.setTimeout(() => {
         this.notice = ''
         noticeTimer = null
-      }, 5000)
+      }, durationMs)
     },
 
     clearError() {
@@ -226,6 +243,24 @@ function toCalendarEvent(segment) {
       scheduleStartLocked: Boolean(segment.scheduleStartLocked),
       latestPausedAt: segment.latestPausedAt
     }
+  }
+}
+
+function copyTextWithFallback(value) {
+  const textarea = document.createElement('textarea')
+  textarea.value = value
+  textarea.setAttribute('readonly', '')
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  document.body.append(textarea)
+  textarea.select()
+
+  try {
+    return document.execCommand('copy')
+  } catch {
+    return false
+  } finally {
+    textarea.remove()
   }
 }
 

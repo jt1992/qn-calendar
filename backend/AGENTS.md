@@ -287,9 +287,12 @@ PUT /api/settings
 
 ```json
 {
-  "estimatedHourlyBaseAmount": 100
+  "estimatedHourlyBaseAmount": 100,
+  "weekViewDefaultStartTime": "06:00"
 }
 ```
+
+`weekViewDefaultStartTime` 使用 `HH:mm`，以 30 分鐘為單位，預設為 `06:00`。
 
 ### 更新排程
 

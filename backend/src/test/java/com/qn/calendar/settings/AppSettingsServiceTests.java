@@ -4,10 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.math.BigDecimal;
+import java.time.LocalTime;
 
 import com.qn.calendar.settings.constant.SmtpSecurity;
 import com.qn.calendar.settings.dto.UpdateEmailSenderSettingsRequest;
 import com.qn.calendar.settings.dto.UpdateAppSettingsRequest;
+import com.qn.calendar.settings.entity.AppSetting;
 import com.qn.calendar.settings.repository.AppSettingRepository;
 import com.qn.calendar.settings.service.AppSettingsService;
 
@@ -35,6 +37,7 @@ class AppSettingsServiceTests {
         var settings = service.getSettings();
 
         assertThat(settings.estimatedHourlyBaseAmount()).isEqualByComparingTo("100");
+        assertThat(settings.weekViewDefaultStartTime()).isEqualTo(LocalTime.of(6, 0));
         assertThat(settings.emailSender().configured()).isFalse();
         assertThat(repository.findAll()).hasSize(1);
         assertThat(repository.findAll().getFirst().getEstimatedHourlyBaseAmount()).isEqualByComparingTo("100");
@@ -42,10 +45,35 @@ class AppSettingsServiceTests {
 
     @Test
     void updateSettingsPersistsBaseAmountForLaterReads() {
-        service.updateSettings(new UpdateAppSettingsRequest(BigDecimal.valueOf(150)));
+        service.updateSettings(new UpdateAppSettingsRequest(
+                BigDecimal.valueOf(150),
+                LocalTime.of(8, 30)
+        ));
 
         assertThat(service.getSettings().estimatedHourlyBaseAmount()).isEqualByComparingTo("150");
+        assertThat(service.getSettings().weekViewDefaultStartTime()).isEqualTo(LocalTime.of(8, 30));
         assertThat(service.getEstimatedHourlyBaseAmount()).isEqualByComparingTo("150");
+    }
+
+    @Test
+    void updateSettingsRejectsWeekViewStartTimeOutsideHalfHourIntervals() {
+        assertThatThrownBy(() -> service.updateSettings(new UpdateAppSettingsRequest(
+                BigDecimal.valueOf(150),
+                LocalTime.of(8, 15)
+        )))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("周表默认开始时间必须以 30 分钟为单位");
+    }
+
+    @Test
+    void getSettingsBackfillsWeekViewStartTimeForExistingSettings() {
+        repository.save(new AppSetting(1L, BigDecimal.valueOf(100), null));
+
+        var settings = service.getSettings();
+
+        assertThat(settings.weekViewDefaultStartTime()).isEqualTo(LocalTime.of(6, 0));
+        assertThat(repository.findById(1L).orElseThrow().getWeekViewDefaultStartTime())
+                .isEqualTo(LocalTime.of(6, 0));
     }
 
     @Test

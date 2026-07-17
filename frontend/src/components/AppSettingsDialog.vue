@@ -1,6 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { Check, Eye, EyeOff, Pencil, Plus, Save, Trash2, X } from '@lucide/vue'
+import HelpTooltip from './HelpTooltip.vue'
 import { useAppSettingsStore } from '../stores/appSettingsStore'
 
 const STORED_SMTP_AUTH_CODE = '••••••••'
@@ -12,7 +13,7 @@ const props = defineProps({
   },
   initialTab: {
     type: String,
-    default: 'baseAmount'
+    default: 'basic'
   }
 })
 
@@ -21,6 +22,8 @@ const settingsStore = useAppSettingsStore()
 const activeTab = ref(normalizeTab(props.initialTab))
 const amountInput = ref('')
 const amountError = ref('')
+const weekStartTimeInput = ref('')
+const weekStartTimeError = ref('')
 const fieldError = ref('')
 const savedMessage = ref('')
 const emailEditing = ref(false)
@@ -78,7 +81,9 @@ const showEmailFields = computed(() =>
   activeTab.value === 'email' && (!emailSender.value.configured || emailEditing.value)
 )
 const canSubmitActiveTab = computed(() => showEmailFields.value)
-const amountChanged = computed(() => !amountMatchesSavedValue())
+const basicSettingsChanged = computed(() =>
+  !amountMatchesSavedValue() || !weekStartTimeMatchesSavedValue()
+)
 const emailSenderChanged = computed(() => {
   const original = emailSenderFormDefaults()
 
@@ -124,7 +129,7 @@ watch(
     clearFieldError()
     clearSavedMessage()
     clearFormValidation()
-    amountInput.value = formatAmount(settingsStore.settings.estimatedHourlyBaseAmount)
+    resetBasicSettingsForm()
     resetEmailForm()
     cancelRecipientCreate()
     cancelRecipientEdit()
@@ -134,7 +139,7 @@ watch(
         settingsStore.fetchSettings(),
         settingsStore.fetchEmailRecipients()
       ])
-      amountInput.value = formatAmount(settingsStore.settings.estimatedHourlyBaseAmount)
+      resetBasicSettingsForm()
       resetEmailForm()
       emailEditing.value = !emailSender.value.configured
     } catch (error) {
@@ -151,8 +156,8 @@ onBeforeUnmount(() => {
 })
 
 async function submit() {
-  if (activeTab.value === 'baseAmount') {
-    await submitBaseAmount()
+  if (activeTab.value === 'basic') {
+    await submitBasicSettings()
     return
   }
 
@@ -162,8 +167,8 @@ async function submit() {
   }
 }
 
-async function submitBaseAmount() {
-  if (settingsBusy.value || !amountChanged.value) {
+async function submitBasicSettings() {
+  if (settingsBusy.value || !basicSettingsChanged.value) {
     return
   }
 
@@ -171,17 +176,19 @@ async function submitBaseAmount() {
   clearSavedMessage()
 
   const amount = validateAmount()
+  const weekStartTime = validateWeekStartTime()
 
-  if (amount === null) {
+  if (amount === null || weekStartTime === null) {
     return
   }
 
   try {
     await settingsStore.saveSettings({
-      estimatedHourlyBaseAmount: amount
+      estimatedHourlyBaseAmount: amount,
+      weekViewDefaultStartTime: weekStartTime
     })
-    amountError.value = ''
-    amountInput.value = formatAmount(settingsStore.settings.estimatedHourlyBaseAmount)
+    clearBasicSettingsValidation()
+    resetBasicSettingsForm()
     showSavedMessage('设置已保存')
   } catch (error) {
     showFieldError(error.message)
@@ -253,6 +260,23 @@ function validateAmount() {
   }
 
   return error ? null : Number(value)
+}
+
+function validateWeekStartTime() {
+  const value = String(weekStartTimeInput.value).trim()
+  let error = ''
+
+  if (!value) {
+    error = '不能为空。'
+  } else if (!/^([01]\d|2[0-3]):(00|30)$/.test(value)) {
+    error = '请选择 30 分钟间隔的有效时间。'
+  }
+
+  if (error) {
+    weekStartTimeError.value = error
+  }
+
+  return error ? null : value
 }
 
 function validateEmailSender() {
@@ -509,6 +533,17 @@ function amountMatchesSavedValue() {
   return /^\d+(\.\d{1,2})?$/.test(current) && Number(current) === Number(saved)
 }
 
+function weekStartTimeMatchesSavedValue() {
+  return normalizedText(weekStartTimeInput.value) === normalizedText(
+    formatWeekStartTime(settingsStore.settings.weekViewDefaultStartTime)
+  )
+}
+
+function resetBasicSettingsForm() {
+  amountInput.value = formatAmount(settingsStore.settings.estimatedHourlyBaseAmount)
+  weekStartTimeInput.value = formatWeekStartTime(settingsStore.settings.weekViewDefaultStartTime)
+}
+
 function recipientHasChanges(recipient) {
   return normalizedText(recipientNameDraft.value) !== normalizedText(recipient.name) ||
     normalizedText(recipientEmailDraft.value) !== normalizedText(recipient.email)
@@ -536,10 +571,15 @@ function clearRecipientEditValidation() {
 }
 
 function clearFormValidation() {
-  amountError.value = ''
+  clearBasicSettingsValidation()
   clearEmailSenderValidation()
   clearRecipientValidation()
   clearRecipientEditValidation()
+}
+
+function clearBasicSettingsValidation() {
+  amountError.value = ''
+  weekStartTimeError.value = ''
 }
 
 function clearValidationErrors(errors) {
@@ -608,8 +648,16 @@ function formatAmount(value) {
   return String(value)
 }
 
+function formatWeekStartTime(value) {
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(String(value || '')) ? value : '06:00'
+}
+
 function normalizeTab(tab) {
-  return ['email', 'recipients'].includes(tab) ? tab : 'baseAmount'
+  if (tab === 'baseAmount') {
+    return 'basic'
+  }
+
+  return ['email', 'recipients'].includes(tab) ? tab : 'basic'
 }
 
 function recipientMeta(recipient) {
@@ -674,36 +722,66 @@ function securityLabel(value) {
         <button
           type="button"
           role="tab"
-          :aria-selected="activeTab === 'baseAmount'"
-          :class="{ active: activeTab === 'baseAmount' }"
-          @click="activateTab('baseAmount')"
+          :aria-selected="activeTab === 'basic'"
+          :class="{ active: activeTab === 'basic' }"
+          @click="activateTab('basic')"
         >
-          基础金额
+          基础设置
         </button>
       </div>
 
-      <section v-if="activeTab === 'baseAmount'" class="settings-panel" role="tabpanel">
-        <div class="base-amount-row">
-          <label class="base-amount-field">
-            <span class="form-field-label">
-              预估工时基础金额（元/小时）
-              <small v-if="amountError" id="base-amount-error" class="form-field-error" role="alert">
-                {{ amountError }}
-              </small>
-            </span>
-            <input
-              v-model="amountInput"
-              inputmode="decimal"
-              type="number"
-              min="0.01"
-              step="0.01"
-              required
-              :aria-describedby="amountError ? 'base-amount-error' : undefined"
-              :aria-invalid="Boolean(amountError)"
-              :disabled="settingsBusy"
-              @keydown.enter.prevent="submitBaseAmount"
-            />
-          </label>
+      <section v-if="activeTab === 'basic'" class="settings-panel" role="tabpanel">
+        <div class="basic-settings-form">
+          <div class="basic-settings-grid">
+            <label>
+              <span class="form-field-label">
+                预估工时基础金额（元/小时）
+                <small v-if="amountError" id="base-amount-error" class="form-field-error" role="alert">
+                  {{ amountError }}
+                </small>
+              </span>
+              <input
+                v-model="amountInput"
+                inputmode="decimal"
+                type="number"
+                min="0.01"
+                step="0.01"
+                required
+                :aria-describedby="amountError ? 'base-amount-error' : undefined"
+                :aria-invalid="Boolean(amountError)"
+                :disabled="settingsBusy"
+                @keydown.enter.prevent="submitBasicSettings"
+              />
+            </label>
+
+            <label>
+              <span class="form-field-label">
+                周表默认开始时间
+                <HelpTooltip aria-label="查看周表默认开始时间说明">
+                  <p>当前周没有已排工单时，从此时间开始显示；有工单时会自动显示该周最早的工单时间。</p>
+                </HelpTooltip>
+                <small
+                  v-if="weekStartTimeError"
+                  id="week-start-time-error"
+                  class="form-field-error"
+                  role="alert"
+                >
+                  {{ weekStartTimeError }}
+                </small>
+              </span>
+              <input
+                v-model="weekStartTimeInput"
+                type="time"
+                step="1800"
+                required
+                :aria-describedby="weekStartTimeError ? 'week-start-time-error' : undefined"
+                :aria-invalid="Boolean(weekStartTimeError)"
+                :disabled="settingsBusy"
+                @keydown.enter.prevent="submitBasicSettings"
+              />
+            </label>
+          </div>
+
           <div class="dialog-actions">
             <span v-if="savedMessage" class="dialog-status" role="status">
               {{ savedMessage }}
@@ -711,7 +789,7 @@ function securityLabel(value) {
             <button
               class="icon-button primary-action"
               type="submit"
-              :disabled="settingsBusy || !amountChanged"
+              :disabled="settingsBusy || !basicSettingsChanged"
             >
               <span v-if="activeSaving" class="loading-spinner" aria-hidden="true"></span>
               <Save v-else :size="18" />

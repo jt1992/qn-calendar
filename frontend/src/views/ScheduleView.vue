@@ -3,7 +3,7 @@ import { onMounted, ref } from 'vue'
 import WorkOrderImportButton from '../components/WorkOrderImportButton.vue'
 import PendingWorkOrderList from '../components/PendingWorkOrderList.vue'
 import WorkOrderCalendar from '../components/WorkOrderCalendar.vue'
-import { useWorkOrderStore } from '../stores/workOrderStore'
+import { ORDER_NUMBER_COPY_NOTICE, useWorkOrderStore } from '../stores/workOrderStore'
 
 const emit = defineEmits(['range-change'])
 const store = useWorkOrderStore()
@@ -52,7 +52,11 @@ function clearFocusOnBackground(event) {
       <div v-if="store.error" class="message error-message" role="alert">
         {{ store.error }}
       </div>
-      <div v-else-if="store.notice" class="message success-message" role="status">
+      <div
+        v-else-if="store.notice && store.notice !== ORDER_NUMBER_COPY_NOTICE"
+        class="message success-message"
+        role="status"
+      >
         {{ store.notice }}
       </div>
 
