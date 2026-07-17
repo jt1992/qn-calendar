@@ -4,9 +4,11 @@ import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { CalendarDays, Mail, Moon, Settings, Sun, Table2 } from '@lucide/vue'
 import AppSettingsDialog from './components/AppSettingsDialog.vue'
 import ScheduleEmailDialog from './components/ScheduleEmailDialog.vue'
+import { ORDER_NUMBER_COPY_NOTICE, useWorkOrderStore } from './stores/workOrderStore'
 
 const route = useRoute()
 const router = useRouter()
+const workOrderStore = useWorkOrderStore()
 const emailDialogOpen = ref(false)
 const settingsDialogOpen = ref(route.query.settingsModal === '1')
 const settingsTab = ref(normalizeSettingsTab(route.query.tab))
@@ -86,13 +88,26 @@ function openSettingsFromEmail(tab) {
 }
 
 function normalizeSettingsTab(tab) {
-  return ['baseAmount', 'email', 'recipients'].includes(tab) ? tab : 'recipients'
+  if (tab === 'baseAmount') {
+    return 'basic'
+  }
+
+  return ['basic', 'email', 'recipients'].includes(tab) ? tab : 'recipients'
 }
 </script>
 
 <template>
   <main class="app-shell" :data-theme="themeMode">
     <header class="top-nav">
+      <div
+        v-if="workOrderStore.notice === ORDER_NUMBER_COPY_NOTICE"
+        class="copy-success-message"
+        role="status"
+        aria-live="polite"
+      >
+        {{ workOrderStore.notice }}
+      </div>
+
       <nav class="main-tabs" aria-label="主要功能">
         <RouterLink v-slot="{ isActive, navigate }" custom to="/schedule">
           <button type="button" :class="{ active: isActive }" @click="navigate">

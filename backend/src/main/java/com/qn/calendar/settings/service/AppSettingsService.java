@@ -1,6 +1,7 @@
 package com.qn.calendar.settings.service;
 
 import java.math.BigDecimal;
+import java.time.LocalTime;
 
 import com.qn.calendar.settings.constant.SmtpSecurity;
 import com.qn.calendar.settings.dto.AppSettingsResponse;
@@ -19,6 +20,7 @@ public class AppSettingsService {
     private static final Long APP_SETTING_ID = 1L;
 
     public static final BigDecimal DEFAULT_ESTIMATED_HOURLY_BASE_AMOUNT = BigDecimal.valueOf(100);
+    public static final LocalTime DEFAULT_WEEK_VIEW_START_TIME = LocalTime.of(6, 0);
 
     private final AppSettingRepository repository;
 
@@ -59,11 +61,19 @@ public class AppSettingsService {
     @Transactional
     public AppSettingsResponse updateSettings(UpdateAppSettingsRequest request) {
         validateEstimatedHourlyBaseAmount(request.estimatedHourlyBaseAmount());
+        validateWeekViewDefaultStartTime(request.weekViewDefaultStartTime());
 
         AppSetting appSetting = repository.findById(APP_SETTING_ID)
-                .orElseGet(() -> new AppSetting(APP_SETTING_ID, DEFAULT_ESTIMATED_HOURLY_BASE_AMOUNT));
+                .orElseGet(() -> new AppSetting(
+                        APP_SETTING_ID,
+                        DEFAULT_ESTIMATED_HOURLY_BASE_AMOUNT,
+                        DEFAULT_WEEK_VIEW_START_TIME
+                ));
 
-        appSetting.updateEstimatedHourlyBaseAmount(request.estimatedHourlyBaseAmount());
+        appSetting.updateBasicSettings(
+                request.estimatedHourlyBaseAmount(),
+                request.weekViewDefaultStartTime()
+        );
         return AppSettingsResponse.from(repository.save(appSetting));
     }
 
@@ -95,11 +105,21 @@ public class AppSettingsService {
     }
 
     private AppSetting getOrCreateSettings() {
-        return repository.findById(APP_SETTING_ID)
+        AppSetting appSetting = repository.findById(APP_SETTING_ID)
                 .orElseGet(() -> repository.save(new AppSetting(
                         APP_SETTING_ID,
-                        DEFAULT_ESTIMATED_HOURLY_BASE_AMOUNT
+                        DEFAULT_ESTIMATED_HOURLY_BASE_AMOUNT,
+                        DEFAULT_WEEK_VIEW_START_TIME
                 )));
+
+        if (appSetting.getWeekViewDefaultStartTime() == null) {
+            appSetting.updateBasicSettings(
+                    appSetting.getEstimatedHourlyBaseAmount(),
+                    DEFAULT_WEEK_VIEW_START_TIME
+            );
+        }
+
+        return appSetting;
     }
 
     private void validateEstimatedHourlyBaseAmount(BigDecimal estimatedHourlyBaseAmount) {
@@ -113,6 +133,18 @@ public class AppSettingsService {
 
         if (estimatedHourlyBaseAmount.scale() > 2) {
             throw new IllegalArgumentException("预估工时基础金额最多保留 2 位小数");
+        }
+    }
+
+    private void validateWeekViewDefaultStartTime(LocalTime weekViewDefaultStartTime) {
+        if (weekViewDefaultStartTime == null) {
+            throw new IllegalArgumentException("周表默认开始时间不可为空");
+        }
+
+        if (weekViewDefaultStartTime.getMinute() % 30 != 0
+                || weekViewDefaultStartTime.getSecond() != 0
+                || weekViewDefaultStartTime.getNano() != 0) {
+            throw new IllegalArgumentException("周表默认开始时间必须以 30 分钟为单位");
         }
     }
 

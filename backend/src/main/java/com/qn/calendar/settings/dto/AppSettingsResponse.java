@@ -1,18 +1,23 @@
 package com.qn.calendar.settings.dto;
 
 import java.math.BigDecimal;
+import java.time.LocalTime;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import com.qn.calendar.settings.constant.SmtpSecurity;
 import com.qn.calendar.settings.entity.AppSetting;
 
 public record AppSettingsResponse(
         BigDecimal estimatedHourlyBaseAmount,
+        @JsonFormat(pattern = "HH:mm")
+        LocalTime weekViewDefaultStartTime,
         EmailSenderResponse emailSender
 ) {
 
     public static AppSettingsResponse from(AppSetting appSetting) {
         return new AppSettingsResponse(
                 appSetting.getEstimatedHourlyBaseAmount(),
+                appSetting.getWeekViewDefaultStartTime(),
                 EmailSenderResponse.from(appSetting)
         );
     }

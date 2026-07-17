@@ -19,7 +19,9 @@ const deletingWorkOrders = ref(new Set())
 const orderTooltip = ref(null)
 const tooltipPosition = ref({ x: 0, y: 0 })
 const scheduleGranularityMinutes = 15
+const cardDragThresholdPixels = 6
 let draggable = null
+let cardPointerInteraction = null
 
 const hasWorkOrders = computed(() => props.workOrders.length > 0)
 
@@ -42,10 +44,14 @@ onMounted(() => {
       return JSON.parse(eventElement.dataset.event)
     }
   })
+  window.addEventListener('pointermove', trackCardPointerMovement, { passive: true })
+  window.addEventListener('pointercancel', cancelCardPointerInteraction, { passive: true })
 })
 
 onBeforeUnmount(() => {
   draggable?.destroy()
+  window.removeEventListener('pointermove', trackCardPointerMovement)
+  window.removeEventListener('pointercancel', cancelCardPointerInteraction)
 })
 
 function toExternalEvent(workOrder) {
@@ -204,6 +210,54 @@ function focusOrder(workOrder, event) {
   showOrderTooltip(workOrder, event)
 }
 
+function startCardPointerInteraction(workOrder, event) {
+  if (event.button !== 0) {
+    cardPointerInteraction = null
+    return
+  }
+
+  cardPointerInteraction = {
+    pointerId: event.pointerId,
+    workOrderId: workOrder.id,
+    startX: event.clientX,
+    startY: event.clientY,
+    dragged: false
+  }
+}
+
+function trackCardPointerMovement(event) {
+  if (!cardPointerInteraction || cardPointerInteraction.pointerId !== event.pointerId) {
+    return
+  }
+
+  const movedX = event.clientX - cardPointerInteraction.startX
+  const movedY = event.clientY - cardPointerInteraction.startY
+
+  if (Math.hypot(movedX, movedY) >= cardDragThresholdPixels) {
+    cardPointerInteraction.dragged = true
+  }
+}
+
+function cancelCardPointerInteraction(event) {
+  if (cardPointerInteraction?.pointerId === event.pointerId) {
+    cardPointerInteraction.dragged = true
+  }
+}
+
+async function handleCardClick(workOrder, event) {
+  const wasDragged = cardPointerInteraction?.workOrderId === workOrder.id
+    && cardPointerInteraction.dragged
+  cardPointerInteraction = null
+  focusOrder(workOrder, event)
+
+  if (wasDragged) {
+    return
+  }
+
+  hideOrderTooltip()
+  await store.copyOrderNumber(workOrder.orderNo)
+}
+
 function moveOrderTooltip(event) {
   if (!event) {
     return
@@ -244,7 +298,8 @@ function hideOrderTooltip() {
           : JSON.stringify(toExternalEvent(workOrder))"
         :aria-busy="isWorkOrderDeleting(workOrder.id)"
         tabindex="0"
-        @click="(event) => focusOrder(workOrder, event)"
+        @pointerdown="(event) => startCardPointerInteraction(workOrder, event)"
+        @click="(event) => handleCardClick(workOrder, event)"
         @focus="(event) => focusOrder(workOrder, event)"
         @blur="hideOrderTooltip"
         @mouseenter="(event) => showOrderTooltip(workOrder, event)"
@@ -255,17 +310,12 @@ function hideOrderTooltip() {
         <div class="pending-order-content">
           <div class="order-line">
             <div class="order-summary">
-              <strong>#{{ workOrder.orderNo }}</strong>
+              <span class="order-number">#{{ workOrder.orderNo }}</span>
             </div>
-            <div class="order-badges">
-              <span class="status-badge" :class="`status-${workOrder.status.toLowerCase()}`">
-                {{ statusLabel(workOrder.status) }}
-              </span>
-              <span v-if="workOrder.urgent" class="urgent-badge">加急</span>
-            </div>
+            <span v-if="workOrder.urgent" class="urgent-badge">急</span>
           </div>
           <div class="order-detail-line">
-            <span class="order-price">订单价格 {{ formatMoney(workOrder.price) }}</span>
+            <span class="order-price">{{ formatMoney(workOrder.price) }}</span>
             <div
               class="duration-control"
               aria-label="每次按钮调整 15 分钟"
