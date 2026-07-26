@@ -1,399 +1,657 @@
 # backend/AGENTS.md
 
-本文件定義後端專屬規則。根目錄協作與 GitHub Flow 請看 [`../AGENTS.md`](../AGENTS.md)。
+本文件记录后端当前架构、领域边界与后续修改必须保持的约束。根目录协作规则、编码要求与 GitHub Flow 请看 [`../AGENTS.md`](../AGENTS.md)；完整端到端功能逻辑请看 [`../README.md`](../README.md)。
 
-## 技術棧
+## 1. 技术基线
 
-- Java 21 優先，Java 17 可接受。
+- Java 21。
 - Spring Boot 3.5.14。
-- Spring Data JPA。
-- Apache POI，用於 XLSX 解析。
-- JavaMailSender，用於寄送 Email。
-- Thymeleaf，用於產生 HTML Email。
-- 使用一般關聯式資料庫即可。
-- MVP 階段以 `work_order` 一張核心資料表完成主要功能。
-- 本地開發不自動建立 demo 工單資料；資料從 XLSX 匯入或既有 SQLite 資料庫取得。
-- 所有涉及「今天」與目前時間的工單規則預設使用北京時區 `Asia/Shanghai`，由 application `Clock` 統一提供，部署時可用 `APP_TIME_ZONE` 覆蓋。Docker/JVM 的 persistence runtime 必須維持 `UTC`，不可跟隨業務時區，避免既有 SQLite epoch 資料讀取時整體偏移。
+- Spring MVC + Jakarta Validation。
+- Spring Data JPA + Hibernate Community Dialect。
+- SQLite JDBC 3.49.1.0。
+- Apache POI 5.3.0，用于 XLSX。
+- Thymeleaf + OpenHTMLtoPDF，用于 A4 横向 PDF。
+- Spring Mail / JavaMailSender，用于 SMTP。
+- Maven 在 `prepare-package` 阶段使用 Node 22.12.0 执行前端 `npm ci` 与 `npm run build`。
 
-## 核心領域模型
+当前不是「一般关系数据库可替换」架构，也不是单表 MVP。实现依赖 SQLite 的运行、锁与持久化特性，实际有五张业务表。
 
-### WorkOrder
+## 2. 启动与运行架构
 
-| 欄位 | 說明 |
+`QnCalendarApplication` 启动前先调用 `ApplicationDataDirectory.prepareDefaultDirectory()`：
+
+```text
+JVM system property qn.calendar.data-dir
+  → 环境变量 QN_CALENDAR_DATA_DIR
+  → ${user.home}/.qn-calendar
+```
+
+解析后建立目录，并设置 `qn.calendar.data-dir`；SQLite 文件是：
+
+```text
+${qn.calendar.data-dir}/qn-calendar.db
+```
+
+注意：
+
+- 这个解析发生在 Spring 读取 `.env` 前；把 `QN_CALENDAR_DATA_DIR` 只写进 `.env` 不会生效。
+- Docker Compose 固定设置 `/data`，使用 `qn-calendar-data` named volume。
+- `application.yml` 的 multipart 单档与请求上限均为 20MB。
+- 正式环境使用 `spring.jpa.hibernate.ddl-auto=update`。
+- 项目没有 Flyway、Liquibase、SQL migration 或固定 schema 文件；数据库升级完全依赖 Hibernate update。
+
+Maven package 流程：
+
+```text
+下载 Node 22.12
+  → frontend/npm ci
+  → frontend/npm run build
+  → 输出到 backend/target/classes/static
+  → Spring Boot executable jar
+```
+
+Spring Boot 同时提供 `/api/**` 与 Vue production build。
+
+## 3. 包结构与模块职责
+
+| Package | 职责 |
 |---|---|
-| `id` | 工單 ID |
-| `order_no` | 訂單編號，必須唯一 |
-| `price` | 訂單價格 |
-| `estimated_minutes` | 系統分析出的預估工時，單位為分鐘 |
-| `actual_minutes` | 使用者實際調整後工時，單位為分鐘 |
-| `urgent` | 是否加急 |
-| `latest_ship_time` | 最晚發貨時間 |
+| `com.qn.calendar` | 应用入口 |
+| `common` | `ApiError` 与集中例外转换 |
+| `config` | application `Clock`、数据目录 |
+| `workorder.controller` | 工单、片段、统计、Email REST 入口 |
+| `workorder.dto` | HTTP request/response 与统计 projection |
+| `workorder.entity` | 工单、排程片段、暂停记录 |
+| `workorder.repository` | JPA 查询、重叠检测、自动顺延候选 |
+| `workorder.service` | 导入、查询、排程、片段、计时、PDF/Email |
+| `workorder.util` | 15 分钟边界与工时计算 |
+| `settings.controller` | 基础设置、SMTP、收件者 REST 入口 |
+| `settings.dto/model/entity/repository/service` | 设置与收件者领域 |
+| `web` | 静态资源 cache 与 SPA fallback |
+| `desktop` | 桌面浏览器、单一实例、系统托盘、本地 URL |
+
+服务边界：
+
+- `WorkOrderImportService`：XLSX 表头/资料行解析、逐行错误、去重、upsert、预估工时。
+- `WorkOrderService`：待排查询、日历查询、完工统计、待排工时、整单删除/清空、保留的整单完成/reopen。
+- `WorkOrderScheduleService`：仅把建立排程委派给 `WorkOrderSegmentService`，不拥有验证规则。
+- `WorkOrderSegmentService`：片段建立/移动/删除/拆分/融合、重叠验证、暂停/继续/完成、自动顺延。
+- `WorkOrderEmailService`：读取报表资料、建立 view model、Thymeleaf、PDF、SMTP。
+- `AppSettingsService`：singleton 基础设置与 SMTP。
+- `EmailRecipientService`：常用收件者 CRUD 与寄送成功后的使用纪录。
+
+不要把片段规则移回 controller，也不要把所有 work-order 逻辑合并成单一 service。
+
+## 4. 数据模型
+
+### 4.1 `work_order`
+
+| 字段 | 语义 |
+|---|---|
+| `id` | 主键 |
+| `order_no` | 唯一订单编号，最长 80 |
+| `buyer_nickname` | 买家昵称；当前导入不会写入，API 也没有更新入口 |
+| `remark` | 合并后的买家留言/商家备注，最长 1000 |
+| `price` | 订单价格，`decimal(14,2)` |
+| `estimated_minutes` | 由导入价格计算的预估分钟 |
+| `actual_minutes` | 待排人工值，或已排所有片段分钟总和 |
+| `urgent` | 加急 |
+| `latest_ship_time` | 最晚发货 |
+| `order_time` | 订单月份与完工统计筛选依据 |
 | `status` | `PENDING` / `SCHEDULED` / `DONE` |
-| `scheduled_start` | 排程開始時間 |
-| `scheduled_end` | 排程結束時間 |
-| `completed_at` | 完成時間 |
-| `created_at` | 建立時間 |
-| `updated_at` | 更新時間 |
+| `scheduled_start` | 所有片段最早开始摘要 |
+| `scheduled_end` | 所有片段最晚结束摘要 |
+| `completed_at` | 完成时间 |
+| `created_at` / `updated_at` | 持久化时间戳 |
 
-不要加入 `sort_order`，目前不需要自訂排序。
+`actual_minutes` 是片段长度总和，不一定等于 `scheduled_end - scheduled_start`，因为同工单可有空档。
 
-```java
-public enum WorkOrderStatus {
-    PENDING,
-    SCHEDULED,
-    DONE
-}
-```
+### 4.2 `work_order_segment`
 
-## XLSX 匯入規則
+- 多对一属于 `work_order`。
+- 保存 `scheduled_start`、`scheduled_end` 与建立/更新时间。
+- 工单对片段为 cascade all + orphan removal。
 
-1. 前端以 `multipart/form-data` 上傳 XLSX。
-2. 後端使用 Apache POI 解析 XLSX。
-3. XLSX 至少必須包含三個欄位：`訂單編號`、`訂單價格`、`最晚發貨日期`。
-4. 每一筆資料必須取得訂單編號 `orderNo`。
-5. 價格每「預估工時基礎金額」轉換為 1 小時工時，預設基礎金額為 100，可由全局設定調整；後端一律以分鐘儲存。
-6. `最晚發貨日期` 若只有日期沒有時間，後端視為當天 `23:59:59`。
-7. 最晚發貨日期依 `商家备注`、`买家留言`、`应发货时间` 的順序取得；商家備註與買家留言使用相同的日期解析規則。
-8. 日期時間格式一律優先使用 `yyyy-MM-dd HH:mm:ss`；純日期使用 `yyyy-MM-dd`。
-9. 每一列必須先完整解析成功，再依 `order_no` 查詢既有工單；解析失敗不可留下部分更新。
-10. 若已存在，更新價格、備註、加急、最晚發貨時間、訂單時間與重新計算的預估工時，但保留工單 ID、訂單編號、狀態、排程片段、暫停紀錄、完成時間與排程時間。
-11. 已排程或已完成工單必須保留 `actual_minutes`；待排工單只有在尚未人工調整工時時，才讓 `actual_minutes` 跟隨新的 `estimated_minutes`。
-12. 若不存在，建立新的 `PENDING` 工單。
-13. 同一份 XLSX 內出現相同訂單編號時，每列都要解析，最後一筆有效資料生效；新增與更新筆數依唯一訂單編號計算。
-14. 回傳新增筆數、更新筆數與錯誤列資訊，不使用「跳過筆數」。
+### 4.3 `work_order_segment_pause`
 
-去重規則：
+- 多对一属于片段。
+- `paused_at` 必填，`resumed_at` 可空；空值代表正在暂停。
+- 有片段索引，以及 `work_order_segment_id,resumed_at` 开放暂停查询索引。
+- 删除/融合片段前必须显式处理 pause，不能假定数据库级 cascade。
 
-- `order_no` 必須在資料庫有唯一約束。
-- 即使前端重複送出，也不得產生重複工單。
-- 已存在於待排、已排程或已完成狀態的訂單，下次 XLSX 匯入時都要更新匯入內容並保留原流程狀態。
+### 4.4 `app_setting`
 
-工時計算：
+- 固定 singleton ID `1`。
+- 保存预估工时基础金额、周表默认开始时间。
+- 保存寄件 Email、SMTP host/port/security/auth code。
+- SMTP auth code 当前以明文保存在 SQLite；API 不回传它。
 
-```java
-int estimatedMinutes = price
-        .divide(estimatedHourlyBaseAmount, 0, RoundingMode.CEILING)
-        .multiply(BigDecimal.valueOf(60))
-        .intValue();
-```
+### 4.5 `email_recipient`
 
-建立工單時：
+- Email 唯一，最长 320。
+- 姓名可空；手动 CRUD 时 service 要求姓名，寄信成功自动建立时可空。
+- 保存 `usage_count`、`last_used_at` 与建立/更新时间。
+- Service 会 trim、lowercase，并以忽略大小写方式防重。
+
+## 5. 状态与摘要
 
 ```text
-actual_minutes = estimated_minutes
+新导入 → PENDING
+建立第一个片段 → SCHEDULED
+删除最后片段 / 整单 unschedule → PENDING
+片段完成或整单 done → DONE
 ```
 
-## 查詢規則
+完成在现行 UI 中不可复原。`PATCH /{id}/reopen` 虽存在，但当前实现会拒绝 `DONE`；不要把它记录或实现成可见「取消完成」功能，除非需求明确修改领域规则与测试。
 
-待排工單：
+每次 normalize 后：
 
-```sql
-ORDER BY latest_ship_time ASC, urgent DESC, created_at ASC
-```
+- `scheduled_start` = 第一片段开始。
+- `scheduled_end` = 最后一片段结束。
+- `actual_minutes` = 所有片段各自长度总和。
+- 非 DONE 工单变为 SCHEDULED，并清空 `completed_at`。
+- DONE 工单更新摘要时保持 DONE。
 
-最晚發貨時間越近越前；若時間相同，才讓加急工單排前面，再以建立時間穩定排序。
+## 6. REST API
 
-日曆工單：
+### 6.1 工单与片段
 
-- 只回傳 `status IN (SCHEDULED, DONE)`。
-- 完成工單不從日曆移除。
+| Method | Path | 行为 |
+|---|---|---|
+| `POST` | `/api/work-orders/import` | multipart XLSX 导入 |
+| `GET` | `/api/work-orders/pending` | 待排清单 |
+| `GET` | `/api/work-orders/calendar?dateFrom&dateTo` | 区间内 SCHEDULED/DONE 片段 |
+| `GET` | `/api/work-orders/statistics/completed` | 全部完工统计 |
+| `PATCH` | `/api/work-orders/{id}/schedule` | 新增排程片段 |
+| `PATCH` | `/api/work-orders/segments/{segmentId}` | 移动/resize 片段 |
+| `DELETE` | `/api/work-orders/segments/{segmentId}` | 依片段原日期移出日历 |
+| `POST` | `/api/work-orders/segments/{segmentId}/split` | 拆分片段 |
+| `PATCH` | `/api/work-orders/segments/{segmentId}/done` | 以当前时间完成整张工单 |
+| `PATCH` | `/api/work-orders/segments/{segmentId}/pause` | 暂停 |
+| `PATCH` | `/api/work-orders/segments/{segmentId}/resume` | 继续 |
+| `PATCH` | `/api/work-orders/{id}/duration` | 调整 PENDING 工时 |
+| `PATCH` | `/api/work-orders/{id}/unschedule` | 清除整单片段与暂停 |
+| `DELETE` | `/api/work-orders/{id}` | 删除 PENDING，成功 204 |
+| `PATCH` | `/api/work-orders/{id}/done` | 保留的直接整单完成端点 |
+| `PATCH` | `/api/work-orders/{id}/reopen` | 保留端点；当前拒绝 DONE |
+| `POST` | `/api/work-orders/schedule-email` | 发送 PDF Email，成功 204 |
 
-## 排程規則
+现行前端 UI 不使用 `/{id}/unschedule`、整单 `/{id}/done`、`/{id}/reopen`。
 
-任何排程操作都必須符合：
+片段 create/update/split/delete 没有统一的 PENDING/SCHEDULED/DONE 状态 gate；例如 API 可对 DONE 工单建立或拆分片段，normalize 后仍保持 DONE。不要把前端隐藏按钮误写成后端领域限制。
+
+### 6.2 设置与收件者
+
+| Method | Path | 行为 |
+|---|---|---|
+| `GET` | `/api/settings` | 读取或建立默认 singleton |
+| `PUT` | `/api/settings` | 保存基础金额与周表开始时间 |
+| `PUT` | `/api/settings/email-sender` | 保存 SMTP |
+| `GET` | `/api/email-recipients` | 常用收件者 |
+| `POST` | `/api/email-recipients` | 手动新增，成功 201 |
+| `PUT` | `/api/email-recipients/{id}` | 手动编辑 |
+| `DELETE` | `/api/email-recipients/{id}` | 删除，成功 204 |
+
+## 7. XLSX 导入
+
+### 7.1 文件与表头
+
+- 只读取第一个 sheet。
+- 第一资料行必须是表头；空白资料行略过。
+- POI 会计算公式值。
+- 表头 canonicalize：trim、转小写、移除空白、`_`、`-`。
+- 即使备注能解析期限，也必须存在订单编号、价格、最晚发货三个 canonical 字段。
+
+表头别名：
+
+| Canonical | 支持名称 |
+|---|---|
+| `orderNo` | `orderno`、订单编号（繁/简） |
+| `price` | `price`、`orderprice`、`amount`、`buyerpaidamount`、订单价格、买家实付金额、价格、金额（繁/简） |
+| `urgent` | `urgent`、`isurgent`、加急、急件、备注标签（繁/简） |
+| `buyerMessage` | `buyermessage`、`buyerremark`、买家留言（繁/简） |
+| `merchantRemark` | `merchantremark`、`sellerremark`、商家备注（繁/简） |
+| `paidAt` | 付款/支付/订单/下单时间与日期的中英文、繁简别名 |
+| `latestShipTime` | latest ship/deadline、应发货时间、最晚发货日期/时间（繁/简） |
+
+新增别名前先补测试，不能破坏现有繁体兼容。
+
+### 7.2 资料行解析
+
+- 订单编号不可空。
+- 价格去除逗号、`NT$`、`¥`、`￥`、`$`；允许 0，不允许负数。
+- 加急接受 `true/yes/y/1/是/加急/急件`，或文字包含「加急」「急件」。
+- 备注按顺序组合：
+  - `买家留言：...`
+  - `商家备注：...`
+  - 都空时为 `无任何备注`
+- 订单时间可空；有值但格式错误时整列失败。
+
+预估工时：
 
 ```text
-scheduled_end <= latest_ship_time
+estimated_minutes = ceil(price / estimatedHourlyBaseAmount) × 60
 ```
 
-適用操作：
+这是按整小时向上取整，不是对分钟做比例换算。
 
-1. 待排工單拖到日曆。
-2. 日曆內拖動工單。
-3. resize 調整工單長度。
-4. 直接透過 API 更新排程時間。
+### 7.3 最晚发货
 
-後端必須驗證：
+优先级：
 
-```java
-if (request.scheduledEnd().isAfter(workOrder.getLatestShipTime())) {
-    throw new IllegalArgumentException("排程結束時間不可超過最晚發貨時間");
-}
-```
+1. 商家备注中的发货/收到日期。
+2. 买家留言中的发货/收到日期。
+3. 最晚发货/应发货字段。
 
-工時長度規則：
+备注解析：
 
-- 工時以分鐘儲存。
-- 所有排程時間必須符合 5 分鐘粒度。
-- 排程結束時間必須晚於開始時間。
-- 工時必須是 5 分鐘倍數。
+- `M/D`、`M.D`、`M月D日` 等月日使用 application Clock 当前年。
+- 只有「D号」时，使用订单时间的月份；没有订单月份则继续 fallback。
+- 无效月日不抛出，继续下一来源。
 
-```java
-long minutes = Duration.between(
-        request.scheduledStart(),
-        request.scheduledEnd()
-).toMinutes();
+fallback 字段支持：
 
-if (minutes <= 0) {
-    throw new IllegalArgumentException("排程結束時間必須晚於開始時間");
-}
+- ISO `LocalDateTime`。
+- `yyyy-MM-dd HH:mm[:ss]`、非补零形式与 `/` 分隔。
+- `yyyy-MM-dd`、`yyyy/M/d`。
+- 文本中一个或多个 `yyyy-MM-dd HH:mm[:ss]前`，取最早值。
+- Excel date cell。
+- 纯日期或 midnight Excel date 转为 `23:59:59`。
 
-if (minutes % 5 != 0) {
-    throw new IllegalArgumentException("工時必須是 5 分鐘的倍數");
-}
-```
+### 7.4 去重与更新
 
-排程更新時：
+- `order_no` 有数据库唯一约束。
+- 每个资料行先完整解析；失败资料行加入 `errors`，不留下部分更新。
+- 同档重复订单以最后一笔有效资料行为准。
+- 后续错误重复资料行不会覆盖前一笔有效资料。
+- `createdCount`、`updatedCount` 以唯一有效订单编号计算。
+- 整次导入在一个交易内。
+
+更新既有工单时：
+
+- 更新 remark、price、estimated、urgent、deadline、orderTime。
+- 保留 ID、orderNo、状态、片段、暂停、完成时间、排程摘要。
+- SCHEDULED/DONE 保留 `actualMinutes`。
+- PENDING 只有在 `actualMinutes == 旧 estimatedMinutes` 时跟随新 estimate；已人工调整则保留。
+- 不重新验证既有片段是否仍符合新 deadline；将已排或 DONE 工单的期限改早可直接形成 `overdue`。
+
+## 8. 待排与查询
+
+待排固定排序：
 
 ```text
-actual_minutes = scheduled_end - scheduled_start
-status = SCHEDULED
+latest_ship_time ASC, urgent DESC, created_at ASC
 ```
 
-今天、尚未完成且已有暫停紀錄的片段：
+只有 PENDING：
 
-- 日曆內移動必須保留原工時長度，允許開始與結束時間一起平移。
-- 移動後，只有 `paused_at` 與非空的 `resumed_at` 都仍位於新片段區間內的暫停紀錄可以保留；超出區間的整筆暫停紀錄必須刪除。
-- 若移動後與同工單其他片段融合，仍有效的暫停紀錄必須轉移到保留片段，不可因融合而遺失。
-- resize 必須固定開始時間，只允許把結束時間延後；不可縮短結束時間，也不可從上邊緣改變開始時間。
-- 前述移動與 resize 仍必須符合時間粒度、最晚發貨時間與不同工單不可重疊規則。
+- 可以 `PATCH /duration`。
+- 可以 `DELETE /{id}`。
 
-待排工單先行調整工時：
+`actualMinutes` 必须至少 15、为正数且是 15 分钟倍数。不要加入 `sort_order` 或使用者自定义排序。
 
-```http
-PATCH /api/work-orders/{id}/duration
+日历查询：
+
+- `dateFrom`、`dateTo` 都是 inclusive 业务日期。
+- `dateTo < dateFrom` 为 400。
+- 只查 SCHEDULED、DONE。
+- 每个片段 response 包含整单 `totalMinutes`、整单 `pausedMinutes`、当前 `paused`、`overdue`、`scheduleStartLocked`、`latestPausedAt`。
+- `overdue = segment.scheduledEnd > workOrder.latestShipTime`。
+
+## 9. 手动排程与重叠
+
+真实排程粒度是 **15 分钟**。
+
+一般 create/update 必须：
+
+1. `scheduledEnd > scheduledStart`。
+2. 开始、结束的秒与纳秒为 0，分钟落在 15 分钟边界。
+3. duration 为 15 分钟倍数。
+4. `scheduledEnd <= latestShipTime`。
+5. 不与其他工单的 SCHEDULED/DONE 片段重叠。
+
+重叠采用半开区间：
+
+```text
+existing.start < requested.end
+AND existing.end > requested.start
 ```
 
-Request：
+所以不同工单首尾相接允许。
 
-```json
-{
-  "actualMinutes": 95
-}
-```
+同工单 normalize：
 
-規則：
+- create/update 后，相邻或重叠片段融合。
+- 保留较早片段，结束取较晚值。
+- 被删除片段的 pause 迁移到保留片段。
+- 融合后同步工单摘要。
 
-- 只允許 `PENDING` 工單使用。
-- `actualMinutes` 必須大於 0。
-- `actualMinutes` 必須是 5 分鐘倍數。
-- 此 API 不修改 `estimated_minutes`。
+显式 `split` 是刻意例外：
 
-片段移出日曆：
+- `splitAt` 必须是片段内部的 15 分钟边界。
+- 正在暂停的片段不可拆。
+- 今日有暂停历史时，拆分点不可早于最后暂停时间向上取整后的边界。
+- split 不执行 normalize，因此会保留两个相邻片段。
+- 后续 create/update normalize 可能再次把它们融合。
 
-```http
-DELETE /api/work-orders/segments/{segmentId}
-```
+没有自动初始排程算法；但计时超过排定结束时会执行后续冲突链自动顺延，这不是同一概念。
 
-規則：
+## 10. 今日暂停历史的移动与 resize
 
-- 後端必須依被移出片段的原 `scheduled_start` 日期與北京業務日期判斷，不可只由前端分流。
-- 今日片段：先刪除該工單全部暫停紀錄，再刪除全部排程片段；清空排程與完成時間、更新 `status = PENDING`，并重設 `actual_minutes = estimated_minutes`。
-- 非今日片段：只移除指定片段；若仍有其他片段則保持已排，最後一段移除後才回待排。
+`scheduleStartLocked` 条件：
 
-## 完成工單規則
+- 片段存在任一最新暂停记录，不要求仍开放。
+- 工单未 DONE。
+- 片段开始日期等于 application Clock 的今天。
 
-完成：
+规则：
 
-```http
-PATCH /api/work-orders/{id}/done
-```
+- 等长移动允许开始和结束一起平移。
+- resize 必须保持开始不变，只能把结束延后；不可缩短。
+- 移动或 resize 仍需通过一般 15 分钟、期限与不同工单重叠验证。
+- 操作后清理不在新区间内的 pause：
+  - `pausedAt` 必须在片段闭区间内。
+  - 已关闭 pause 的 `resumedAt` 也必须在闭区间内。
+  - 开放 pause 只要 `pausedAt` 仍在区间即可保留。
+- 若操作后片段融合，有效 pause 必须迁移到存活片段。
 
-日曆片段完成：
+## 11. 暂停、继续、完成与自动顺延
 
-```http
-PATCH /api/work-orders/segments/{segmentId}/done
-```
+### 11.1 暂停
 
-後端更新：
+- 使用 application Clock 当前时间，去掉纳秒但保留秒。
+- 只允许未 DONE、片段开始日期等于当前业务日期、现在不早于开始。
+- 不要求现在早于原结束；超过结束时先延长。
+- 同一片段不可同时存在两个开放 pause。
+- 支持多次暂停/继续周期。
+
+### 11.2 继续
+
+- 必须存在开放 pause。
+- DONE 不可继续。
+- `resumedAt` 不可早于 `pausedAt`。
+- 可在跨日后继续。
+- 暂停分钟使用 `Duration.toMinutes()`，每个区间不足一分钟的秒数会截断。
+
+暂停或继续晚于原结束时：
+
+- 当前片段结束向上取到下一个 15 分钟边界。
+- 查询 `scheduledEnd > 原结束` 的其他 SCHEDULED/DONE 候选，并按开始时间排序。
+- 对与新 cursor 相交的候选依序平移；遇到第一张 `start >= cursor` 的片段就停止。平移保持原 duration，再把新结束向上取边界。
+- 同步所有受影响工单摘要。
+- 这条自动顺延路径不检查各工单最晚发货，因此允许产生 `overdue`。
+- 自动顺延只修改候选片段时间，不同步移动候选片段已有的 pause 时间戳。
+
+### 11.3 片段完成
+
+- 如果仍在暂停，先以完成时间关闭开放 pause；完成早于暂停会失败。
+- 若完成时间与片段开始同日、晚于开始且不等于原结束，片段结束直接改成完成时间：
+  - 可能缩短，也可能延长。
+  - 保留秒数，不向上取 15 分钟。
+  - 只有延长时才顺延后续冲突链。
+- 不同日完成，或完成时间不晚于开始时，不改片段结束。
+- 自动完成/顺延不重新验证最晚发货。
+- 最后把整张工单设为 DONE，`completedAt` 为完成时间。
+- DONE 仍保留在日历并参与不同工单重叠检测。
+
+### 11.4 保留的整单端点
+
+`PATCH /{id}/done` 只做：
 
 ```text
 status = DONE
-completed_at = now
+completedAt = application clock now
 ```
 
-日曆片段完成時，若目前時間已超過該片段 `scheduled_end`，後端要先把該片段結束時間延長到目前時間並向上取 5 分鐘，再標記工單完成；仍需符合最晚發貨時間與不同訂單編號不可重疊規則。
+它不要求已排程、不改片段、不关闭 pause。现行 UI 不使用。
 
-取消完成：
+`PATCH /{id}/reopen` 当前拒绝 DONE；对非 DONE 会调用 entity `reopen()` 设为 SCHEDULED。不要在未明确修正规格、测试与 UI 前扩展使用。
 
-```http
-PATCH /api/work-orders/{id}/reopen
-```
+## 12. 移出日历与删除
 
-後端更新：
+`DELETE /segments/{segmentId}` 必须由后端根据被删片段原 `scheduledStart` 和 application Clock 今天判断：
+
+- 今日片段：
+  - 删除整单所有 pause。
+  - 删除整单所有片段。
+  - 清空排程和完成时间。
+  - `status = PENDING`。
+  - `actualMinutes = estimatedMinutes`。
+- 非今日片段：
+  - 删除该片段 pause 与片段。
+  - 有其他片段时保持已排。
+  - 最后一段删除后回 PENDING，并恢复 estimated 工时。
+
+`PATCH /{id}/unschedule` 不看片段日期，直接清除整单全部 pause/片段并回 PENDING。PENDING 调用会返回 409。
+
+待排 `DELETE /{id}` 只允许 PENDING；SCHEDULED/DONE 返回 409。
+
+## 13. 完工统计
+
+只统计 DONE：
 
 ```text
-status = SCHEDULED
-completed_at = null
+scheduledTotalMinutes = 所有片段分钟总和
+pausedMinutes = 所有暂停区间分钟总和
+actualTotalMinutes = max(0, scheduledTotalMinutes - pausedMinutes)
+deltaMinutes = actualTotalMinutes - estimatedMinutes
+hourlyRate = price × 60 / actualTotalMinutes
 ```
 
-## 重疊規則
+- 时薪四舍五入到两位；actual 为 0 时回 `null`。
+- 开放 pause 以 `completedAt` 作为 fallback；没有完成时间时才用 application Clock now。
+- 排序为：非空 orderTime 优先、orderTime DESC、deadline ASC、createdAt ASC。
+- 月份筛选依据 `orderTime`，不是 `completedAt`。
+- 全部统计包含 orderTime null；按月份查询不会包含 null。
 
-- 不同訂單編號的工單不可重疊。
-- 完成工單仍保留在日曆中，也不可與其他訂單編號的工單重疊。
-- 同一訂單編號的分割片段若時間相鄰或重疊，後端必須自動融合成同一片段。
-- 後端必須阻擋不同訂單編號的排程片段時間重疊。
+## 14. 全局设置与 SMTP
 
-## API 規格
+默认 singleton：
 
-### 匯入 XLSX
-
-```http
-POST /api/work-orders/import
-Content-Type: multipart/form-data
+```text
+estimatedHourlyBaseAmount = 100
+weekViewDefaultStartTime = 06:00
 ```
 
-Response：
+- 基础金额必须大于 0、整数部分最多 12 位且小数最多两位。
+- 周表开始时间必须为 `HH:mm` 的 30 分钟边界。
+- 初次读取若 singleton 不存在会写入默认值。
+- 旧资料的周表开始时间为空时会补 `06:00`。
+
+SMTP：
+
+- sender Email、host、port、security、auth code 全部齐全才算 configured。
+- sender Email 最多 320 字、host 最多 255 字、auth code 最多 1024 字。
+- security 为 `NONE`、`SSL`、`STARTTLS`。
+- 后端 port 接受 1–65535；前端目前只提供 465/587。
+- 初次设置必须有 auth code。
+- 后续 `null`/空 auth code 表示保留旧值，当前 API 不能清除 auth code。
+- response 回完整 sender Email 供编辑，也回 masked Email；绝不回 auth code。
+- SMTP client 每次寄送动态建立。
+- 当前没有配置 connect/read/write timeout；不要在不了解重复寄送风险时增加自动重试。
+
+## 15. Email 收件者
+
+手动 CRUD：
+
+- 姓名必填、trim、最多 120。
+- Email 必填、合法、trim、lowercase、最多 320。
+- 忽略大小写防重复。
+
+排序：
+
+```text
+lastUsedAt DESC → usageCount DESC → name ASC → email ASC
+```
+
+寄送成功后：
+
+- normalize、去重收件 Email。
+- 找不到则建立 `name = null` 的收件者。
+- `usageCount + 1`，更新 `lastUsedAt`。
+- 使用 `REQUIRES_NEW` 独立写交易。
+
+SMTP 失败时不可记录使用次数。
+
+## 16. PDF 与 Email
+
+`ScheduleEmailViewType`：
+
+- `WEEK`
+- `MONTH`
+- `COMPLETED_STATS`
+
+验证：
+
+- 收件者不可空，DTO 会验证每个 Email。
+- subject 不可空。
+- WEEK/MONTH 必须有有效起讫日期。
+- MONTH 强制使用 `dateFrom` 所在月首/月末。
+- COMPLETED_STATS 可同时传 `dateFrom = null`、`dateTo = null` 代表全部；有月份时同样强制整月。
+
+报表：
+
+- 跨日片段裁切为每天一列/row。
+- 周表可超过 7 天，每 7 天一节并分页。
+- 周表时间轴按每节最早开始向下取整小时、最晚结束向上取整小时；无资料默认 09:00–18:00。
+- 月表从周日开始；月底前已无后续工单时可提前截断并显示提示。
+- 完工统计字段与前端表格一致。
+- Thymeleaf HTML 只作为 OpenHTMLtoPDF 输入，不作为邮件正文。
+- PDF 固定 A4 landscape 297×210mm。
+- 邮件正文为空字串，只附 PDF。
+- 附件名由 view type 和日期产生，不使用 request subject：
+  - `周表 - yyyy-MM-dd - yyyy-MM-dd.pdf`
+  - `月表 - yyyy-MM.pdf`
+  - `完工统计表 - 全部|yyyy-MM.pdf`
+- 中文文件名同时写 RFC 5987 `filename*` 与 MIME encoded-word `filename`。
+- PDF 字体从 macOS、Windows、Linux 候选路径选择第一个存在的中文字体；Docker 安装文泉驿。
+
+发送顺序：
+
+```text
+验证 request
+  → 短查询取得资料
+  → 交易外建立 HTML/PDF
+  → 动态 SMTP 发送
+  → 成功后 REQUIRES_NEW 记录收件者
+```
+
+`WorkOrderEmailService` 没有外层长交易，避免在 PDF/SMTP 等待期间持有 SQLite 交易。`recordUsed` 仍可能独立失败，不要承诺「SMTP 成功后绝不可能回错误」。
+
+## 17. 时区与时间来源
+
+application Clock：
+
+- 默认 `Asia/Shanghai`。
+- 可由 `APP_TIME_ZONE` 覆盖。
+- 用于「今天」、导入备注年份、pause/resume、片段完成、领域 `completedAt`。
+
+JVM/system clock：
+
+- Entity `createdAt/updatedAt`。
+- `ApiError.timestamp`。
+- 收件者 `lastUsedAt`。
+- Docker entrypoint 与 Surefire 固定 `-Duser.timezone=UTC`，避免既有 SQLite epoch 解码偏移。
+- 当前 GitHub Release 的 jpackage java options 没有 `-Duser.timezone=UTC`，安装版会使用主机 JVM 时区。
+- 新的部署/打包入口必须继续明确处理 persistence timezone；不要把 business Clock 与 JVM timezone 混为一谈。
+
+HTTP 与 Entity 使用无 offset 的 `LocalDateTime`。不要单独把某一层改成 UTC instant 或带 offset 格式；时间模型变更必须前后端、SQLite 兼容与既有资料一起设计。
+
+## 18. 错误与交易
+
+已统一处理的 RequestBody validation 与业务异常：
 
 ```json
 {
-  "createdCount": 10,
-  "updatedCount": 3,
-  "errors": [
-    {
-      "row": 8,
-      "message": "訂單編號不可為空"
-    }
-  ]
+  "message": "错误摘要",
+  "details": ["field: 详细信息"],
+  "timestamp": "..."
 }
 ```
 
-### 刪除待排工單
+映射：
 
-```http
-DELETE /api/work-orders/{id}
+- `MethodArgumentNotValidException` → 400，message 为「请确认输入数据」。
+- `IllegalArgumentException` → 400。
+- `IllegalStateException` → 409。
+- 「找不到 ID」目前也是 `IllegalArgumentException`，因此为 400，不是 404。
+- 其他 JSON、数据库或未处理 runtime exception 没有自定义统一映射。
+
+交易：
+
+- XLSX 整次导入：单一写交易。
+- 工单、片段、设置、收件者 CRUD：service transaction。
+- Email：无外层长交易；成功记录收件者使用独立新交易。
+
+不要把资料查询、PDF 生成、SMTP 与收件者写入包进同一个长交易。
+
+## 19. 静态资源、桌面与容器
+
+`SpaResourceConfiguration`：
+
+- `/assets/**`：一年 public immutable cache。
+- 其他静态资源：`no-store`。
+- 缺失且无扩展名的非 `/api`、非 `/error` 路径：回退 `index.html`。
+- 缺失 API 或含扩展名资源：不做 SPA fallback。
+
+桌面模式：
+
+- `APP_DESKTOP_ENABLED=true` 才启用。
+- 默认启动浏览器；`APP_DESKTOP_OPEN_BROWSER=false` 可关闭。
+- URL 依据启动参数/system property/env/`.env` 的 server port 优先级解析，并加进程 launch nonce。
+- 数据目录中的 `desktop-instance.lock` 保证单一实例。
+- 第二次启动最多等 30 秒；已有服务就只打开浏览器。
+- 支持系统托盘时提供 `Open page` 与 `Exit`。
+
+Docker：
+
+- 单一 backend service，前端由 jar 提供。
+- Dockerfile 的 package 使用 `-DskipTests`，容器 build 不替代 `mvn test`。
+- Temurin 21 JRE、UTF-8 locale、文泉驿字体。
+- `QN_CALENDAR_DATA_DIR=/data`。
+- business Clock 默认 `Asia/Shanghai`，JVM/TZ 固定 UTC。
+- 当前没有 healthcheck、restart policy、TLS、认证或自动备份；不要在文档中暗示这些已存在。
+
+## 20. 验证
+
+后端测试：
+
+```bash
+cd backend
+mvn test
 ```
 
-只允許刪除 `PENDING` 工單，成功回傳 `204 No Content`；已排程或已完成工單必須拒絕刪除。
+完整可执行 jar（会同时构建前端）：
 
-### 查詢待排工單
-
-```http
-GET /api/work-orders/pending
+```bash
+cd backend
+mvn package
 ```
 
-### 查詢日曆工單
+需要运行中整合验证时，依根目录规则使用整套 Docker Compose，不要分别启动 Vite 与 Spring Boot。
 
-```http
-GET /api/work-orders/calendar?dateFrom=2026-06-08&dateTo=2026-06-14
-```
+测试职责：
 
-### 全局設定
+- `WorkOrderImportServiceTests`：表头、解析、去重、重导状态保留。
+- `WorkOrderSegmentServiceTests`：片段、融合、重叠、拆分、暂停、顺延、完成、删除。
+- `WorkOrderServiceTests`：待排、duration、整单清空/删除、统计。
+- `WorkOrderEmailServiceTests`：周/月/统计 view model、模板、PDF、MIME。
+- `WorkOrderEmailTransactionTests`：SMTP 成功后记录收件者。
+- `AppSettingsServiceTests`、`EmailRecipientServiceTests`：设置与收件者。
+- `SpaResourceConfigurationTests`：fallback/cache。
+- `QnCalendarApplicationTests`：context 与 business/persistence timezone 分离。
+- `desktop/*Tests`：URL、nonce、单一实例。
 
-```http
-GET /api/settings
-PUT /api/settings
-```
+当前没有 controller contract、真实 SMTP、Docker、安装器、资料升级 migration 的自动测试。新增高风险路径时，应先建立能重现规则的 service/integration test。
 
-```json
-{
-  "estimatedHourlyBaseAmount": 100,
-  "weekViewDefaultStartTime": "06:00"
-}
-```
+## 21. 不要静默扩展
 
-`weekViewDefaultStartTime` 使用 `HH:mm`，以 30 分鐘為單位，預設為 `06:00`。
-
-### 更新排程
-
-```http
-PATCH /api/work-orders/{id}/schedule
-```
-
-```json
-{
-  "scheduledStart": "2026-06-08T09:00:00",
-  "scheduledEnd": "2026-06-08T11:00:00"
-}
-```
-
-### 發送排程 Email
-
-```http
-POST /api/work-orders/schedule-email
-```
-
-```json
-{
-  "to": ["someone@example.com"],
-  "subject": "工單排程表",
-  "dateFrom": "2026-06-08",
-  "dateTo": "2026-06-14",
-  "viewType": "WEEK"
-}
-```
-
-MVP 先只支援 `viewType = WEEK`。
-
-## Email 功能規格
-
-Email 內容必須是靜態 HTML Table 週曆，不可嵌入 Vue、FullCalendar JavaScript，且不可只寄前端截圖。
-
-Email 應呈現：
-
-- 左側時間列。
-- 上方星期 / 日期欄。
-- 工單以卡片方式顯示在對應日期與時間格。
-- 加急工單顯示加急標籤與紅色提示。
-- 完成工單淡化顯示。
-- 不同訂單編號的工單不應出現在同一時間格；若同一訂單編號有多個片段，依片段時間呈現。
-- 至少包含訂單編號、時間、加急狀態、完成狀態、最晚發貨時間。
-
-Email 交易順序：
-
-- 先以短唯讀交易取得郵件資料，再於交易外產生附件並執行 SMTP 寄送。
-- 只有 SMTP 確認寄送成功後，才以獨立短寫入交易新增或更新 Email 收件者。
-- 不可用同一個長交易包住資料查詢、PDF 產生、SMTP 寄送與收件者寫入，避免 SQLite 讀寫鎖衝突。
-
-## 後端模組切分
-
-- `WorkOrderImportService`：XLSX 解析、訂單去重、工時計算、建立待排工單。
-- `WorkOrderService`：查詢待排工單、查詢日曆工單、標記完成、取消完成。
-- `WorkOrderScheduleService`：排程更新、最晚發貨時間驗證、5 分鐘粒度驗證。
-- `WorkOrderEmailService`：查詢指定區間排程、建立 Email 週曆 view model、使用 Thymeleaf 產生 HTML、寄信。
-
-不要把所有邏輯塞在單一 Service。
-
-## 驗證與錯誤處理
-
-後端必須驗證：
-
-- XLSX 是否為有效格式。
-- 訂單編號不可為空。
-- 價格不可為負數。
-- 最晚發貨時間不可為空。
-- 排程結束時間必須晚於開始時間。
-- 排程時間必須符合 5 分鐘粒度。
-- 排程結束時間不可超過最晚發貨時間。
-- Email 收件者不可為空。
-- 人工新增或修改 Email 收件者時，收件人姓名必填；SMTP 成功寄送後自動建立的收件者可暫時沒有姓名。
-- Email 日期區間不可無效。
-
-使用 `@ControllerAdvice` 集中轉換例外為可顯示的 API 錯誤，不把 stack trace 回傳給前端。
-
-## 不要實作
-
-- 不要做自訂工單排序。
-- 不要加入 `sort_order`。
-- 不要做自動排程演算法。
-- 不要允許不同訂單編號的工單重疊。
-- 不要把 Email 做成純文字清單。
-- 不要在 Email 中放 JavaScript。
-- 不要一開始就拆太多資料表。
-- 不要做複雜權限系統，除非另有要求。
-
-## 建議測試項目
-
-- 匯入新 XLSX 會建立新工單。
-- 重複訂單編號會更新匯入內容並保留原流程狀態。
-- 同一份 XLSX 的重複訂單編號以最後一筆有效資料為準。
-- 日曆內移動後會清除超出新片段區間的暫停紀錄，仍有效紀錄會保留。
-- 今日已有暫停紀錄的片段只能把結束時間 resize 延後，不可縮短或改變開始時間。
-- 今日片段移出日曆後會清空整張工單的片段與暫停紀錄並回待排。
-- 待排工單可刪除，已排程與已完成工單不可透過待排刪除 API 移除。
-- 價格可正確換算工時。
-- 排程結束時間超過最晚發貨時間會失敗。
-- 排程時間不是 5 分鐘倍數會失敗。
-- 完成工單會更新為 `DONE`。
-- 取消完成會回到 `SCHEDULED`。
-- Email 可產生 HTML 週曆內容。
+- 不加入 `sort_order` 或使用者自定义排序。
+- 不做自动初始排程算法。
+- 不允许不同订单编号重叠。
+- 不把 Email 改成纯文字清单或嵌入 JavaScript。
+- 不在 SMTP/PDF 周围建立长数据库交易。
+- 不新增复杂权限系统，除非有明确需求。
+- 不把 Hibernate `ddl-auto=update` 描述成受版本控制的 migration。
+- 不假定 DONE 可 reopen。
+- 不把所有 deadline 规则简单写成「任何路径都不可超时」；手动排程受限，实际计时导致的自动顺延可产生 overdue。

@@ -1,243 +1,410 @@
 # frontend/AGENTS.md
 
-本文件定義前端專屬規則。根目錄協作與 GitHub Flow 請看 [`../AGENTS.md`](../AGENTS.md)。
+本文件记录前端当前架构、模块边界与后续修改必须保持的约束。根目录协作规则、文案/编码要求与 GitHub Flow 请看 [`../AGENTS.md`](../AGENTS.md)；完整业务逻辑请看 [`../README.md`](../README.md)。
 
-## 技術棧
+## 1. 技术基线
 
-- 語言：JavaScript，使用大部分現代瀏覽器與 Node 支援的最新版 ECMAScript。
-- 框架：Vue 3.5.35。
-- 打包工具：Vite 8.0.16。
-- 狀態管理：Pinia。
-- 日曆：FullCalendar。
-- HTTP：Axios。
-- 目前指定版本：Axios 1.17.0、Pinia 3.0.4。
+- JavaScript + Vue 3.5.35，统一使用 Composition API 与 `<script setup>`。
+- Vite 8.0.16；Vue Router 4.6.4；Pinia 3.0.4。
+- Axios 1.17.0；FullCalendar 6.1.20；`@lucide/vue` 1.17.0。
+- `src/main.js` 的启动顺序是 `createApp` → Pinia → Router → `#app`。
+- `src/assets/base.css` 是唯一全局样式入口。
+- `vite.config.js` 的开发端口是 `5174`，`/api` 代理到 `http://localhost:8080`。
+- Axios 默认同源，也可通过 `VITE_API_BASE_URL` 指定基址；统一 timeout 为 20 秒。
 
-## 前端職責
+不要静默升级框架或套件主版本。版本变更必须同时核对 `package.json`、`package-lock.json`、Maven 前端构建与生产静态资源打包。
 
-- 上傳 XLSX。
-- XLSX 上傳必須同時支援點擊選檔與拖曳上傳。
-- XLSX 重複匯入既有訂單後，前端必須同時刷新待排清單與目前可見日曆；匯入結果顯示新增與更新筆數，錯誤列明細持續顯示。
-- 顯示待排工單。
-- 顯示週 / 月日曆。
-- 讓待排工單可拖曳到日曆。
-- 讓日曆工單可拖動與 resize。
-- 使用 `eventAllow` 先擋下超過最晚發貨時間的操作。
-- 後端 API 失敗時 revert FullCalendar 操作。
-- 顯示加急與完成狀態。
-- 提供 Email 發送 Dialog。
+## 2. 总体架构
 
-前端限制只負責使用體驗，不能取代後端驗證。
+前端采用简单的单向数据流：
 
-## 目錄規則
-
-- `src/api/`：Axios instance 與 API client。元件不可直接呼叫 Axios。
-- `src/stores/`：Pinia store，管理跨畫面狀態。
-- `src/components/`：畫面元件與互動元件。
-- `src/assets/`：全域樣式與靜態資源。
-
-## UI 與設計規則
-
-- 第一屏應是可操作的排程介面，不做 landing page。
-- SaaS / 營運工具風格應安靜、實用、資訊密度適中。
-- 使用明確的工作區：待排工單、日曆、Email Dialog。
-- 按鈕優先使用 icon + 清楚文字；若專案已有 icon library，優先使用該 library。
-- 畫面需要補充欄位、格式或操作說明時，優先使用可重用的 `src/components/HelpTooltip.vue`，不要在各元件重複實作 tooltip 互動與無障礙屬性；問號圖示應緊貼對應標題，並與文字垂直置中，在 hover 或鍵盤 focus 時直接顯示說明，不做成必須點擊才展開的按鈕。
-- 左右雙欄或多欄表單必須讓同一列各欄位的標題從頂部對齊；部分標題帶有問號說明或檢核訊息時，也不可使相鄰欄位的標題上下錯位。
-- 日曆工具列按鈕要保持緊湊；窄視口下 Email、週/月、上一段/今天/下一段仍應維持在同一操作列。
-- 日曆標題與右側 Email / 週月 / 導覽控制應維持同一個 header row；標題下方說明放在日期下面，窄視口可縮小間距與字級，不要把操作列換到下一列。
-- 全域 box model 使用 `box-sizing: border-box`，並包含 pseudo-elements。
-- 任何可拖曳物件預設游標使用 `grab`，按下拖曳時使用 `grabbing`。
-- 不使用裝飾性漸層球、bokeh、無意義插畫或 marketing hero。
-- 不把卡片包在卡片內；重複資料項目可使用單層 card。
-- 文字不可超出按鈕、卡片、側欄或日曆事件容器。
-- 所有 tab / tablist 類 UI 必須透過足夠的容器尺寸、間距或響應式版面完整顯示，不可因容器高度或寬度不足而出現水平或垂直滾動條。
-- 主要介面必須被限制在視口內，不讓整頁內容超出 `100dvh`；超出的待排清單、日曆內容與工具列使用區域內滾動補足。
-- 待排工單清單在堆疊版面且寬度足夠時可一行兩張工單卡；每張卡至少約 420px 可用寬度，不足時要回到單欄，避免資訊擠壓。
-- 側欄標題列左側標題 / 說明與右側深淺色切換按鈕要維持左右對齊且不換行；窄視口不可把切換按鈕推到下一行。
-- 主題主色使用藍色，不使用綠色作為主操作色；加急、完成、主要操作要有清楚但克制的視覺差異。
-- 所有表單控制項（包含文字、數字、日期、月份、Email、select 與自訂輸入元件）的 focus 狀態必須使用 `--primary` / `--primary-soft` 主題色，不可保留瀏覽器預設 outline 顏色。
-- Focus 邊框與 ring 必須完整可見；使用 `overflow: auto` / `hidden` 的表單容器需預留足夠內距，不可裁切控制項的 focus 視覺。
-- 所有前端表單欄位檢核結果必須顯示在對應欄位名稱旁，不可放在表單底部、全域訊息區或只依賴瀏覽器原生驗證提示；欄位控制項需同步設定 `aria-invalid` 與對應的 `aria-describedby`。檢核不通過的 input、textarea、select 與自訂輸入群組必須使用 `--danger` 紅色邊框；focus 時欄位紅框仍需保留，外層 focus ring 則繼續使用主題色。
-- 使用者提交表單時，必須一次檢核畫面中所有必填欄位並同時顯示全部結果，不可在第一個錯誤處提前結束其餘欄位檢核；使用自訂檢核的 `<form>` 必須加上 `novalidate`，避免原生提示中斷統一流程。
-- 欄位檢核結果一旦顯示，不可因輸入、change、blur、focus 或計時器自動消失；目前仍無效的欄位可在再次提交時更新提示內容。只有關閉表單或 Dialog、切換離開目前的表單分頁 / 子畫面、路由卸載，或提交成功並重置為全新表單流程時，才能清除欄位提示。
-- API、網路、權限或其他無法對應到單一欄位的操作失敗，才可顯示為表單層級或全域錯誤；不得把可定位到欄位的前端檢核訊息降級為表單層級錯誤。
-- 前端必須提供 CSS 變數驅動的深色 / 淺色模式；預設深色模式，淺色模式不能改變資訊架構。
-- 日曆日期顯示使用 `yyyy-MM-dd`，日期時間顯示使用 `yyyy-MM-dd HH:mm:ss`。
-- 時間顯示使用 24 小時制，範圍為 `00:00:00` 到 `23:59:59`。
-- 週檢視左側時間軸只顯示到分鐘，例如 `16:30`，不要顯示秒數。
-- 週檢視時間格以半小時作為可視區間，但拖曳與 resize 的 snap 粒度仍維持 15 分鐘。
-- 週檢視表頭在上方標題已顯示年月日時，只顯示「日號 + 星期」，例如 `07 日`，不要重複顯示年月。
-- 月檢視的星期表頭只顯示星期，不可把 FullCalendar 傳入的 1970 參考日期顯示成日期。
-
-## 待排工單
-
-- 待排工單不需要手動排序。
-- 後端查詢固定排序：`latest_ship_time ASC, urgent DESC, created_at ASC`。
-- 待排工單以最晚發貨時間越近越前；若時間相同，才讓加急工單排前面。
-- 前端應明確顯示加急標籤，例如「加急」。
-- 工時以分鐘儲存，前端可顯示為小時。
-- 待排工單卡片可先調整工時長度；調整值要更新 `actualMinutes`，並作為拖曳到日曆時的預設 duration。
-- 待排工單卡片資訊固定分三列：訂單編號 + `急` 標記、價格金額 + 工時控制器、最晚發貨時間；價格只顯示 `¥` 金額，不重複顯示「訂單價格」，待排清單內也不顯示「待排」狀態標籤。
-- 待排卡片訂單編號使用一般字重，即使顯示 `急` 標記也必須完整顯示；短按待排或日曆工單會複製不含 `#` 的訂單編號，拖曳排程不可觸發複製。複製成功後在頂部導覽列中央以脫離文檔流的方式顯示半透明、貼合文字寬度的「复制订单编号成功」提示，不可推動導覽列內既有元素，並於 3 秒後自動消失。
-- 待排工單卡片四邊 padding 應一致且不可在窄視口被壓縮到貼邊；三列資訊都要保留穩定內距。
-- 訂單價格與工時控制器要保持在同一資訊列；不要在同一卡片重複顯示價格。
-- 待排工單最晚發貨以時鐘 icon 取代文字標籤，使用紅字顯示，不可截斷，時鐘 icon 要與文字垂直對齊。
-- 待排與日曆上的工時長度顯示使用 `x小時x分鐘`，不要使用小數小時如 `4.08h`。
-- 待排工單 click / focus 時，日曆週檢視需要顯示該工單最晚發貨時間紅線。
-- 待排工單卡片第三列的最晚發貨時間右側提供刪除按鈕；刪除前要確認，操作按鈕不可觸發卡片拖曳，並需提供明確的 accessible name、loading 與 disabled 狀態。
-
-## FullCalendar 規則
-
-必要能力：
-
-- 週 / 月切換。
-- 刷新頁面後要保留使用者上次選擇的週檢視或月檢視。
-- 週檢視以今天作為第一欄，後續日期依序往後排 7 天。
-- 週檢視與月檢視都不可把工單拖曳排到今天以前的日期。
-- 週檢視載入或切換日期區間後，有工單時從目前 7 天內最早的工單時刻開始顯示；沒有工單時使用全局「周表默认开始时间」。
-- 待排工單可拖曳到日曆。
-- 日曆工單可自由拖動。
-- 日曆工單可 resize 調整工時長度。
-- 週檢視與月檢視都支援拖曳；月檢視只負責拖到日期，預設排到該日 `09:00:00`。
-- 只有週檢視允許 resize 與 15 分鐘粒度的精準時間調整。
-- 日曆工單 click / focus 時，週檢視需要顯示該工單最晚發貨時間紅線。
-- 最晚發貨時間紅線必須是直線，不可使用圓角或看起來像卡片邊框的樣式。
-- 日曆工單事件卡片必須完整顯示最晚發貨時間；窄視口不可截斷。
-- 日曆工單卡片不提供 `X` 關閉 / 移出按鈕。
-- 日曆工單直接拖出日曆範圍後放開時，事件應立即從日曆消失，不播放回彈到原位的動畫；今日片段要取消整張工單排程，非今日片段只刪除被拖出的片段。
-- 日曆工單不使用彈出詳細卡執行完成；完成 / 取消完成應放在日曆事件卡片上。
-- 日曆片段點完成時，若目前時間已超過該片段結束時間，後端會先把該片段結束時間延長到完成時間，再標記完成。
-- 日曆工單卡片右上角操作按鈕可半透明常駐，hover / focus 時變清楚，但不可擠壓或遮擋主要資訊。
-- 月檢視日曆工單事件要撐滿日期格可用寬度；完成 / 拆分按鈕固定靠右上角。
-- 日曆工單卡片內容允許換行，但資訊列應貼齊上方連續排列，不可因事件高度較高而把各行分散到整張卡片。
-- 日曆工單卡片資訊固定分行為：訂單編號、開始時間 `HH:mm~HH:mm`、工時長、`最晚發貨：`、`yyyy-MM-dd`、`HH:mm:ss`。
-- 日曆工單拖曳、resize 時要即時顯示起始時間、結束時間與 `x小時x分鐘` 工時。
-- 日曆工單拖曳、resize 的提示卡片要在最上層，不可被日曆格線、拖曳鏡像或其他面板遮住。
-- 日曆工單拖曳中的原 event / mirror 應比靜止狀態更透明，讓落點與警示更容易辨識。
-- 日曆工單拖曳游標使用 `grab` / `grabbing`，resize 游標使用上下調整語意的 `ns-resize`。
-- 週檢視日曆工單上下邊緣的 resize hit area 要比 FullCalendar 預設值更大，約 14px，方便延長 / 縮短工時。
-- 今天且已有暫停記錄的未完成工單仍可整體拖動；後端會在移動後清除不再有效的暫停資料，前端不可用 `scheduleStartLocked` 將事件設為不可拖動。
-- 今天且已有暫停記錄的未完成工單只允許由下邊緣延後結束時間；不可從上邊緣 resize，也不可縮短結束時間，前端需在送出 API 前阻擋。
-- 時間粒度為 15 分鐘。
-- 不同訂單編號的工單不可重疊。
-- 同一訂單編號的分割片段若時間相鄰或重疊，允許前端操作送出並交由後端自動融合。
-- 拖曳或 resize 時若落點與不同訂單編號的工單重疊，前端應保留拖曳意圖並自動貼齊到最近的可用相鄰時間；找不到可用位置時才 revert。
-- 完成工單半透明顯示。
-
-建議設定：
-
-```js
-const calendarOptions = {
-  initialView: 'timeGridWeek',
-  headerToolbar: false,
-  slotDuration: '00:30:00',
-  slotLabelInterval: '01:00:00',
-  snapDuration: '00:15:00',
-  slotLabelFormat: {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false
-  },
-  editable: true,
-  eventDurationEditable: currentView.value === 'timeGridWeek',
-  droppable: true,
-  eventOverlap: true,
-  slotEventOverlap: false,
-  eventResizableFromStart: currentView.value === 'timeGridWeek'
-}
+```text
+用户操作
+  → View / Component
+  → Pinia action
+  → src/api client
+  → 共用 Axios instance
+  → Spring Boot /api/**
+  → Pinia state
+  → View / Component 重新渲染
 ```
 
-最晚發貨時間前端限制：
+边界规则：
 
-```js
-eventAllow(dropInfo, draggedEvent) {
-  const latestShipTime = draggedEvent.extendedProps.latestShipTime
+- 组件不可直接调用 Axios；HTTP 只能放在 `src/api/`。
+- 跨画面、需要刷新或会被多个组件消费的服务端状态放在 Pinia。
+- 单一 Dialog、tooltip、drag preview、表单 draft 等短期 UI 状态留在组件内。
+- 后端是业务规则最终权威；前端预检只用于即时反馈，API 失败仍必须恢复 UI。
+- 当前没有 `composables/` 层。不要为了单次使用新增抽象；只有逻辑确实被多个组件共享时再提取。
 
-  if (!latestShipTime) {
-    return true
-  }
+## 3. 目录与模块职责
 
-  if (currentView.value === 'dayGridMonth' || dropInfo.allDay) {
-    const end = addMinutes(dateAtWorkdayStart(dropInfo.start), draggedEvent.extendedProps.actualMinutes)
-    return end <= new Date(latestShipTime)
-  }
+| 路径 | 当前职责 |
+|---|---|
+| `src/main.js` | 挂载 Vue、Pinia、Router 与全局 CSS |
+| `src/router/index.js` | `/schedule`、`/completed-stats` 与根路径重定向 |
+| `src/App.vue` | 应用壳层、顶栏、路由出口、主题、Email Dialog、设置 Dialog |
+| `src/views/ScheduleView.vue` | 组合 XLSX 上传、待排清单、日历；管理当前聚焦工单 |
+| `src/views/CompletedStatsView.vue` | 拉取完工统计并按订单月份筛选 |
+| `src/components/WorkOrderImportButton.vue` | 点击/拖拽选择 XLSX 与副档名预检 |
+| `src/components/PendingWorkOrderList.vue` | 待排卡片、工时调整、删除、复制、外部拖拽 |
+| `src/components/WorkOrderCalendar.vue` | FullCalendar 配置与全部排程交互编排 |
+| `src/components/CompletedStatsTable.vue` | 完工统计表呈现与月份筛选 UI |
+| `src/components/AppSettingsDialog.vue` | 收件者、SMTP 寄件者、基础设置三个 tab |
+| `src/components/ScheduleEmailDialog.vue` | 收件人 tags、报表类型、日期/月与发送流程 |
+| `src/components/MonthPicker.vue` | 年/月双 select，可限制为实际存在月份 |
+| `src/components/HelpTooltip.vue` | 可复用、支持 hover/focus/Escape 的说明 tooltip |
+| `src/stores/workOrderStore.js` | 工单、片段、统计、导入结果、全局工单提示 |
+| `src/stores/appSettingsStore.js` | 基础设置、SMTP 摘要、收件者与对应提示 |
+| `src/api/http.js` | Axios instance 与统一错误正规化 |
+| `src/api/workOrders.js` | 工单、片段、统计、Email API client |
+| `src/api/settings.js` | 设置与收件者 API client |
+| `src/assets/base.css` | 主题、布局、响应式、表单与 FullCalendar 样式 |
 
-  return dropInfo.end <= new Date(latestShipTime)
-}
-```
+大型组件目前仍同时负责呈现和互动编排。修改时优先做局部、可验证的变更，不要顺手重写整个组件。
 
-完成與加急樣式：
+## 4. 路由与应用壳层
 
-```js
-eventClassNames(info) {
-  if (info.event.extendedProps.status === 'DONE') {
-    return ['work-order-done']
-  }
+路由：
 
-  if (info.event.extendedProps.urgent) {
-    return ['work-order-urgent']
-  }
-
-  return []
-}
-```
-
-```css
-.work-order-done {
-  opacity: 0.35;
-}
-
-.work-order-urgent {
-  border-left: 4px solid red;
-  font-weight: 600;
-}
-```
-
-## 前端事件對應
-
-| 行為 | FullCalendar 事件 | API |
+| URL | Route name | View |
 |---|---|---|
-| 待排工單拖到日曆 | `eventReceive` | `PATCH /api/work-orders/{id}/schedule` |
-| 日曆內拖動 | `eventDrop` | `PATCH /api/work-orders/segments/{segmentId}` |
-| 調整工時長度 | `eventResize` | `PATCH /api/work-orders/segments/{segmentId}` |
-| 點完成 | 自訂按鈕或 `eventClick` | `PATCH /api/work-orders/{id}/done` |
-| 取消完成 | 自訂按鈕 | `PATCH /api/work-orders/{id}/reopen` |
-| 片段移出日曆 | 拖出日曆範圍後放開 | `DELETE /api/work-orders/segments/{segmentId}`；後端依北京業務日期決定整單或單片段移除 |
-| 刪除待排工單 | 待排卡片刪除按鈕 | `DELETE /api/work-orders/{id}` |
-| 發送 Email | Button click | `POST /api/work-orders/schedule-email` |
+| `/` | — | 重定向到 `/schedule` |
+| `/schedule` | `schedule` | `ScheduleView` |
+| `/completed-stats` | `completed-stats` | `CompletedStatsView` |
 
-Email Dialog 開啟時，開始日期與結束日期預設為目前日曆焦點所在週的週起訖。
+`App.vue` 负责：
 
-## Pinia Store
+- 顶部「待排工单」「完工统计表」导航。
+- 全局「发送 Email」「设置」入口。
+- 深色/浅色主题切换。
+- 接收日历 `range-change`，作为 Email Dialog 的默认日期范围。
+- 在内存中保存完工统计月份，跨路由返回时仍保留；它不会写入 localStorage。
+- 用 query `settingsModal=1&tab=recipients|email|basic` 保存设置 Dialog 与 tab。
+- 默认设置 tab 为 `recipients`。
 
-建議 store：`useWorkOrderStore`
+生产使用 HTML5 history。Spring Boot 的 SPA fallback 必须继续支持无扩展名的前端路由，且不得把缺失的 `/api/**` 资源回退到 `index.html`。
+
+## 5. 状态管理
+
+### 5.1 `useWorkOrderStore`
+
+服务端状态：
 
 - `pendingWorkOrders`
 - `calendarEvents`
-- `importXlsx(file)`
-- `fetchPendingWorkOrders()`
-- `fetchCalendarEvents(dateFrom, dateTo)`
-- `deleteWorkOrder(id)`
-- `scheduleWorkOrder(id, start, end)`
-- `markAsDone(id)`
-- `reopen(id)`
-- `sendScheduleEmail(payload)`
+- `completedStats`
+- `importResult`
+- `activeRange`
 
-## 錯誤處理
+UI 状态：
 
-- 匯入錯誤列資訊必須顯示。
-- 拖曳超過最晚發貨時間時應提示。
-- 寄信成功 / 失敗需提示。
-- 排程更新失敗時必須 `info.revert()`。
-- API 錯誤解析應集中在 API layer 或 store，不要散在元件內。
-- 全局錯誤、成功與狀態提示通常在 5 秒後自動消失；複製訂單編號成功提示依待排工單規則使用 3 秒。重複觸發同一提示時要重新顯示並重置對應計時。欄位檢核結果與匯入錯誤明細這類需要使用者處理或逐列查看的內容不屬於臨時提示，必須依各自規則持續顯示。
-- 元件不可直接賦值全局錯誤提示狀態；需透過 store 或本地提示 helper 統一設定與清除，避免繞過 5 秒自動消失規則。
+- `loading`
+- `error`
+- `notice`
 
-## 不要實作
+刷新规则：
 
-- 不要做自訂工單排序。
-- 不要做自動排程演算法。
-- 不要允許不同訂單編號的工單重疊。
-- 不要把 Email 做成純文字清單。
-- 不要在 Email 中放 JavaScript。
-- 不要做複雜權限系統，除非另有要求。
+- XLSX 导入成功后并行刷新待排清单与当前可见日历；若日历尚未产生 `activeRange`，日历刷新不会发出请求。
+- 建立排程后刷新待排与日历。
+- 移动、resize、拆分、完成、暂停、继续后刷新日历。
+- 删除片段后刷新待排与日历。
+- 调整待排工时只替换对应工单并重新排序。
+- `activeRange` 是日历最后一次查询区间；没有区间时 `refreshCalendarEvents()` 不发送请求。
+
+待排清单由后端按下列完整顺序排序：
+
+```text
+latestShipTime ASC → urgent DESC → createdAt ASC
+```
+
+`WorkOrderResponse` 当前不含 `createdAt`，所以前端比较器实际上只会按期限与加急再次排序；JavaScript 的稳定排序会保留后端同值项目原有的 `createdAt` 次序。这里的「不支持自定义排序」是指不提供使用者手动排序。
+
+API 日期时间以浏览器本机时间格式化为无 offset 的 `yyyy-MM-ddTHH:mm:ss`。修改日期处理前必须同时核对后端 `LocalDateTime` 语义。
+
+### 5.2 `useAppSettingsStore`
+
+管理：
+
+- `settings`：基础设置与 `emailSender` 摘要。
+- `emailRecipients`。
+- `settingsLoaded`。
+- settings/recipient 的 loading、saving、error。
+
+收件者新增或更新后按下列顺序排序：
+
+```text
+lastUsedAt DESC → usageCount DESC → 姓名或 Email（zh-CN）
+```
+
+首次 GET 列表沿用后端顺序。
+
+### 5.3 提示生命周期
+
+- work-order store 的全局成功、错误与状态提示：5 秒。
+- 复制订单编号成功：3 秒。
+- 同类提示重复触发时重置计时器。
+- 字段验证与 XLSX 逐行错误不是临时提示，不可自动消失。
+- 组件不得直接绕过 store/helper 修改全局提示状态。
+
+## 6. 本地持久化与 URL 状态
+
+| Key / query | 内容 |
+|---|---|
+| `qn-calendar-theme` | `dark` / `light`，默认 `dark` |
+| `qn-calendar-view` | `timeGridWeek` / `dayGridMonth` |
+| `qn-calendar-date` | 日历当前基准日 `yyyy-MM-dd` |
+| `qn-calendar-allow-past-scheduling` | 测试用「允许过去」开关 |
+| `settingsModal=1` | 打开全局设置 |
+| `tab=recipients|email|basic` | 设置当前 tab |
+
+周视图是连续 7 天；首次无保存日期时从今天开始。恢复 `qn-calendar-date` 后，不保证第一栏仍是今天。
+
+## 7. API 对应
+
+### 7.1 工单与片段
+
+| Client 行为 | API | 使用状态 |
+|---|---|---|
+| 导入 XLSX | `POST /api/work-orders/import` | 使用中 |
+| 读取待排 | `GET /api/work-orders/pending` | 使用中 |
+| 删除待排 | `DELETE /api/work-orders/{id}` | 使用中 |
+| 读取日历 | `GET /api/work-orders/calendar?dateFrom&dateTo` | 使用中 |
+| 读取完工统计 | `GET /api/work-orders/statistics/completed` | 使用中 |
+| 待排拖入日历 | `PATCH /api/work-orders/{id}/schedule` | 使用中 |
+| 移动/resize 片段 | `PATCH /api/work-orders/segments/{segmentId}` | 使用中 |
+| 拖出日历 | `DELETE /api/work-orders/segments/{segmentId}` | 使用中 |
+| 拆分片段 | `POST /api/work-orders/segments/{segmentId}/split` | 使用中 |
+| 调整待排工时 | `PATCH /api/work-orders/{id}/duration` | 使用中 |
+| 完成片段 | `PATCH /api/work-orders/segments/{segmentId}/done` | 现行完成 UI |
+| 暂停 | `PATCH /api/work-orders/segments/{segmentId}/pause` | 使用中 |
+| 继续 | `PATCH /api/work-orders/segments/{segmentId}/resume` | 使用中 |
+| 发送 PDF Email | `POST /api/work-orders/schedule-email` | 使用中 |
+| 直接完成整单 | `PATCH /api/work-orders/{id}/done` | client/store 保留，UI 未使用 |
+| reopen | `PATCH /api/work-orders/{id}/reopen` | client/store 保留，UI 未使用；后端拒绝 DONE |
+
+后端另有 `PATCH /api/work-orders/{id}/unschedule`，当前没有前端 client。
+
+### 7.2 设置与收件者
+
+| 行为 | API |
+|---|---|
+| 读取/保存基础设置 | `GET /api/settings`、`PUT /api/settings` |
+| 保存 SMTP 寄件者 | `PUT /api/settings/email-sender` |
+| 读取/新增收件者 | `GET /api/email-recipients`、`POST /api/email-recipients` |
+| 编辑/删除收件者 | `PUT /api/email-recipients/{id}`、`DELETE /api/email-recipients/{id}` |
+
+`http.js` 必须继续把失败正规化为：
+
+```js
+{
+  message,
+  status,
+  details
+}
+```
+
+## 8. XLSX 与待排清单
+
+- 上传同时支持点击选档和 drag/drop。
+- 前端只验证文件名以 `.xlsx` 结尾；后端由 POI 尝试解析工作簿，并验证表头与每个资料行内容。
+- 导入结果显示新增数、更新数与持续显示的逐行错误。
+- `store.loading` 会涵盖导入过程，但目前上传按钮不会据此 disabled 或显示 loading。
+- 待排卡片作为 FullCalendar external event，duration 取 `actualMinutes`，没有时才回退 `estimatedMinutes`。
+- 工时以 15 分钟增减，最低 15 分钟。
+- 删除只允许由卡片按钮触发，删除前确认，并提供 loading、disabled、accessible name。
+- pointer 位移小于 6px 的短按会复制不含 `#` 的订单编号；拖拽不可触发复制。
+- 待排卡片 focus/hover 显示价格、工时、状态、最晚发货、备注 tooltip。
+- 聚焦待排工单时，周视图显示最晚发货红线。
+
+待排卡固定三列信息：
+
+1. `#订单编号` 与 `急`。
+2. `¥价格` 与工时控制。
+3. 红色时钟最晚发货时间与删除按钮。
+
+不显示「待排」状态标签，不重复显示「订单价格」文字。
+
+## 9. FullCalendar 交互约束
+
+### 9.1 基本设置
+
+- 支持 `timeGridWeek` 与 `dayGridMonth`。
+- 周视图隐藏 all-day slot，显示连续 7 天。
+- 「允许过去」关闭时，周视图按上一页若会早于今天，会直接跳回今天而不是进入更早区间。
+- 可视格为 30 分钟，drag/resize snap 为 15 分钟。
+- 月视图只选择日期，正式排程时间固定到该日 `09:00:00`。
+- 只有周视图允许 resize；月视图仍允许拖动。
+- 周视图加载后滚到当前区间最早工单；没有工单时使用全局「周表默认开始时间」。
+- 日期显示 `yyyy-MM-dd`，日期时间显示 `yyyy-MM-dd HH:mm:ss`，24 小时制。
+- 周表头只显示「日号 + 星期」，月表头只显示星期。
+
+### 9.2 手动排程验证
+
+建立、移动、resize 前端都必须：
+
+1. 将开始与结束向上正规化到 15 分钟边界。
+2. 默认拒绝排到浏览器今天以前；「允许过去」只用于测试历史数据。
+3. 拒绝结束晚于 `latestShipTime`。
+4. 检查与不同 `workOrderId` 的可见事件重叠，DONE 也参与。
+5. 允许同工单相邻/重叠，交由后端融合。
+
+与不同工单重叠时：
+
+- 原落点若已经违反今天下限或最晚发货时间，直接拒绝，不进入贴齐搜索。
+- 分别寻找冲突链前方和后方最近的可用相邻区间。
+- 过滤违反今天下限或最晚发货时间的候选。
+- 选择与原落点位移较小者。
+- 没有候选才拒绝并 revert。
+
+后端仍会对全部数据做最终重叠与期限验证，不能把前端可见区间检查当成唯一保护。
+
+### 9.3 API 失败恢复
+
+- external drop：调用 `revert`、移除临时事件、显示错误。
+- event drop / resize：调用 `info.revert()`。
+- 拖出日历的 optimistic remove 失败：重新查询可见日历。
+- 拖拽预览显示候选开始、结束、工时与拒绝原因，并保持在最上层。
+
+### 9.4 片段、完成与计时
+
+- 事件卡显示订单编号、`HH:mm~HH:mm`、整单总排程工时、最晚发货日期与秒级时间。
+- hover/focus tooltip 额外显示暂停时长、状态、价格与备注。
+- 聚焦任一片段时，同工单全部可见片段加选中外框；周视图显示期限红线。
+- 所有非 DONE 卡都会显示拆分按钮；片段不足 30 分钟时点击会显示错误，达到 30 分钟才会按最近 15 分钟边界的中点拆分。
+- DONE 卡不显示完成、拆分、暂停按钮；现行 UI 不提供取消完成。
+- 未完成、片段日期等于浏览器今天且现在已到开始时间时，显示暂停/继续按钮。
+- `scheduleStartLocked` 代表今日片段已有暂停历史：
+  - 仍可等长整体移动。
+  - 顶部 resize handle 隐藏。
+  - resize 必须保持开始不变且只能延后结束。
+- 完成、暂停、继续后的真实时间调整与自动顺延由后端决定；前端刷新日历接受服务端结果。
+
+事件状态 class 可叠加，不要改成互斥：
+
+- `work-order-selected`
+- `work-order-done`
+- `work-order-urgent`
+- `work-order-overdue`
+- `work-order-paused`
+- `work-order-pause-history-resize`
+
+### 9.5 拖出日历
+
+- pointer 在日历范围外放开时立即 optimistic remove，不播放回弹。
+- 原片段是北京业务「今天」时，前端先移除该工单全部可见片段；其他日期先移除指定片段。
+- 无论哪种情况都调用 `DELETE /api/work-orders/segments/{segmentId}`。
+- 整单回待排或只删除单片段的最终判断必须由后端完成。
+
+## 10. 完工统计
+
+- 页面一次读取全部 DONE 统计。
+- 订单月份来自 `orderTime`，不是 `completedAt`。
+- 月份筛选在前端完成；空值代表全部。
+- 表格固定字段：订单编号、备注、价格、预估工时、实际工时、暂停时长、工时差、时薪。
+- 工时差为 0 显示「符合预期」，正数「超出」，负数「提前」。
+- 金额与工时数值靠右，时薪保留两位小数。
+- 统计页使用 `h/m` 显示工时；待排和日历使用「小时/分钟」。除非需求明确变更，不要顺手统一。
+
+## 11. 全局设置
+
+三个 tab：
+
+1. `recipients`：Email 收件者。
+2. `email`：Email 寄件者。
+3. `basic`：基础设置。
+
+打开 Dialog 时并行读取设置与收件者。切 tab、取消、提交成功或重新打开时，依各表单规则清除验证。
+
+基础设置：
+
+- 预估工时基础金额必填、大于 0、最多两位小数。
+- 周表默认开始时间只接受 `HH:00` 或 `HH:30`。
+- 两个字段一起通过 `PUT /api/settings` 保存。
+- 值相对原设置发生变化时启用提交；点击提交后才验证金额与时间格式。
+
+SMTP：
+
+- 已设置时显示遮罩摘要。
+- 编辑时回填 sender Email、host、port、security。
+- `••••••••` 代表沿用已存授权码，送 API 时转为 `null`。
+- sender Email、授权码、host 必填。
+- 前端目前只提供 465、587；security 为 `NONE`、`SSL`、`STARTTLS`。
+- 授权码输入默认遮罩，可切换可见。
+
+收件者：
+
+- 支持新增、行内编辑、确认删除。
+- 手动管理时姓名与 Email 都必填；姓名最多 120 字，Email 最多 320 字。
+- 只有内容变化时才启用新增/保存。
+- 单一收件者的 API 编辑错误留在对应卡片。
+
+## 12. Email Dialog
+
+- 类型为 `WEEK`、`MONTH`、`COMPLETED_STATS`。
+- 排程页默认跟随当前日历视图；完工统计路由默认 `COMPLETED_STATS`。
+- 从月视图打开时默认类型是 `MONTH`；使用者切换到 `WEEK` 后，日期字段沿用当前焦点所在周的范围。
+- 每次打开都刷新 SMTP 摘要、收件者和完工统计月份。
+- 收件者使用 combobox + tags：
+  - 姓名/Email 搜索。
+  - 排除已选项。
+  - 支持方向键、Enter、逗号、Backspace、Escape。
+  - 可直接加入不在常用清单中的合法 Email。
+  - Email 转小写并去重。
+- 当前关闭再打开会保留同一组件实例中的已选收件者；不要在无需求时改变。
+- 主题只读并自动生成，发送时重新计算。
+- WEEK：起讫日期必填，结束不得早于开始。
+- MONTH：月份必填，转换为完整月首/月末。
+- COMPLETED_STATS：月份可空；空值发送 `dateFrom/dateTo = null`，代表全部。
+- SMTP 未配置时禁止发送，并提供跳转寄件者设置入口。
+- 成功后提示 5 秒，Dialog 不自动关闭。
+- 发送或初始化失败会写入 `workOrderStore.error`；Dialog 本身没有错误区，现有全局错误显示在底层排程页或完工统计页，可能被遮罩挡住。
+
+## 13. 表单、无障碍与通用 UI
+
+- 系统可见中文使用简体中文，源码与 HTTP 内容使用 UTF-8。
+- 自定义验证的 `<form>` 使用 `novalidate`，提交时一次验证当前画面的全部必填字段。
+- 字段错误必须显示在对应 label 旁，并设置 `aria-invalid`、`aria-describedby`。
+- invalid 控件使用 `--danger`；focus ring 仍使用 `--primary` / `--primary-soft`。
+- 字段错误出现后，不因 input/change/blur/focus/计时自动消失；只在取消、切 tab、成功重置或下次重新打开等明确边界清除。
+- 只有无法对应单一字段的 API/网络错误才放表单层或全局。
+- `HelpTooltip` 是字段说明的默认实现；问号紧邻标题，hover/focus 显示，Escape 可关闭。
+- 可拖动对象使用 `grab/grabbing`；resize 使用 `ns-resize`。
+- 按钮提供清楚文字或 accessible name；loading 时同步 disabled。
+
+视觉与布局：
+
+- 第一屏直接显示可操作排程，不做 landing page 或 marketing hero。
+- 主色为蓝色，不用绿色作为主操作色；不使用装饰性渐层球、bokeh、无意义插画。
+- 不把卡片包在卡片内。
+- 全局使用 `box-sizing: border-box`，包含 pseudo-elements。
+- 主应用限制在 `100dvh`，超出内容在待排、日历、表格或 Dialog 内部滚动。
+- 顶栏主要操作保持同一列；窄视口不得因换行把动作拆散。
+- 980px 以下排程区改为上下堆叠；有足够宽度时待排卡可多栏，每卡约需 420px。
+- 620px 以下双栏表单改为单栏。
+- tab/tablist 必须完整显示，不得因容器尺寸产生滚动条。
+- 文本不得溢出按钮、卡片、侧栏、表格或日历事件容器。
+
+## 14. 验证与当前边界
+
+前端目前没有 unit、component 或 E2E 测试，也没有 `test`、`lint` script。修改后最低验证：
+
+```bash
+cd frontend
+npm run build
+```
+
+需要运行中系统时，不要单独启动 Vite 或 Spring Boot；依根目录规则重建并启动整套 Docker Compose。
+
+后端 `SpaResourceConfigurationTests` 只验证生产静态资源 fallback/cache，不覆盖 Vue 互动。高风险日历或表单变更需明确列出人工验证范围；不要把 production build 成功描述成行为测试通过。
+
+当前边界：
+
+- `index.html` 仍声明 `lang="zh-Hant"`，与现行简体中文可见文案规则不一致。
+- `WorkOrderCalendar.vue`、`AppSettingsDialog.vue`、`ScheduleEmailDialog.vue` 逻辑较大，但尚未建立 composable 层。
+- `markAsDone(id)`、`reopen(id)` 是未被现行 UI 使用的保留 client/store action。
+- 不提供使用者自定义排序。
+- 不提供自动初始排程算法；「重叠时贴齐」只处理当前拖放意图。
+- 不实现复杂权限系统，除非另有明确需求。
+- Email/PDF 发送可能超过 Axios 20 秒 timeout；变更 timeout 或重试前必须先处理重复寄送语义。
+- 当前没有 CORS 配置；不要假定将 `VITE_API_BASE_URL` 指向任意跨域服务即可使用。
