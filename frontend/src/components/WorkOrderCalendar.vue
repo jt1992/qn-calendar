@@ -129,6 +129,7 @@ const calendarOptions = computed(() => ({
   slotLabelInterval: '01:00:00',
   snapDuration: '00:15:00',
   scrollTime: '06:00:00',
+  scrollTimeReset: false,
   slotLabelFormat: {
     hour: '2-digit',
     minute: '2-digit',
