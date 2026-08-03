@@ -1,17 +1,91 @@
 <script setup>
-import { ref } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Upload } from '@lucide/vue'
-import HelpTooltip from './HelpTooltip.vue'
 import { useWorkOrderStore } from '../stores/workOrderStore'
 
 const emit = defineEmits(['imported'])
 const store = useWorkOrderStore()
 const fileInput = ref(null)
+const uploadDropzone = ref(null)
+const uploadHelpTooltip = ref(null)
 const isDragging = ref(false)
 const fileError = ref('')
+const uploadHelpOpen = ref(false)
+const uploadHelpStyle = ref({})
+let uploadDropzoneFocused = false
+let uploadDropzoneHovered = false
+
+onMounted(() => {
+  window.addEventListener('resize', updateUploadHelpPosition)
+  window.addEventListener('scroll', updateUploadHelpPosition, true)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', updateUploadHelpPosition)
+  window.removeEventListener('scroll', updateUploadHelpPosition, true)
+})
 
 function openFilePicker() {
   fileInput.value?.click()
+}
+
+function showUploadHelp() {
+  uploadHelpOpen.value = true
+  nextTick(updateUploadHelpPosition)
+}
+
+function handleUploadMouseEnter() {
+  uploadDropzoneHovered = true
+  showUploadHelp()
+}
+
+function handleUploadMouseLeave() {
+  uploadDropzoneHovered = false
+
+  if (!uploadDropzoneFocused) {
+    uploadHelpOpen.value = false
+  }
+}
+
+function handleUploadFocus() {
+  uploadDropzoneFocused = true
+  showUploadHelp()
+}
+
+function handleUploadBlur() {
+  uploadDropzoneFocused = false
+
+  if (!uploadDropzoneHovered) {
+    uploadHelpOpen.value = false
+  }
+}
+
+function closeUploadHelp() {
+  uploadHelpOpen.value = false
+}
+
+function updateUploadHelpPosition() {
+  if (!uploadHelpOpen.value || !uploadDropzone.value || !uploadHelpTooltip.value) {
+    return
+  }
+
+  const viewportPadding = 12
+  const gap = 8
+  const triggerRect = uploadDropzone.value.getBoundingClientRect()
+  const tooltipRect = uploadHelpTooltip.value.getBoundingClientRect()
+  const left = Math.min(
+    Math.max(viewportPadding, triggerRect.left),
+    window.innerWidth - tooltipRect.width - viewportPadding
+  )
+  const spaceBelow = window.innerHeight - triggerRect.bottom - viewportPadding
+  const top = spaceBelow >= tooltipRect.height + gap
+    ? triggerRect.bottom + gap
+    : Math.max(viewportPadding, triggerRect.top - tooltipRect.height - gap)
+
+  uploadHelpStyle.value = {
+    left: `${left}px`,
+    top: `${top}px`
+  }
 }
 
 async function handleFileChange(event) {
@@ -53,9 +127,40 @@ async function handleDrop(event) {
 
 <template>
   <div class="upload-field">
-    <span class="form-field-label">
-      <span>XLSX 文件</span>
-      <HelpTooltip aria-label="查看 XLSX 字段说明">
+    <div class="upload-dropzone-container">
+      <button
+        ref="uploadDropzone"
+        type="button"
+        class="upload-dropzone"
+        :class="{ dragging: isDragging, invalid: fileError }"
+        aria-label="上传 XLSX"
+        :aria-describedby="fileError ? 'xlsx-upload-help xlsx-file-error' : 'xlsx-upload-help'"
+        :aria-invalid="Boolean(fileError)"
+        @click="openFilePicker"
+        @dragenter.prevent="isDragging = true"
+        @dragover.prevent="isDragging = true"
+        @dragleave.prevent="isDragging = false"
+        @drop.prevent="handleDrop"
+        @mouseenter="handleUploadMouseEnter"
+        @mouseleave="handleUploadMouseLeave"
+        @focus="handleUploadFocus"
+        @blur="handleUploadBlur"
+        @keydown.esc.prevent="closeUploadHelp"
+      >
+        <Upload :size="16" />
+        <span>点击上传或拖拽 XLSX 到这里</span>
+      </button>
+    </div>
+
+    <Teleport to=".app-shell">
+      <div
+        v-show="uploadHelpOpen"
+        id="xlsx-upload-help"
+        ref="uploadHelpTooltip"
+        class="upload-dropzone-tooltip"
+        :style="uploadHelpStyle"
+        role="tooltip"
+      >
         <p>
           <strong>必填：</strong>
           订单编号、买家实付金额、应发货时间
@@ -64,33 +169,19 @@ async function handleDrop(event) {
           <strong>选填：</strong>
           备注标签、买家留言、商家备注、订单付款时间
         </p>
-      </HelpTooltip>
-      <small v-if="fileError" id="xlsx-file-error" class="form-field-error" role="alert">
-        {{ fileError }}
-      </small>
-    </span>
-    <button
-      type="button"
-      class="upload-dropzone"
-      :class="{ dragging: isDragging, invalid: fileError }"
-      aria-label="上传 XLSX"
-      :aria-describedby="fileError ? 'xlsx-file-error' : undefined"
-      :aria-invalid="Boolean(fileError)"
-      @click="openFilePicker"
-      @dragenter.prevent="isDragging = true"
-      @dragover.prevent="isDragging = true"
-      @dragleave.prevent="isDragging = false"
-      @drop.prevent="handleDrop"
-    >
-      <Upload :size="16" />
-      <span>点击上传或拖拽 XLSX 到这里</span>
-    </button>
+      </div>
+    </Teleport>
+
+    <small v-if="fileError" id="xlsx-file-error" class="form-field-error" role="alert">
+      {{ fileError }}
+    </small>
+
     <input
       ref="fileInput"
       class="visually-hidden"
       type="file"
       accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-      :aria-describedby="fileError ? 'xlsx-file-error' : undefined"
+      :aria-describedby="fileError ? 'xlsx-upload-help xlsx-file-error' : 'xlsx-upload-help'"
       :aria-invalid="Boolean(fileError)"
       @change="handleFileChange"
     />

@@ -308,6 +308,39 @@ select:disabled {
   border-color: var(--danger);
 }
 
+.upload-dropzone-container {
+  min-width: 0;
+}
+
+.upload-dropzone-tooltip {
+  position: fixed;
+  z-index: 2147483647;
+  width: max-content;
+  max-width: min(560px, calc(100vw - 24px));
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.45;
+  pointer-events: none;
+}
+
+.upload-dropzone-tooltip p {
+  margin: 0;
+}
+
+.upload-dropzone-tooltip p + p {
+  margin-top: 7px;
+}
+
+.upload-dropzone-tooltip strong {
+  color: var(--primary);
+}
+
 .upload-dropzone span {
   min-width: 0;
   overflow: hidden;
@@ -1444,19 +1477,8 @@ select:disabled {
   min-width: 0;
 }
 
-.upload-field .form-field-label {
-  align-items: center;
-  justify-content: flex-start;
-  column-gap: 4px;
-  row-gap: 2px;
-  padding-inline: 6px;
-  color: var(--muted);
-  font-size: 0.76rem;
-  font-weight: 800;
-}
-
 .upload-field .form-field-error {
-  margin-left: 2px;
+  padding-inline: 6px;
 }
 
 .upload-field .upload-dropzone {
