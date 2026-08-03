@@ -741,6 +741,7 @@ select:disabled {
   height: 100%;
   min-height: 0;
   overflow: hidden;
+  overscroll-behavior-x: none;
 }
 
 .calendar-click-area .calendar-shell {

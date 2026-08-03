@@ -14,6 +14,22 @@ const settingsDialogOpen = ref(route.query.settingsModal === '1')
 const settingsTab = ref(normalizeSettingsTab(route.query.tab))
 const themeMode = ref(window.localStorage.getItem('qn-calendar-theme') || 'dark')
 const completedStatsMonth = ref('')
+const pointerActivatedControlSelector = [
+  'button',
+  'input[type="button"]',
+  'input[type="checkbox"]',
+  'input[type="color"]',
+  'input[type="file"]',
+  'input[type="image"]',
+  'input[type="radio"]',
+  'input[type="range"]',
+  'input[type="reset"]',
+  'input[type="submit"]',
+  '[role="button"]',
+  '[role="checkbox"]',
+  '[role="radio"]',
+  '[role="switch"]'
+].join(', ')
 const emailDateRange = ref({
   dateFrom: '',
   dateTo: '',
@@ -34,6 +50,25 @@ watch(
 function toggleTheme() {
   themeMode.value = themeMode.value === 'dark' ? 'light' : 'dark'
   window.localStorage.setItem('qn-calendar-theme', themeMode.value)
+}
+
+function releasePointerActivatedControlFocus(event) {
+  if (event.detail === 0 || !(event.target instanceof Element)) {
+    return
+  }
+
+  const label = event.target.closest('label')
+  const control = event.target.closest(pointerActivatedControlSelector) || label?.control
+
+  if (!control?.matches(pointerActivatedControlSelector)) {
+    return
+  }
+
+  window.requestAnimationFrame(() => {
+    if (document.activeElement === control || control.contains(document.activeElement)) {
+      document.activeElement.blur()
+    }
+  })
 }
 
 function updateEmailDateRange(range) {
@@ -97,7 +132,11 @@ function normalizeSettingsTab(tab) {
 </script>
 
 <template>
-  <main class="app-shell" :data-theme="themeMode">
+  <main
+    class="app-shell"
+    :data-theme="themeMode"
+    @click.capture="releasePointerActivatedControlFocus"
+  >
     <header class="top-nav">
       <div
         v-if="workOrderStore.notice === ORDER_NUMBER_COPY_NOTICE"

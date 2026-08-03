@@ -41,10 +41,13 @@ const ignoreNextCalendarClick = ref(false)
 const localFocusedWorkOrder = ref(null)
 const scheduleGranularityMinutes = 15
 const eventClickDragThresholdPixels = 6
+const calendarWheelNavigationThresholdPixels = 40
 const defaultWeekViewStartMinutes = 6 * 60
 const businessTimeZone = 'Asia/Shanghai'
 const allowPastScheduling = ref(getInitialAllowPastScheduling())
 let calendarEventPointerInteraction = null
+let calendarWheelDelta = 0
+let calendarWheelResetTimer = null
 
 const effectiveFocusedWorkOrder = computed(() => props.focusedWorkOrder || localFocusedWorkOrder.value)
 const focusedWorkOrderId = computed(() => {
@@ -169,6 +172,7 @@ onMounted(() => {
   window.addEventListener('pointerup', clearInteractionPreview)
   window.addEventListener('pointerdown', handleGlobalFocusPointerDown)
   window.addEventListener('click', handleGlobalFocusClick)
+  window.addEventListener('keydown', handleCalendarKeydown)
 })
 
 onBeforeUnmount(() => {
@@ -177,6 +181,8 @@ onBeforeUnmount(() => {
   window.removeEventListener('pointerup', clearInteractionPreview)
   window.removeEventListener('pointerdown', handleGlobalFocusPointerDown)
   window.removeEventListener('click', handleGlobalFocusClick)
+  window.removeEventListener('keydown', handleCalendarKeydown)
+  window.clearTimeout(calendarWheelResetTimer)
 })
 
 watch(
@@ -757,13 +763,12 @@ function previousRange() {
     return
   }
 
-  if (!allowPastScheduling.value && currentView.value === 'timeGridWeek') {
-    const previousStart = addDays(calendarApi.view.currentStart, -7)
+  const previousStart = calendarApi.view.type === 'dayGridMonth'
+    ? addMonths(calendarApi.view.currentStart, -1)
+    : addDays(calendarApi.view.currentStart, -7)
 
-    if (previousStart < todayStart()) {
-      calendarApi.gotoDate(todayStart())
-      return
-    }
+  if (preventPastRangeNavigation(calendarApi, previousStart)) {
+    return
   }
 
   calendarApi.prev()
@@ -773,16 +778,139 @@ function nextRange() {
   calendarRef.value?.getApi().next()
 }
 
+function moveCalendarByMonth(months) {
+  if (months > 0) {
+    nextRange()
+  } else {
+    previousRange()
+  }
+}
+
+function moveCalendarByDay(days) {
+  const calendarApi = calendarRef.value?.getApi()
+
+  if (!calendarApi) {
+    return
+  }
+
+  if (preventPastRangeNavigation(calendarApi, addDays(calendarApi.view.currentStart, days))) {
+    return
+  }
+
+  calendarApi.incrementDate({ days })
+}
+
+function preventPastRangeNavigation(calendarApi, targetStart) {
+  if (allowPastScheduling.value) {
+    return false
+  }
+
+  const minimumStart = minimumCalendarStart(calendarApi.view.type)
+
+  if (targetStart >= minimumStart) {
+    return false
+  }
+
+  if (!isSameDate(calendarApi.view.currentStart, minimumStart)) {
+    calendarApi.gotoDate(minimumStart)
+  }
+
+  return true
+}
+
+function handleCalendarWheel(event) {
+  const isMonthView = currentView.value === 'dayGridMonth'
+  const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY
+
+  if ((!isMonthView && Math.abs(event.deltaX) <= Math.abs(event.deltaY)) || delta === 0) {
+    return
+  }
+
+  event.preventDefault()
+  calendarWheelDelta += isMonthView ? delta : event.deltaX
+  window.clearTimeout(calendarWheelResetTimer)
+  calendarWheelResetTimer = window.setTimeout(() => {
+    calendarWheelDelta = 0
+  }, 150)
+
+  if (Math.abs(calendarWheelDelta) < calendarWheelNavigationThresholdPixels) {
+    return
+  }
+
+  if (isMonthView) {
+    moveCalendarByMonth(calendarWheelDelta > 0 ? 1 : -1)
+  } else {
+    moveCalendarByDay(calendarWheelDelta > 0 ? 1 : -1)
+  }
+
+  calendarWheelDelta = 0
+}
+
+function handleCalendarKeydown(event) {
+  if (
+    event.defaultPrevented
+    || event.altKey
+    || event.ctrlKey
+    || event.metaKey
+    || event.shiftKey
+    || isEditableKeyboardTarget(event.target)
+  ) {
+    return
+  }
+
+  if (event.key === 'ArrowLeft') {
+    event.preventDefault()
+    moveCalendarFromKeyboard(-1, event.repeat)
+  } else if (event.key === 'ArrowRight') {
+    event.preventDefault()
+    moveCalendarFromKeyboard(1, event.repeat)
+  }
+}
+
+function moveCalendarFromKeyboard(direction, isRepeat) {
+  if (currentView.value === 'dayGridMonth') {
+    if (!isRepeat) {
+      moveCalendarByMonth(direction)
+    }
+    return
+  }
+
+  moveCalendarByDay(direction)
+}
+
+function isEditableKeyboardTarget(target) {
+  return target instanceof Element
+    && (target.isContentEditable || Boolean(target.closest('input, textarea, select, [contenteditable="true"]')))
+}
+
 function today() {
   calendarRef.value?.getApi().today()
 }
 
 function changeView(viewName) {
-  if (validCalendarViews.has(viewName)) {
-    window.localStorage.setItem(calendarViewStorageKey, viewName)
+  if (!validCalendarViews.has(viewName)) {
+    return
   }
 
-  calendarRef.value?.getApi().changeView(viewName)
+  window.localStorage.setItem(calendarViewStorageKey, viewName)
+
+  const calendarApi = calendarRef.value?.getApi()
+
+  if (!calendarApi) {
+    return
+  }
+
+  const sourceStart = new Date(calendarApi.view.currentStart)
+  const minimumStart = minimumCalendarStart(viewName)
+  const targetStart = !allowPastScheduling.value && sourceStart < minimumStart
+    ? minimumStart
+    : sourceStart
+
+  calendarApi.changeView(viewName, targetStart)
+}
+
+function minimumCalendarStart(viewName) {
+  return viewName === 'dayGridMonth' ? startOfMonth(todayStart()) : todayStart()
 }
 
 function getInitialCalendarView() {
@@ -802,6 +930,16 @@ function getInitialAllowPastScheduling() {
 function toggleAllowPastScheduling(event) {
   allowPastScheduling.value = event.target.checked
   window.localStorage.setItem(allowPastSchedulingStorageKey, String(allowPastScheduling.value))
+
+  if (allowPastScheduling.value) {
+    return
+  }
+
+  const calendarApi = calendarRef.value?.getApi()
+
+  if (calendarApi) {
+    calendarApi.gotoDate(minimumCalendarStart(calendarApi.view.type))
+  }
 }
 
 async function unscheduleEvent(event, options = {}) {
@@ -1289,6 +1427,20 @@ function addDays(date, days) {
   return next
 }
 
+function addMonths(date, months) {
+  const next = new Date(date)
+  next.setDate(1)
+  next.setMonth(next.getMonth() + months)
+  return next
+}
+
+function startOfMonth(date) {
+  const start = new Date(date)
+  start.setDate(1)
+  start.setHours(0, 0, 0, 0)
+  return start
+}
+
 function todayStart() {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
@@ -1493,7 +1645,11 @@ function weekdayLabel(date) {
       </div>
     </header>
 
-    <div class="calendar-click-area" @click="handleCalendarBackgroundClick">
+    <div
+      class="calendar-click-area"
+      @click="handleCalendarBackgroundClick"
+      @wheel="handleCalendarWheel"
+    >
       <FullCalendar ref="calendarRef" class="calendar-shell" :options="calendarOptions" />
     </div>
 
