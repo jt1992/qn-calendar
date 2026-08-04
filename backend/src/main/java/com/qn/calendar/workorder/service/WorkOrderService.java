@@ -66,13 +66,15 @@ public class WorkOrderService {
                 .stream()
                 .map((segment) -> {
                     Optional<WorkOrderSegmentPause> latestPause = latestPause(segment.getId());
+                    List<WorkOrderSegment> segments = segmentRepository
+                            .findByWorkOrderIdOrderByScheduledStartAscScheduledEndAscIdAsc(
+                                    segment.getWorkOrder().getId()
+                            );
                     return WorkOrderSegmentResponse.from(
                             segment,
-                            WorkOrderTimeUtils.totalMinutes(segmentRepository.findByWorkOrderIdOrderByScheduledStartAscScheduledEndAscIdAsc(
-                                    segment.getWorkOrder().getId()
-                            )),
+                            WorkOrderTimeUtils.totalMinutes(segments),
                             pauseRepository.existsBySegmentIdAndResumedAtIsNull(segment.getId()),
-                            pausedMinutes(segment.getWorkOrder()),
+                            pausedMinutes(segment.getWorkOrder(), segments),
                             isScheduleStartLocked(segment, latestPause),
                             latestPause.map(WorkOrderSegmentPause::getPausedAt).orElse(null)
                     );
@@ -84,15 +86,15 @@ public class WorkOrderService {
     public List<CompletedWorkOrderStatsResponse> getCompletedWorkOrderStats() {
         return repository.findCompletedStats(WorkOrderStatus.DONE)
                 .stream()
-                .map((workOrder) -> CompletedWorkOrderStatsResponse.from(
-                        workOrder,
-                        WorkOrderTimeUtils.totalMinutes(
-                                segmentRepository.findByWorkOrderIdOrderByScheduledStartAscScheduledEndAscIdAsc(
-                                        workOrder.getId()
-                                )
-                        ),
-                        pausedMinutes(workOrder)
-                ))
+                .map((workOrder) -> {
+                    List<WorkOrderSegment> segments = segmentRepository
+                            .findByWorkOrderIdOrderByScheduledStartAscScheduledEndAscIdAsc(workOrder.getId());
+                    return CompletedWorkOrderStatsResponse.from(
+                            workOrder,
+                            WorkOrderTimeUtils.totalMinutes(segments),
+                            pausedMinutes(workOrder, segments)
+                    );
+                })
                 .toList();
     }
 
@@ -159,11 +161,15 @@ public class WorkOrderService {
         return workOrder;
     }
 
-    private int pausedMinutes(WorkOrder workOrder) {
+    private int pausedMinutes(WorkOrder workOrder, List<WorkOrderSegment> segments) {
         LocalDateTime fallbackEnd = workOrder.getCompletedAt() == null
                 ? LocalDateTime.now(clock)
                 : workOrder.getCompletedAt();
-        return WorkOrderTimeUtils.pauseMinutes(pauseRepository.findByWorkOrderId(workOrder.getId()), fallbackEnd);
+        return WorkOrderTimeUtils.pauseMinutes(
+                pauseRepository.findByWorkOrderId(workOrder.getId()),
+                segments,
+                fallbackEnd
+        );
     }
 
     private boolean isScheduleStartLocked(

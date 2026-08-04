@@ -42,6 +42,7 @@ import com.qn.calendar.workorder.constant.WorkOrderStatus;
 import com.qn.calendar.workorder.dto.CompletedWorkOrderStatsResponse;
 import com.qn.calendar.workorder.dto.ScheduleEmailRequest;
 import com.qn.calendar.workorder.dto.WorkOrderSegmentResponse;
+import com.qn.calendar.workorder.entity.WorkOrderSegment;
 import com.qn.calendar.workorder.repository.WorkOrderRepository;
 import com.qn.calendar.workorder.repository.WorkOrderSegmentPauseRepository;
 import com.qn.calendar.workorder.repository.WorkOrderSegmentRepository;
@@ -122,13 +123,18 @@ public class WorkOrderEmailService {
         dateFrom.atStartOfDay(),
         dateTo.plusDays(1).atStartOfDay())
         .stream()
-        .map((segment) -> WorkOrderSegmentResponse.from(
-            segment,
-            WorkOrderTimeUtils
-                .totalMinutes(segmentRepository.findByWorkOrderIdOrderByScheduledStartAscScheduledEndAscIdAsc(
-                    segment.getWorkOrder().getId())),
-            pauseRepository.existsBySegmentIdAndResumedAtIsNull(segment.getId()),
-            pausedMinutes(segment.getWorkOrder().getId(), segment.getWorkOrder().getCompletedAt())))
+        .map((segment) -> {
+          List<WorkOrderSegment> workOrderSegments = segmentRepository
+              .findByWorkOrderIdOrderByScheduledStartAscScheduledEndAscIdAsc(segment.getWorkOrder().getId());
+          return WorkOrderSegmentResponse.from(
+              segment,
+              WorkOrderTimeUtils.totalMinutes(workOrderSegments),
+              pauseRepository.existsBySegmentIdAndResumedAtIsNull(segment.getId()),
+              pausedMinutes(
+                  segment.getWorkOrder().getId(),
+                  segment.getWorkOrder().getCompletedAt(),
+                  workOrderSegments));
+        })
         .toList();
 
     String html = renderHtml(request, dateFrom, dateTo, segments);
@@ -215,12 +221,14 @@ public class WorkOrderEmailService {
   private List<CompletedWorkOrderStatsResponse> findCompletedStats() {
     return workOrderRepository.findCompletedStats(WorkOrderStatus.DONE)
         .stream()
-        .map((workOrder) -> CompletedWorkOrderStatsResponse.from(
-            workOrder,
-            WorkOrderTimeUtils.totalMinutes(
-                segmentRepository.findByWorkOrderIdOrderByScheduledStartAscScheduledEndAscIdAsc(
-                    workOrder.getId())),
-            pausedMinutes(workOrder.getId(), workOrder.getCompletedAt())))
+        .map((workOrder) -> {
+          List<WorkOrderSegment> segments = segmentRepository
+              .findByWorkOrderIdOrderByScheduledStartAscScheduledEndAscIdAsc(workOrder.getId());
+          return CompletedWorkOrderStatsResponse.from(
+              workOrder,
+              WorkOrderTimeUtils.totalMinutes(segments),
+              pausedMinutes(workOrder.getId(), workOrder.getCompletedAt(), segments));
+        })
         .toList();
   }
 
@@ -230,12 +238,14 @@ public class WorkOrderEmailService {
         dateFrom.atStartOfDay(),
         dateTo.plusDays(1).atStartOfDay())
         .stream()
-        .map((workOrder) -> CompletedWorkOrderStatsResponse.from(
-            workOrder,
-            WorkOrderTimeUtils.totalMinutes(
-                segmentRepository.findByWorkOrderIdOrderByScheduledStartAscScheduledEndAscIdAsc(
-                    workOrder.getId())),
-            pausedMinutes(workOrder.getId(), workOrder.getCompletedAt())))
+        .map((workOrder) -> {
+          List<WorkOrderSegment> segments = segmentRepository
+              .findByWorkOrderIdOrderByScheduledStartAscScheduledEndAscIdAsc(workOrder.getId());
+          return CompletedWorkOrderStatsResponse.from(
+              workOrder,
+              WorkOrderTimeUtils.totalMinutes(segments),
+              pausedMinutes(workOrder.getId(), workOrder.getCompletedAt(), segments));
+        })
         .toList();
   }
 
@@ -287,9 +297,15 @@ public class WorkOrderEmailService {
         formatHourlyRate(stats.hourlyRate()));
   }
 
-  private int pausedMinutes(Long workOrderId, LocalDateTime completedAt) {
+  private int pausedMinutes(
+      Long workOrderId,
+      LocalDateTime completedAt,
+      List<WorkOrderSegment> segments) {
     LocalDateTime fallbackEnd = completedAt == null ? LocalDateTime.now(clock) : completedAt;
-    return WorkOrderTimeUtils.pauseMinutes(pauseRepository.findByWorkOrderId(workOrderId), fallbackEnd);
+    return WorkOrderTimeUtils.pauseMinutes(
+        pauseRepository.findByWorkOrderId(workOrderId),
+        segments,
+        fallbackEnd);
   }
 
   private static Map<LocalDate, List<EmailOrderRow>> buildRowsByDate(
