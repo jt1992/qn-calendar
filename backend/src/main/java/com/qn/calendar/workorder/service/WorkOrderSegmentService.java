@@ -284,7 +284,7 @@ public class WorkOrderSegmentService {
         );
 
         int totalMinutes = WorkOrderTimeUtils.totalMinutes(segments);
-        int pausedMinutes = pausedMinutes(workOrder);
+        int pausedMinutes = pausedMinutes(workOrder, segments);
         Map<Long, Boolean> pausedBySegmentId = new LinkedHashMap<>();
         Map<Long, Boolean> scheduleStartLockedBySegmentId = new LinkedHashMap<>();
         Map<Long, LocalDateTime> latestPausedAtBySegmentId = new LinkedHashMap<>();
@@ -369,9 +369,13 @@ public class WorkOrderSegmentService {
         );
     }
 
-    private int pausedMinutes(WorkOrder workOrder) {
+    private int pausedMinutes(WorkOrder workOrder, List<WorkOrderSegment> segments) {
         LocalDateTime fallbackEnd = workOrder.getCompletedAt() == null ? currentTime() : workOrder.getCompletedAt();
-        return WorkOrderTimeUtils.pauseMinutes(pauseRepository.findByWorkOrderId(workOrder.getId()), fallbackEnd);
+        return WorkOrderTimeUtils.pauseMinutes(
+                pauseRepository.findByWorkOrderId(workOrder.getId()),
+                segments,
+                fallbackEnd
+        );
     }
 
     private void resumePauseForCompletion(WorkOrderSegmentPause pause, LocalDateTime completedAt) {

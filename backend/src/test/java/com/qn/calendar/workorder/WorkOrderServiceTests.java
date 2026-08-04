@@ -11,6 +11,7 @@ import java.time.LocalDateTime;
 import com.qn.calendar.workorder.constant.WorkOrderStatus;
 import com.qn.calendar.workorder.dto.ScheduleWorkOrderRequest;
 import com.qn.calendar.workorder.entity.WorkOrder;
+import com.qn.calendar.workorder.entity.WorkOrderSegmentPause;
 import com.qn.calendar.workorder.repository.WorkOrderRepository;
 import com.qn.calendar.workorder.repository.WorkOrderSegmentPauseRepository;
 import com.qn.calendar.workorder.repository.WorkOrderSegmentRepository;
@@ -295,6 +296,64 @@ class WorkOrderServiceTests {
         assertThat(stats.getFirst().pausedMinutes()).isEqualTo(30);
         assertThat(stats.getFirst().deltaMinutes()).isEqualTo(-60);
         assertThat(stats.getFirst().hourlyRate()).isEqualByComparingTo("150.00");
+    }
+
+    @Test
+    void completedStatsOnlyCountPauseOverlappingSplitSegments() {
+        WorkOrder completed = repository.save(order("ORD-SPLIT-PAUSE-STATS"));
+        scheduleService.schedule(
+                completed.getId(),
+                new ScheduleWorkOrderRequest(
+                        LocalDateTime.of(2026, 6, 8, 9, 0),
+                        LocalDateTime.of(2026, 6, 8, 10, 0)
+                )
+        );
+        scheduleService.schedule(
+                completed.getId(),
+                new ScheduleWorkOrderRequest(
+                        LocalDateTime.of(2026, 6, 8, 13, 0),
+                        LocalDateTime.of(2026, 6, 8, 15, 0)
+                )
+        );
+        var segments = segmentRepository.findByWorkOrderIdOrderByScheduledStartAscScheduledEndAscIdAsc(
+                completed.getId()
+        );
+        WorkOrderSegmentPause pause = new WorkOrderSegmentPause(
+                segments.getFirst(),
+                LocalDateTime.of(2026, 6, 8, 9, 30)
+        );
+        pause.resume(LocalDateTime.of(2026, 6, 8, 14, 0));
+        pauseRepository.save(pause);
+        completed.markDone(LocalDateTime.of(2026, 6, 8, 14, 0));
+        repository.saveAndFlush(completed);
+
+        var stats = service.getCompletedWorkOrderStats();
+
+        assertThat(stats).hasSize(1);
+        assertThat(stats.getFirst().pausedMinutes()).isEqualTo(90);
+        assertThat(stats.getFirst().actualTotalMinutes()).isEqualTo(90);
+    }
+
+    @Test
+    void completedStatsLimitOpenPauseToScheduledTime() {
+        WorkOrder completed = repository.save(order("ORD-OPEN-PAUSE-STATS"));
+        var scheduled = scheduleService.schedule(
+                completed.getId(),
+                new ScheduleWorkOrderRequest(
+                        LocalDateTime.of(2026, 6, 8, 9, 0),
+                        LocalDateTime.of(2026, 6, 8, 14, 0)
+                )
+        );
+        Long segmentId = scheduled.segments().getFirst().segmentId();
+        segmentService.pauseSegment(segmentId, LocalDateTime.of(2026, 6, 8, 10, 0));
+        completed.markDone(LocalDateTime.of(2026, 6, 9, 9, 0));
+        repository.saveAndFlush(completed);
+
+        var stats = service.getCompletedWorkOrderStats();
+
+        assertThat(stats).hasSize(1);
+        assertThat(stats.getFirst().pausedMinutes()).isEqualTo(240);
+        assertThat(stats.getFirst().actualTotalMinutes()).isEqualTo(60);
     }
 
     private WorkOrder order(String orderNo) {

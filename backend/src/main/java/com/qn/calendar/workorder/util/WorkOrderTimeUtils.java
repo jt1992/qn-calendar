@@ -27,20 +27,49 @@ public final class WorkOrderTimeUtils {
                 .sum();
     }
 
-    public static int pauseMinutes(List<WorkOrderSegmentPause> pauses, LocalDateTime fallbackEnd) {
+    public static int pauseMinutes(
+            List<WorkOrderSegmentPause> pauses,
+            List<WorkOrderSegment> segments,
+            LocalDateTime fallbackEnd
+    ) {
         return pauses.stream()
-                .mapToInt((pause) -> pauseMinutes(pause, fallbackEnd))
+                .mapToInt((pause) -> pauseMinutes(pause, segments, fallbackEnd))
                 .sum();
     }
 
-    public static int pauseMinutes(WorkOrderSegmentPause pause, LocalDateTime fallbackEnd) {
+    public static int pauseMinutes(
+            WorkOrderSegmentPause pause,
+            List<WorkOrderSegment> segments,
+            LocalDateTime fallbackEnd
+    ) {
         LocalDateTime end = pause.getResumedAt() == null ? fallbackEnd : pause.getResumedAt();
 
         if (end == null || !end.isAfter(pause.getPausedAt())) {
             return 0;
         }
 
-        return Math.toIntExact(Duration.between(pause.getPausedAt(), end).toMinutes());
+        long overlappingSeconds = segments.stream()
+                .mapToLong((segment) -> overlapSeconds(
+                        pause.getPausedAt(),
+                        end,
+                        segment.getScheduledStart(),
+                        segment.getScheduledEnd()
+                ))
+                .sum();
+        return Math.toIntExact(overlappingSeconds / 60);
+    }
+
+    private static long overlapSeconds(
+            LocalDateTime firstStart,
+            LocalDateTime firstEnd,
+            LocalDateTime secondStart,
+            LocalDateTime secondEnd
+    ) {
+        LocalDateTime overlapStart = firstStart.isAfter(secondStart) ? firstStart : secondStart;
+        LocalDateTime overlapEnd = firstEnd.isBefore(secondEnd) ? firstEnd : secondEnd;
+        return overlapEnd.isAfter(overlapStart)
+                ? Duration.between(overlapStart, overlapEnd).toSeconds()
+                : 0;
     }
 
     public static boolean isScheduleBoundary(LocalDateTime time) {

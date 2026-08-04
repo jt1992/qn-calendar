@@ -452,6 +452,8 @@ resumedAt = null
 - 继续时间不可早于暂停时间。
 - 可以跨日继续。
 - 每个暂停区间用整分钟计算，不足一分钟的秒数截断。
+- 日历、完工统计及 Email/PDF 显示的暂停时长，只累计暂停区间与同一工单各排程片段重叠的时间；拆分片段之间的空档及排程范围外时间不计入。
+- 开放中的 pause 以当前时间为暂定结束；工单完成后改以 `completedAt` 为结束，再与所有排程片段取交集。
 
 ### 7.3 暂停历史对移动/resize 的限制
 
@@ -518,7 +520,7 @@ PATCH /api/work-orders/segments/{segmentId}/done
 
 ```text
 scheduledTotalMinutes = 所有片段分钟总和
-pausedMinutes = 所有暂停区间分钟总和
+pausedMinutes = 所有暂停区间与同工单排程片段的重叠分钟总和
 actualTotalMinutes = max(0, scheduledTotalMinutes - pausedMinutes)
 deltaMinutes = actualTotalMinutes - estimatedMinutes
 hourlyRate = price × 60 / actualTotalMinutes
