@@ -18,6 +18,7 @@ export const useAppSettingsStore = defineStore('appSettings', {
     settings: {
       estimatedHourlyBaseAmount: 100,
       weekViewDefaultStartTime: '06:00',
+      orderSourceOptions: ['千牛', '小红书'],
       emailSender: {
         configured: false,
         senderEmailMasked: '',

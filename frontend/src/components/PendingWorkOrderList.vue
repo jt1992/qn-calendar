@@ -62,6 +62,7 @@ function toExternalEvent(workOrder) {
       workOrderId: workOrder.id,
       orderNo: workOrder.orderNo,
       source: workOrder.source,
+      sourceName: workOrder.sourceName,
       urgent: workOrder.urgent,
       status: workOrder.status,
       latestShipTime: workOrder.latestShipTime,
@@ -189,12 +190,23 @@ function statusLabel(status) {
   return status === 'DONE' ? '已完成' : status === 'SCHEDULED' ? '已排入' : '待排'
 }
 
-function sourceLabel(source) {
-  return source === 'XIAOHONGSHU' ? '书' : '千'
+function sourceLabel(workOrder) {
+  if (workOrder.source === 'XIAOHONGSHU') {
+    return '书'
+  }
+  if (workOrder.source === 'QIANNIU') {
+    return '千'
+  }
+
+  return workOrder.sourceName?.trim().slice(0, 1) || '其'
 }
 
-function sourceLabelText(source) {
-  return source === 'XIAOHONGSHU' ? '小红书订单' : '千牛订单'
+function sourceLabelText(workOrder) {
+  return `${workOrder.sourceName || '其他'}订单`
+}
+
+function sourceClass(source) {
+  return source === 'XIAOHONGSHU' ? 'xiaohongshu' : source === 'QIANNIU' ? 'qianniu' : 'custom'
 }
 
 function formatRemarkText(value) {
@@ -332,10 +344,11 @@ function hideOrderTooltip() {
           </div>
           <span
             class="order-source-badge"
-            :class="workOrder.source === 'XIAOHONGSHU' ? 'xiaohongshu' : 'qianniu'"
-            :aria-label="sourceLabelText(workOrder.source)"
+            :class="sourceClass(workOrder.source)"
+            :aria-label="sourceLabelText(workOrder)"
+            :title="sourceLabelText(workOrder)"
           >
-            {{ sourceLabel(workOrder.source) }}
+            {{ sourceLabel(workOrder) }}
           </span>
           <div class="order-detail-line">
             <span class="order-price">{{ formatMoney(workOrder.price) }}</span>

@@ -40,6 +40,9 @@ public class WorkOrder {
     @Column(name = "source", length = 20)
     private WorkOrderSource source;
 
+    @Column(name = "source_name", length = 80)
+    private String sourceName;
+
     @Column(name = "buyer_nickname", length = 120)
     private String buyerNickname;
 
@@ -145,8 +148,35 @@ public class WorkOrder {
             LocalDateTime orderTime,
             WorkOrderSource source
     ) {
+        this(
+                orderNo,
+                buyerNickname,
+                remark,
+                price,
+                estimatedMinutes,
+                urgent,
+                latestShipTime,
+                orderTime,
+                source,
+                null
+        );
+    }
+
+    public WorkOrder(
+            String orderNo,
+            String buyerNickname,
+            String remark,
+            BigDecimal price,
+            int estimatedMinutes,
+            boolean urgent,
+            LocalDateTime latestShipTime,
+            LocalDateTime orderTime,
+            WorkOrderSource source,
+            String sourceName
+    ) {
         this.orderNo = orderNo;
         this.source = source == null ? WorkOrderSource.QIANNIU : source;
+        this.sourceName = this.source == WorkOrderSource.CUSTOM ? sourceName : null;
         this.buyerNickname = buyerNickname;
         this.remark = remark;
         this.price = price;
@@ -213,6 +243,7 @@ public class WorkOrder {
         this.latestShipTime = latestShipTime;
         this.orderTime = orderTime;
         this.source = source == null ? WorkOrderSource.QIANNIU : source;
+        this.sourceName = null;
 
         if (actualMinutesFollowEstimate) {
             this.actualMinutes = estimatedMinutes;
@@ -247,6 +278,10 @@ public class WorkOrder {
 
     public WorkOrderSource getSource() {
         return source == null ? WorkOrderSource.QIANNIU : source;
+    }
+
+    public String getSourceName() {
+        return getSource().displayName(sourceName);
     }
 
     public String getBuyerNickname() {

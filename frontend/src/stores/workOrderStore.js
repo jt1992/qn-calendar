@@ -249,6 +249,7 @@ function toCalendarEvent(segment) {
       workOrderId: segment.workOrderId,
       orderNo: segment.orderNo,
       source: segment.source,
+      sourceName: segment.sourceName,
       urgent: segment.urgent,
       status: segment.status,
       latestShipTime: segment.latestShipTime,

@@ -639,6 +639,11 @@ select:disabled {
   color: var(--danger);
 }
 
+.order-source-badge.custom {
+  background: var(--surface-strong);
+  color: var(--text);
+}
+
 .order-summary {
   flex: 1 1 auto;
   min-width: 0;
@@ -1542,6 +1547,12 @@ select:disabled {
   align-content: start;
 }
 
+.basic-settings-wide-field {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 6px;
+}
+
 .basic-settings-form .dialog-actions {
   justify-content: flex-end;
 }
@@ -1685,13 +1696,6 @@ select:disabled {
 
 .urgent-rule-add-row {
   grid-template-columns: minmax(0, 1fr) minmax(118px, 0.45fr) auto;
-}
-
-.import-field-actions {
-  position: sticky;
-  bottom: -4px;
-  padding-top: 8px;
-  background: var(--surface);
 }
 
 .form-field-label,

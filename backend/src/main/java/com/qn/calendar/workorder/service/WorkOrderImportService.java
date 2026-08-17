@@ -238,6 +238,14 @@ public class WorkOrderImportService {
         if (repository.findByOrderNo(orderNo).isPresent()) {
             throw new IllegalStateException("订单编号 " + orderNo + " 已存在");
         }
+        String requestedSourceName = trimToEmpty(request.sourceName());
+        if (requestedSourceName.isBlank()) {
+            throw new IllegalArgumentException("订单来源不可为空");
+        }
+        String sourceName = appSettingsService.getOrderSourceOptions().stream()
+                .filter((option) -> option.equalsIgnoreCase(requestedSourceName))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("订单来源不在基础设置的可选范围内"));
         if (request.price() == null) {
             throw new IllegalArgumentException("买家实付金额不可为空");
         }
@@ -259,9 +267,7 @@ public class WorkOrderImportService {
         String urgentValue = ImportFieldSettingsService.normalizeUrgentValue(request.urgentText());
         boolean urgent = importSettings.urgentExactValues().contains(urgentValue)
                 || importSettings.urgentContainsValues().stream().anyMatch(urgentValue::contains);
-        WorkOrderSource source = XIAOHONGSHU_ORDER_NO_PATTERN.matcher(orderNo).matches()
-                ? WorkOrderSource.XIAOHONGSHU
-                : WorkOrderSource.QIANNIU;
+        WorkOrderSource source = WorkOrderSource.fromName(sourceName);
         int estimatedMinutes = calculateEstimatedMinutes(
                 request.price(),
                 appSettingsService.getEstimatedHourlyBaseAmount()
@@ -276,7 +282,8 @@ public class WorkOrderImportService {
                 urgent,
                 request.latestShipTime(),
                 request.paidAt(),
-                source
+                source,
+                sourceName
         ));
     }
 

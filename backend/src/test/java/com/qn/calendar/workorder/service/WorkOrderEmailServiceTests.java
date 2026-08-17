@@ -549,6 +549,7 @@ class WorkOrderEmailServiceTests {
                 1L,
                 orderNo,
                 WorkOrderSource.QIANNIU,
+                "千牛",
                 null,
                 "买家留言：测试备注",
                 BigDecimal.valueOf(300),

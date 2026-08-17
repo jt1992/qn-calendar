@@ -2,6 +2,11 @@ package com.qn.calendar.settings.service;
 
 import java.math.BigDecimal;
 import java.time.LocalTime;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 
 import com.qn.calendar.settings.constant.SmtpSecurity;
 import com.qn.calendar.settings.dto.AppSettingsResponse;
@@ -21,6 +26,7 @@ public class AppSettingsService {
 
     public static final BigDecimal DEFAULT_ESTIMATED_HOURLY_BASE_AMOUNT = BigDecimal.valueOf(100);
     public static final LocalTime DEFAULT_WEEK_VIEW_START_TIME = LocalTime.of(6, 0);
+    public static final List<String> DEFAULT_ORDER_SOURCE_OPTIONS = List.of("千牛", "小红书");
 
     private final AppSettingRepository repository;
 
@@ -38,6 +44,14 @@ public class AppSettingsService {
         return repository.findById(APP_SETTING_ID)
                 .map(AppSetting::getEstimatedHourlyBaseAmount)
                 .orElse(DEFAULT_ESTIMATED_HOURLY_BASE_AMOUNT);
+    }
+
+    @Transactional(readOnly = true)
+    public List<String> getOrderSourceOptions() {
+        return repository.findById(APP_SETTING_ID)
+                .map(AppSetting::getOrderSourceOptions)
+                .filter((options) -> !options.isEmpty())
+                .orElse(DEFAULT_ORDER_SOURCE_OPTIONS);
     }
 
     @Transactional(readOnly = true)
@@ -62,6 +76,7 @@ public class AppSettingsService {
     public AppSettingsResponse updateSettings(UpdateAppSettingsRequest request) {
         validateEstimatedHourlyBaseAmount(request.estimatedHourlyBaseAmount());
         validateWeekViewDefaultStartTime(request.weekViewDefaultStartTime());
+        List<String> orderSourceOptions = normalizeOrderSourceOptions(request.orderSourceOptions());
 
         AppSetting appSetting = repository.findById(APP_SETTING_ID)
                 .orElseGet(() -> new AppSetting(
@@ -72,7 +87,8 @@ public class AppSettingsService {
 
         appSetting.updateBasicSettings(
                 request.estimatedHourlyBaseAmount(),
-                request.weekViewDefaultStartTime()
+                request.weekViewDefaultStartTime(),
+                orderSourceOptions
         );
         return AppSettingsResponse.from(repository.save(appSetting));
     }
@@ -112,10 +128,15 @@ public class AppSettingsService {
                         DEFAULT_WEEK_VIEW_START_TIME
                 )));
 
-        if (appSetting.getWeekViewDefaultStartTime() == null) {
+        if (appSetting.getWeekViewDefaultStartTime() == null || appSetting.getOrderSourceOptions().isEmpty()) {
             appSetting.updateBasicSettings(
                     appSetting.getEstimatedHourlyBaseAmount(),
-                    DEFAULT_WEEK_VIEW_START_TIME
+                    appSetting.getWeekViewDefaultStartTime() == null
+                            ? DEFAULT_WEEK_VIEW_START_TIME
+                            : appSetting.getWeekViewDefaultStartTime(),
+                    appSetting.getOrderSourceOptions().isEmpty()
+                            ? DEFAULT_ORDER_SOURCE_OPTIONS
+                            : appSetting.getOrderSourceOptions()
             );
         }
 
@@ -146,6 +167,34 @@ public class AppSettingsService {
                 || weekViewDefaultStartTime.getNano() != 0) {
             throw new IllegalArgumentException("周表默认开始时间必须以 30 分钟为单位");
         }
+    }
+
+    private List<String> normalizeOrderSourceOptions(List<String> orderSourceOptions) {
+        if (orderSourceOptions == null || orderSourceOptions.isEmpty()) {
+            throw new IllegalArgumentException("请至少保留一个订单来源选项");
+        }
+        if (orderSourceOptions.size() > 20) {
+            throw new IllegalArgumentException("订单来源选项最多为 20 个");
+        }
+
+        List<String> normalizedOptions = new ArrayList<>();
+        Set<String> normalizedNames = new HashSet<>();
+
+        for (String option : orderSourceOptions) {
+            String normalizedOption = trim(option);
+            if (!hasText(normalizedOption)) {
+                throw new IllegalArgumentException("订单来源选项不可为空");
+            }
+            if (normalizedOption.length() > 80) {
+                throw new IllegalArgumentException("订单来源选项最长为 80 个字符");
+            }
+            if (!normalizedNames.add(normalizedOption.toLowerCase(Locale.ROOT))) {
+                throw new IllegalArgumentException("订单来源选项不可重复");
+            }
+            normalizedOptions.add(normalizedOption);
+        }
+
+        return List.copyOf(normalizedOptions);
     }
 
     private void validateEmailSenderSettings(

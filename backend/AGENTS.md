@@ -14,7 +14,7 @@
 - Spring Mail / JavaMailSender，用于 SMTP。
 - Maven 在 `prepare-package` 阶段使用 Node 22.12.0 执行前端 `npm ci` 与 `npm run build`。
 
-当前不是「一般关系数据库可替换」架构，也不是单表 MVP。实现依赖 SQLite 的运行、锁与持久化特性，实际有七张业务表。
+当前不是「一般关系数据库可替换」架构，也不是单表 MVP。实现依赖 SQLite 的运行、锁与持久化特性，实际有八张业务/设置表。
 
 ## 2. 启动与运行架构
 
@@ -91,7 +91,8 @@ Spring Boot 同时提供 `/api/**` 与 Vue production build。
 |---|---|
 | `id` | 主键 |
 | `order_no` | 唯一订单编号，最长 80 |
-| `source` | `QIANNIU` / `XIAOHONGSHU`；旧资料 null 由 getter 视为 `QIANNIU` |
+| `source` | `QIANNIU` / `XIAOHONGSHU` / `CUSTOM`；旧资料 null 由 getter 视为 `QIANNIU` |
+| `source_name` | 自定义来源名称；内建来源由 enum 提供固定中文名称 |
 | `buyer_nickname` | 买家昵称；当前导入不会写入，API 也没有更新入口 |
 | `remark` | 合并后的买家留言/商家备注，最长 1000 |
 | `price` | 订单价格，`decimal(14,2)` |
@@ -125,6 +126,7 @@ Spring Boot 同时提供 `/api/**` 与 Vue production build。
 
 - 固定 singleton ID `1`。
 - 保存预估工时基础金额、周表默认开始时间。
+- `app_setting_order_source_option` 按顺序保存手动新增工单可选的来源名称。
 - 保存寄件 Email、SMTP host/port/security/auth code。
 - SMTP auth code 当前以明文保存在 SQLite；API 不回传它。
 
@@ -475,10 +477,12 @@ hourlyRate = price × 60 / actualTotalMinutes
 ```text
 estimatedHourlyBaseAmount = 100
 weekViewDefaultStartTime = 06:00
+orderSourceOptions = [千牛, 小红书]
 ```
 
 - 基础金额必须大于 0、整数部分最多 12 位且小数最多两位。
 - 周表开始时间必须为 `HH:mm` 的 30 分钟边界。
+- 订单来源选项为 1–20 个、每项最长 80 字，trim 后忽略大小写不可重复；既有设置缺少选项时补入千牛与小红书。
 - 初次读取若 singleton 不存在会写入默认值。
 - 旧资料的周表开始时间为空时会补 `06:00`。
 

@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.math.BigDecimal;
 import java.time.LocalTime;
+import java.util.List;
 
 import com.qn.calendar.settings.constant.SmtpSecurity;
 import com.qn.calendar.settings.dto.UpdateEmailSenderSettingsRequest;
@@ -38,6 +39,7 @@ class AppSettingsServiceTests {
 
         assertThat(settings.estimatedHourlyBaseAmount()).isEqualByComparingTo("100");
         assertThat(settings.weekViewDefaultStartTime()).isEqualTo(LocalTime.of(6, 0));
+        assertThat(settings.orderSourceOptions()).containsExactly("千牛", "小红书");
         assertThat(settings.emailSender().configured()).isFalse();
         assertThat(repository.findAll()).hasSize(1);
         assertThat(repository.findAll().getFirst().getEstimatedHourlyBaseAmount()).isEqualByComparingTo("100");
@@ -47,19 +49,23 @@ class AppSettingsServiceTests {
     void updateSettingsPersistsBaseAmountForLaterReads() {
         service.updateSettings(new UpdateAppSettingsRequest(
                 BigDecimal.valueOf(150),
-                LocalTime.of(8, 30)
+                LocalTime.of(8, 30),
+                List.of(" 千牛 ", "小红书", "抖音")
         ));
 
         assertThat(service.getSettings().estimatedHourlyBaseAmount()).isEqualByComparingTo("150");
         assertThat(service.getSettings().weekViewDefaultStartTime()).isEqualTo(LocalTime.of(8, 30));
+        assertThat(service.getSettings().orderSourceOptions()).containsExactly("千牛", "小红书", "抖音");
         assertThat(service.getEstimatedHourlyBaseAmount()).isEqualByComparingTo("150");
+        assertThat(service.getOrderSourceOptions()).containsExactly("千牛", "小红书", "抖音");
     }
 
     @Test
     void updateSettingsRejectsWeekViewStartTimeOutsideHalfHourIntervals() {
         assertThatThrownBy(() -> service.updateSettings(new UpdateAppSettingsRequest(
                 BigDecimal.valueOf(150),
-                LocalTime.of(8, 15)
+                LocalTime.of(8, 15),
+                List.of("千牛", "小红书")
         )))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("周表默认开始时间必须以 30 分钟为单位");
@@ -74,6 +80,29 @@ class AppSettingsServiceTests {
         assertThat(settings.weekViewDefaultStartTime()).isEqualTo(LocalTime.of(6, 0));
         assertThat(repository.findById(1L).orElseThrow().getWeekViewDefaultStartTime())
                 .isEqualTo(LocalTime.of(6, 0));
+        assertThat(settings.orderSourceOptions()).containsExactly("千牛", "小红书");
+    }
+
+    @Test
+    void updateSettingsRejectsDuplicateOrderSourceOptionsIgnoringCase() {
+        assertThatThrownBy(() -> service.updateSettings(new UpdateAppSettingsRequest(
+                BigDecimal.valueOf(100),
+                LocalTime.of(6, 0),
+                List.of("Shop", " shop ")
+        )))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("订单来源选项不可重复");
+    }
+
+    @Test
+    void updateSettingsRejectsEmptyOrderSourceOptions() {
+        assertThatThrownBy(() -> service.updateSettings(new UpdateAppSettingsRequest(
+                BigDecimal.valueOf(100),
+                LocalTime.of(6, 0),
+                List.of()
+        )))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("请至少保留一个订单来源选项");
     }
 
     @Test

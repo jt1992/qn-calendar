@@ -14,6 +14,10 @@ public record CreateWorkOrderRequest(
         @Size(max = 80, message = "订单编号最长为 80 个字符")
         String orderNo,
 
+        @NotBlank(message = "订单来源不可为空")
+        @Size(max = 80, message = "订单来源最长为 80 个字符")
+        String sourceName,
+
         @NotNull(message = "买家实付金额不可为空")
         @DecimalMin(value = "0", message = "买家实付金额不可为负数")
         @Digits(integer = 12, fraction = 2, message = "买家实付金额最多 12 位整数与 2 位小数")

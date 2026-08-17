@@ -36,6 +36,7 @@
 - 单一 Dialog、tooltip、drag preview、表单 draft 等短期 UI 状态留在组件内。
 - 后端是业务规则最终权威；前端预检只用于即时反馈，API 失败仍必须恢复 UI。
 - 当前没有 `composables/` 层。不要为了单次使用新增抽象；只有逻辑确实被多个组件共享时再提取。
+- 删除资料、别名、规则等破坏性操作必须先向使用者确认；确认文案要明确写出删除类型、所属对象与具体目标，取消后不得改变本地状态或发送写入请求。
 
 ## 3. 目录与模块职责
 
@@ -47,7 +48,7 @@
 | `src/views/ScheduleView.vue` | 组合 XLSX 上传、手动新增、待排清单、日历；管理当前聚焦工单 |
 | `src/views/CompletedStatsView.vue` | 拉取完工统计并按订单月份筛选 |
 | `src/components/WorkOrderImportButton.vue` | 点击/拖拽选择 XLSX 与副档名预检 |
-| `src/components/ManualWorkOrderDialog.vue` | 七个 canonical 字段的手动新增表单与前端校验 |
+| `src/components/ManualWorkOrderDialog.vue` | 订单来源与七个 canonical 字段的手动新增表单及前端校验 |
 | `src/components/PendingWorkOrderList.vue` | 待排笔数/新增入口、卡片、工时调整、删除、复制、外部拖拽 |
 | `src/components/WorkOrderCalendar.vue` | FullCalendar 配置与全部排程交互编排 |
 | `src/components/CompletedStatsTable.vue` | 完工统计表呈现与月份筛选 UI |
@@ -218,7 +219,8 @@ lastUsedAt DESC → usageCount DESC → 姓名或 Email（zh-CN）
 - 待排卡片作为 FullCalendar external event，duration 取 `actualMinutes`，没有时才回退 `estimatedMinutes`。
 - 工时以 15 分钟增减，最低 15 分钟。
 - 删除只允许由卡片按钮触发，删除前确认，并提供 loading、disabled、accessible name。
-- 清单标题左侧显示笔数，右侧「新增待排工单」按钮打开表单；订单编号、金额、期限必填且显示红色 `*`，建立后刷新待排清单。
+- 清单标题左侧显示笔数，右侧「新增待排工单」按钮打开表单；订单来源、订单编号、金额、期限必填且显示红色 `*`，建立后刷新待排清单。
+- 手动新增的订单来源选项读取自基础设置；自定义来源在待排显示名称首字，排入日历后以完整名称作为订单编号前缀。
 - pointer 位移小于 6px 的短按会复制不含 `#` 的订单编号；拖拽不可触发复制。
 - 待排卡片 focus/hover 显示价格、工时、状态、最晚发货、备注 tooltip。
 - 聚焦待排工单时，周视图显示最晚发货红线。
@@ -328,16 +330,19 @@ lastUsedAt DESC → usageCount DESC → 姓名或 Email（zh-CN）
 
 - 预估工时基础金额必填、大于 0、最多两位小数。
 - 周表默认开始时间只接受 `HH:00` 或 `HH:30`。
-- 两个字段一起通过 `PUT /api/settings` 保存。
+- 订单来源选项使用横跨两栏的 InputTag，默认千牛、小红书；支持 1–20 个不重复选项，每项最长 80 字，删除前明确确认目标。
+- 三项设置一起通过 `PUT /api/settings` 保存。
 - 值相对原设置发生变化时启用提交；点击提交后才验证金额与时间格式。
 
 字段设置：
 
-- 每个字段以一份「别名」清单显示；只读预设别名在前，可新增/删除的别名接在后方，并以完整七字段快照保存。
+- 每个字段以一份「别名」清单显示；标准字段名本身不重复显示，只读预设别名在前，可新增/删除的别名接在后方。
 - 同一工作簿对同字段同时命中系统与自定义别名时，自定义别名优先；同类同时命中多个仍由后端拒绝。
 - 备注标签字段可维护完全匹配/包含文字两种加急规则；`红旗` 只作为输入范例，不是默认规则。
 - alias trim、转小写并移除空白、`_`、`-` 后不可跨字段重复，也不可与系统别名冲突。
-- 自定义字段名与加急文字最长 120 字；字段错误就近显示，未修改时保存按钮停用。
+- 新增或确认删除别名、加急文字后立即以完整七字段快照自动保存；失败时回滚 draft 并显示错误，不提供额外保存按钮。
+- 删除别名的确认文案必须指出字段与别名；删除加急文字也必须指出文字内容。
+- 自定义字段名与加急文字最长 120 字；字段错误就近显示。
 
 SMTP：
 

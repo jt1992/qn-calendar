@@ -158,7 +158,8 @@ class WorkOrderImportServiceTests {
     void usesSavedHourlyBaseAmountWhenImportingNewOrders() throws Exception {
         appSettingsService.updateSettings(new UpdateAppSettingsRequest(
                 BigDecimal.valueOf(200),
-                LocalTime.of(6, 0)
+                LocalTime.of(6, 0),
+                List.of("千牛", "小红书")
         ));
         MockMultipartFile file = xlsxWithOneOrder("ORD-BASE-AMOUNT", BigDecimal.valueOf(250), LocalDateTime.of(2026, 6, 10, 0, 0));
 
@@ -700,7 +701,7 @@ class WorkOrderImportServiceTests {
     }
 
     @Test
-    void createsManualPendingWorkOrderWithConfiguredUrgentRuleAndDetectedSource() {
+    void createsManualPendingWorkOrderWithConfiguredUrgentRuleAndSelectedSource() {
         importFieldSettingsService.updateSettings(new UpdateImportFieldSettingsRequest(
                 java.util.Arrays.stream(ImportFieldKey.values())
                         .map((fieldKey) -> new UpdateImportFieldSettingsRequest.FieldAliases(
@@ -718,6 +719,7 @@ class WorkOrderImportServiceTests {
 
         WorkOrder workOrder = importService.createPendingWorkOrder(new CreateWorkOrderRequest(
                 " P802335189951019482 ",
+                "小红书",
                 new BigDecimal("250.00"),
                 LocalDateTime.of(2026, 8, 30, 16, 39, 54),
                 "红旗",
@@ -728,6 +730,7 @@ class WorkOrderImportServiceTests {
 
         assertThat(workOrder.getOrderNo()).isEqualTo("P802335189951019482");
         assertThat(workOrder.getSource()).isEqualTo(WorkOrderSource.XIAOHONGSHU);
+        assertThat(workOrder.getSourceName()).isEqualTo("小红书");
         assertThat(workOrder.getStatus()).isEqualTo(WorkOrderStatus.PENDING);
         assertThat(workOrder.getEstimatedMinutes()).isEqualTo(180);
         assertThat(workOrder.getActualMinutes()).isEqualTo(180);
@@ -743,6 +746,7 @@ class WorkOrderImportServiceTests {
     void rejectsDuplicateOrderNumberWhenCreatingManualPendingWorkOrder() {
         CreateWorkOrderRequest request = new CreateWorkOrderRequest(
                 "ORD-MANUAL-DUPLICATE",
+                "千牛",
                 new BigDecimal("100.00"),
                 LocalDateTime.of(2026, 8, 30, 18, 0),
                 "",
@@ -756,6 +760,47 @@ class WorkOrderImportServiceTests {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("订单编号 ORD-MANUAL-DUPLICATE 已存在");
         assertThat(repository.findAll()).hasSize(1);
+    }
+
+    @Test
+    void createsManualPendingWorkOrderWithConfiguredCustomSource() {
+        appSettingsService.updateSettings(new UpdateAppSettingsRequest(
+                BigDecimal.valueOf(100),
+                LocalTime.of(6, 0),
+                List.of("千牛", "小红书", "抖音")
+        ));
+
+        WorkOrder workOrder = importService.createPendingWorkOrder(new CreateWorkOrderRequest(
+                "ORD-CUSTOM-SOURCE",
+                "抖音",
+                new BigDecimal("100.00"),
+                LocalDateTime.of(2026, 8, 30, 18, 0),
+                "",
+                "",
+                "",
+                null
+        ));
+
+        assertThat(workOrder.getSource()).isEqualTo(WorkOrderSource.CUSTOM);
+        assertThat(workOrder.getSourceName()).isEqualTo("抖音");
+    }
+
+    @Test
+    void rejectsManualPendingWorkOrderWithUnconfiguredSource() {
+        CreateWorkOrderRequest request = new CreateWorkOrderRequest(
+                "ORD-UNKNOWN-SOURCE",
+                "抖音",
+                new BigDecimal("100.00"),
+                LocalDateTime.of(2026, 8, 30, 18, 0),
+                "",
+                "",
+                "",
+                null
+        );
+
+        assertThatThrownBy(() -> importService.createPendingWorkOrder(request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("订单来源不在基础设置的可选范围内");
     }
 
     @Test

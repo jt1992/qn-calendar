@@ -1,6 +1,6 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
-import { Plus, Save, Trash2 } from '@lucide/vue'
+import { Plus, Trash2 } from '@lucide/vue'
 import { useAppSettingsStore } from '../stores/appSettingsStore'
 
 const props = defineProps({
@@ -23,9 +23,6 @@ const savedMessage = ref('')
 const busy = computed(() =>
   settingsStore.importFieldSettingsLoading || settingsStore.importFieldSettingsSaving
 )
-const changed = computed(() =>
-  JSON.stringify(currentPayload()) !== JSON.stringify(savedPayload())
-)
 
 watch(
   () => settingsStore.importFieldSettings,
@@ -47,7 +44,9 @@ function resetDraft() {
 
   draftFields.value = (settings.fields || []).map((field) => ({
     ...field,
-    builtInAliases: [...(field.builtInAliases || [])],
+    builtInAliases: (field.builtInAliases || []).filter((alias) =>
+      normalizeAlias(alias) !== normalizeAlias(field.label)
+    ),
     customAliases: [...(field.customAliases || [])]
   }))
   draftUrgentRules.value = (settings.urgentRules?.custom || []).map((rule) => ({
@@ -77,7 +76,11 @@ function clearFeedback() {
   savedMessage.value = ''
 }
 
-function addAlias(field) {
+async function addAlias(field) {
+  if (busy.value) {
+    return
+  }
+
   const alias = String(aliasInputs[field.key] || '').trim()
 
   if (!alias) {
@@ -98,23 +101,35 @@ function addAlias(field) {
   }
 
   field.customAliases.push(alias)
-  aliasInputs[field.key] = ''
   fieldErrors[field.key] = ''
-  actionError.value = ''
-  savedMessage.value = ''
+  const saved = await persistDraft('别名已自动保存')
+
+  if (saved) {
+    aliasInputs[field.key] = ''
+  } else {
+    aliasInputs[field.key] = alias
+  }
 }
 
-function removeAlias(field, index) {
+async function removeAlias(field, index) {
+  if (busy.value) {
+    return
+  }
+
+  const alias = field.customAliases[index]
+  if (!window.confirm(`是否删除[${field.label}]别名：${alias}？`)) {
+    return
+  }
+
   field.customAliases.splice(index, 1)
-  actionError.value = ''
-  savedMessage.value = ''
+  await persistDraft('别名已删除并自动保存')
 }
 
 function findAliasOwner(value) {
   const normalized = normalizeAlias(value)
 
   for (const field of draftFields.value) {
-    const aliases = [...field.builtInAliases, ...field.customAliases]
+    const aliases = [field.label, ...field.builtInAliases, ...field.customAliases]
 
     if (aliases.some((alias) => normalizeAlias(alias) === normalized)) {
       return field.label
@@ -124,7 +139,11 @@ function findAliasOwner(value) {
   return ''
 }
 
-function addUrgentRule() {
+async function addUrgentRule() {
+  if (busy.value) {
+    return
+  }
+
   const text = urgentTextInput.value.trim()
 
   if (!text) {
@@ -143,31 +162,47 @@ function addUrgentRule() {
     text,
     matchType: urgentMatchType.value
   })
-  urgentTextInput.value = ''
   urgentRuleError.value = ''
-  actionError.value = ''
-  savedMessage.value = ''
+  const saved = await persistDraft('加急文字已自动保存')
+
+  if (saved) {
+    urgentTextInput.value = ''
+  } else {
+    urgentTextInput.value = text
+  }
 }
 
-function removeUrgentRule(index) {
-  draftUrgentRules.value.splice(index, 1)
-  actionError.value = ''
-  savedMessage.value = ''
-}
-
-async function save() {
-  if (busy.value || !changed.value || !validateDraft()) {
+async function removeUrgentRule(index) {
+  if (busy.value) {
     return
   }
 
+  const rule = draftUrgentRules.value[index]
+  if (!window.confirm(`是否删除加急文字：${rule.text}？`)) {
+    return
+  }
+
+  draftUrgentRules.value.splice(index, 1)
+  await persistDraft('加急文字已删除并自动保存')
+}
+
+async function persistDraft(successMessage) {
   actionError.value = ''
   savedMessage.value = ''
 
+  if (!validateDraft()) {
+    return false
+  }
+
   try {
     await settingsStore.updateImportFieldSettings(currentPayload())
-    savedMessage.value = '字段设置已保存'
+    savedMessage.value = successMessage
+    return true
   } catch (error) {
-    actionError.value = error.message
+    const message = error.message
+    resetDraft()
+    actionError.value = message
+    return false
   }
 }
 
@@ -176,7 +211,7 @@ function validateDraft() {
   let valid = true
 
   for (const field of draftFields.value) {
-    for (const alias of field.builtInAliases) {
+    for (const alias of [field.label, ...field.builtInAliases]) {
       const normalized = normalizeAlias(alias)
 
       if (normalized && !aliases.has(normalized)) {
@@ -242,23 +277,6 @@ function currentPayload() {
   }
 }
 
-function savedPayload() {
-  const settings = settingsStore.importFieldSettings || {}
-
-  return {
-    fields: (settings.fields || []).map((field) => ({
-      key: field.key,
-      customAliases: [...(field.customAliases || [])]
-    })),
-    urgentRules: {
-      custom: (settings.urgentRules?.custom || []).map((rule) => ({
-        text: rule.text,
-        matchType: rule.matchType
-      }))
-    }
-  }
-}
-
 function normalizeAlias(value) {
   return String(value || '')
     .trim()
@@ -290,8 +308,14 @@ function ruleTypeLabel(matchType) {
 <template>
   <div class="import-field-settings">
     <div class="import-field-settings-intro">
-      <p>为固定字段添加可识别的相似列名。预设别名不可删除；同一文件同时命中时优先读取后添加的别名。</p>
+      <p>为固定字段添加可识别的相似列名。新增或删除后会自动保存；同一文件同时命中时优先读取后添加的别名。</p>
     </div>
+
+    <p v-if="settingsStore.importFieldSettingsSaving" class="dialog-status" role="status">
+      自动保存中...
+    </p>
+    <p v-else-if="savedMessage" class="dialog-status" role="status">{{ savedMessage }}</p>
+    <p v-if="actionError" class="dialog-error" role="alert">{{ actionError }}</p>
 
     <p
       v-if="settingsStore.importFieldSettingsLoading && draftFields.length === 0"
@@ -454,24 +478,5 @@ function ruleTypeLabel(matchType) {
       </article>
     </div>
 
-    <p v-if="actionError" class="dialog-error" role="alert">{{ actionError }}</p>
-
-    <div class="dialog-actions import-field-actions">
-      <span v-if="savedMessage" class="dialog-status" role="status">{{ savedMessage }}</span>
-      <button
-        class="icon-button primary-action"
-        type="button"
-        :disabled="busy || !changed"
-        @click="save"
-      >
-        <span
-          v-if="settingsStore.importFieldSettingsSaving"
-          class="loading-spinner"
-          aria-hidden="true"
-        ></span>
-        <Save v-else :size="18" />
-        {{ settingsStore.importFieldSettingsSaving ? '保存中' : '保存' }}
-      </button>
-    </div>
   </div>
 </template>

@@ -25,6 +25,10 @@ const amountInput = ref('')
 const amountError = ref('')
 const weekStartTimeInput = ref('')
 const weekStartTimeError = ref('')
+const orderSourceOptions = ref([])
+const orderSourceOptionInput = ref('')
+const orderSourceOptionsError = ref('')
+const orderSourceOptionInputElement = ref(null)
 const fieldError = ref('')
 const savedMessage = ref('')
 const emailEditing = ref(false)
@@ -85,7 +89,10 @@ const showEmailFields = computed(() =>
 )
 const canSubmitActiveTab = computed(() => showEmailFields.value)
 const basicSettingsChanged = computed(() =>
-  !amountMatchesSavedValue() || !weekStartTimeMatchesSavedValue()
+  !amountMatchesSavedValue() ||
+  !weekStartTimeMatchesSavedValue() ||
+  !orderSourceOptionsMatchSavedValue() ||
+  Boolean(normalizedText(orderSourceOptionInput.value))
 )
 const emailSenderChanged = computed(() => {
   const original = emailSenderFormDefaults()
@@ -185,17 +192,23 @@ async function submitBasicSettings() {
   clearFieldError()
   clearSavedMessage()
 
+  if (normalizedText(orderSourceOptionInput.value) && !addOrderSourceOption()) {
+    return
+  }
+
   const amount = validateAmount()
   const weekStartTime = validateWeekStartTime()
+  const validatedOrderSourceOptions = validateOrderSourceOptions()
 
-  if (amount === null || weekStartTime === null) {
+  if (amount === null || weekStartTime === null || validatedOrderSourceOptions === null) {
     return
   }
 
   try {
     await settingsStore.saveSettings({
       estimatedHourlyBaseAmount: amount,
-      weekViewDefaultStartTime: weekStartTime
+      weekViewDefaultStartTime: weekStartTime,
+      orderSourceOptions: validatedOrderSourceOptions
     })
     clearBasicSettingsValidation()
     resetBasicSettingsForm()
@@ -287,6 +300,67 @@ function validateWeekStartTime() {
   }
 
   return error ? null : value
+}
+
+function validateOrderSourceOptions() {
+  const options = orderSourceOptions.value.map((option) => option.trim())
+  let error = ''
+
+  if (options.length === 0) {
+    error = '请至少保留一个选项。'
+  } else if (options.length > 20) {
+    error = '最多添加 20 个选项。'
+  } else if (options.some((option) => !option)) {
+    error = '选项不可为空。'
+  } else if (options.some((option) => option.length > 80)) {
+    error = '每个选项最长为 80 个字符。'
+  } else if (new Set(options.map((option) => option.toLocaleLowerCase('zh-CN'))).size !== options.length) {
+    error = '选项不可重复。'
+  }
+
+  orderSourceOptionsError.value = error
+  return error ? null : options
+}
+
+function addOrderSourceOption() {
+  const option = normalizedText(orderSourceOptionInput.value)
+
+  if (!option) {
+    return true
+  }
+  if (option.length > 80) {
+    orderSourceOptionsError.value = '每个选项最长为 80 个字符。'
+    return false
+  }
+  if (orderSourceOptions.value.length >= 20) {
+    orderSourceOptionsError.value = '最多添加 20 个选项。'
+    return false
+  }
+  if (orderSourceOptions.value.some((current) => current.toLocaleLowerCase('zh-CN') === option.toLocaleLowerCase('zh-CN'))) {
+    orderSourceOptionsError.value = '选项不可重复。'
+    return false
+  }
+
+  orderSourceOptions.value.push(option)
+  orderSourceOptionInput.value = ''
+  orderSourceOptionsError.value = ''
+  return true
+}
+
+function removeOrderSourceOption(option) {
+  if (!window.confirm(`是否删除订单来源选项：${option}？`)) {
+    return
+  }
+
+  orderSourceOptions.value = orderSourceOptions.value.filter((current) => current !== option)
+  orderSourceOptionsError.value = orderSourceOptions.value.length ? '' : '请至少保留一个选项。'
+}
+
+function handleOrderSourceOptionKeydown(event) {
+  if (event.key === 'Enter' || event.key === ',') {
+    event.preventDefault()
+    addOrderSourceOption()
+  }
 }
 
 function validateEmailSender() {
@@ -549,9 +623,18 @@ function weekStartTimeMatchesSavedValue() {
   )
 }
 
+function orderSourceOptionsMatchSavedValue() {
+  const savedOptions = settingsStore.settings.orderSourceOptions || []
+
+  return orderSourceOptions.value.length === savedOptions.length &&
+    orderSourceOptions.value.every((option, index) => option === savedOptions[index])
+}
+
 function resetBasicSettingsForm() {
   amountInput.value = formatAmount(settingsStore.settings.estimatedHourlyBaseAmount)
   weekStartTimeInput.value = formatWeekStartTime(settingsStore.settings.weekViewDefaultStartTime)
+  orderSourceOptions.value = [...(settingsStore.settings.orderSourceOptions || ['千牛', '小红书'])]
+  orderSourceOptionInput.value = ''
 }
 
 function recipientHasChanges(recipient) {
@@ -590,6 +673,7 @@ function clearFormValidation() {
 function clearBasicSettingsValidation() {
   amountError.value = ''
   weekStartTimeError.value = ''
+  orderSourceOptionsError.value = ''
 }
 
 function clearValidationErrors(errors) {
@@ -799,6 +883,53 @@ function securityLabel(value) {
                 @keydown.enter.prevent="submitBasicSettings"
               />
             </label>
+
+            <div class="basic-settings-wide-field">
+              <label class="form-field-label" for="order-source-option-input">
+                订单来源选项
+                <HelpTooltip aria-label="查看订单来源选项说明">
+                  <p>用于手动新增待排工单时选择订单来源；输入后按 Enter 或逗号添加。</p>
+                </HelpTooltip>
+                <small
+                  v-if="orderSourceOptionsError"
+                  id="order-source-options-error"
+                  class="form-field-error"
+                  role="alert"
+                >
+                  {{ orderSourceOptionsError }}
+                </small>
+              </label>
+              <div
+                class="recipient-tag-input order-source-tag-input"
+                :class="{ invalid: orderSourceOptionsError }"
+                @click="orderSourceOptionInputElement?.focus()"
+              >
+                <span v-for="option in orderSourceOptions" :key="option" class="recipient-tag">
+                  <span>{{ option }}</span>
+                  <button
+                    type="button"
+                    :aria-label="`删除订单来源选项 ${option}`"
+                    :disabled="settingsBusy"
+                    @click.stop="removeOrderSourceOption(option)"
+                  >
+                    <X :size="13" />
+                  </button>
+                </span>
+                <input
+                  id="order-source-option-input"
+                  ref="orderSourceOptionInputElement"
+                  v-model="orderSourceOptionInput"
+                  class="recipient-tag-search"
+                  type="text"
+                  maxlength="80"
+                  :aria-describedby="orderSourceOptionsError ? 'order-source-options-error' : undefined"
+                  :aria-invalid="Boolean(orderSourceOptionsError)"
+                  :disabled="settingsBusy"
+                  :placeholder="orderSourceOptions.length ? '继续添加' : '输入订单来源'"
+                  @keydown="handleOrderSourceOptionKeydown"
+                />
+              </div>
+            </div>
           </div>
 
           <div class="dialog-actions">

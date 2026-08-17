@@ -1,6 +1,7 @@
 <script setup>
-import { nextTick, reactive, ref, watch } from 'vue'
+import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { Plus, X } from '@lucide/vue'
+import { useAppSettingsStore } from '../stores/appSettingsStore'
 import { useWorkOrderStore } from '../stores/workOrderStore'
 
 const props = defineProps({
@@ -12,11 +13,14 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'created'])
 const store = useWorkOrderStore()
+const settingsStore = useAppSettingsStore()
 const orderNoInput = ref(null)
 const submitting = ref(false)
+const loadingSources = ref(false)
 const submitError = ref('')
 const form = reactive(emptyForm())
 const errors = reactive(emptyErrors())
+const orderSourceOptions = computed(() => settingsStore.settings.orderSourceOptions || [])
 
 watch(
   () => props.open,
@@ -26,6 +30,17 @@ watch(
     }
 
     resetForm()
+    loadingSources.value = true
+
+    try {
+      await settingsStore.ensureSettingsLoaded()
+      form.sourceName = orderSourceOptions.value[0] || ''
+    } catch (error) {
+      submitError.value = error.message || '读取订单来源选项失败'
+    } finally {
+      loadingSources.value = false
+    }
+
     await nextTick()
     orderNoInput.value?.focus()
   }
@@ -34,6 +49,7 @@ watch(
 function emptyForm() {
   return {
     orderNo: '',
+    sourceName: '',
     price: '',
     latestShipTime: '',
     urgentText: '',
@@ -46,6 +62,7 @@ function emptyForm() {
 function emptyErrors() {
   return {
     orderNo: '',
+    sourceName: '',
     price: '',
     latestShipTime: '',
     urgentText: '',
@@ -69,7 +86,7 @@ function close() {
 }
 
 async function submit() {
-  if (submitting.value || !validate()) {
+  if (submitting.value || loadingSources.value || !validate()) {
     return
   }
 
@@ -79,6 +96,7 @@ async function submit() {
   try {
     const workOrder = await store.createWorkOrder({
       orderNo: form.orderNo.trim(),
+      sourceName: form.sourceName,
       price: Number(form.price),
       latestShipTime: form.latestShipTime,
       urgentText: form.urgentText.trim(),
@@ -108,6 +126,12 @@ function validate() {
     errors.orderNo = '不能为空。'
   } else if (orderNo.length > 80) {
     errors.orderNo = '最长为 80 个字符。'
+  }
+
+  if (!form.sourceName) {
+    errors.sourceName = '不能为空。'
+  } else if (!orderSourceOptions.value.includes(form.sourceName)) {
+    errors.sourceName = '请选择基础设置中的订单来源。'
   }
 
   if (!price) {
@@ -157,6 +181,26 @@ function combinedRemarkLength() {
 
   return parts.join('\n').length
 }
+
+function openDateTimePicker(event) {
+  try {
+    event.currentTarget.showPicker?.()
+  } catch {
+    // The native picker can only open from a direct user interaction.
+  }
+}
+
+function handleDateTimeKeydown(event) {
+  if (event.key === 'Tab') {
+    return
+  }
+
+  event.preventDefault()
+
+  if (['Enter', ' ', 'ArrowDown'].includes(event.key)) {
+    openDateTimePicker(event)
+  }
+}
 </script>
 
 <template>
@@ -182,6 +226,28 @@ function combinedRemarkLength() {
       </div>
 
       <div class="manual-work-order-fields">
+        <label>
+          <span class="form-field-label">
+            订单来源
+            <span class="required-marker" aria-hidden="true">*</span>
+            <small v-if="errors.sourceName" id="manual-source-name-error" class="form-field-error" role="alert">
+              {{ errors.sourceName }}
+            </small>
+          </span>
+          <select
+            v-model="form.sourceName"
+            required
+            :aria-describedby="errors.sourceName ? 'manual-source-name-error' : undefined"
+            :aria-invalid="Boolean(errors.sourceName)"
+            :disabled="submitting || loadingSources"
+          >
+            <option disabled value="">{{ loadingSources ? '读取中...' : '请选择订单来源' }}</option>
+            <option v-for="option in orderSourceOptions" :key="option" :value="option">
+              {{ option }}
+            </option>
+          </select>
+        </label>
+
         <label>
           <span class="form-field-label">
             订单编号
@@ -239,10 +305,16 @@ function combinedRemarkLength() {
           <input
             v-model="form.latestShipTime"
             type="datetime-local"
+            inputmode="none"
             required
             :aria-describedby="errors.latestShipTime ? 'manual-latest-ship-time-error' : undefined"
             :aria-invalid="Boolean(errors.latestShipTime)"
             :disabled="submitting"
+            @beforeinput.prevent
+            @click="openDateTimePicker"
+            @drop.prevent
+            @keydown="handleDateTimeKeydown"
+            @paste.prevent
           />
         </label>
 
@@ -256,9 +328,15 @@ function combinedRemarkLength() {
           <input
             v-model="form.paidAt"
             type="datetime-local"
+            inputmode="none"
             :aria-describedby="errors.paidAt ? 'manual-paid-at-error' : undefined"
             :aria-invalid="Boolean(errors.paidAt)"
             :disabled="submitting"
+            @beforeinput.prevent
+            @click="openDateTimePicker"
+            @drop.prevent
+            @keydown="handleDateTimeKeydown"
+            @paste.prevent
           />
         </label>
 
