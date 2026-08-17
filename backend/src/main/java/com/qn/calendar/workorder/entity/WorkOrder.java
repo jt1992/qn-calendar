@@ -231,7 +231,8 @@ public class WorkOrder {
             boolean urgent,
             LocalDateTime latestShipTime,
             LocalDateTime orderTime,
-            WorkOrderSource source
+            WorkOrderSource source,
+            String sourceName
     ) {
         boolean actualMinutesFollowEstimate = this.status == WorkOrderStatus.PENDING
                 && this.actualMinutes == this.estimatedMinutes;
@@ -243,7 +244,7 @@ public class WorkOrder {
         this.latestShipTime = latestShipTime;
         this.orderTime = orderTime;
         this.source = source == null ? WorkOrderSource.QIANNIU : source;
-        this.sourceName = null;
+        this.sourceName = this.source == WorkOrderSource.CUSTOM ? sourceName : null;
 
         if (actualMinutesFollowEstimate) {
             this.actualMinutes = estimatedMinutes;

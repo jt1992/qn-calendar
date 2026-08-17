@@ -857,7 +857,7 @@ class WorkOrderImportServiceTests {
     }
 
     @Test
-    void usesSelectedOrderNumberHeaderWhenDetectingSource() throws Exception {
+    void fallsBackToOrderNumberFormatRegardlessOfSelectedHeader() throws Exception {
         importFieldSettingsService.updateSettings(new UpdateImportFieldSettingsRequest(
                 java.util.Arrays.stream(ImportFieldKey.values())
                         .map((fieldKey) -> new UpdateImportFieldSettingsRequest.FieldAliases(
@@ -868,8 +868,10 @@ class WorkOrderImportServiceTests {
                 new UpdateImportFieldSettingsRequest.UrgentRules(List.of())
         ));
         MockMultipartFile file = xlsxWithRows(
-                List.of("主订单号", "订单号", "买家实付金额", "应发货时间"),
-                List.of(List.of("P802335189951019482", "TB-IGNORED", "100.00", "2026-08-30 16:39:54"))
+                List.of("主订单号", "订单号", "订单状态", "买家实付金额", "应发货时间"),
+                List.of(List.of(
+                        "P802335189951019482", "TB-IGNORED", "待配货", "100.00", "2026-08-30 16:39:54"
+                ))
         );
 
         ImportWorkOrderResponse response = importService.importXlsx(file);
@@ -878,8 +880,77 @@ class WorkOrderImportServiceTests {
         assertThat(response.errors()).isEmpty();
         assertThat(repository.findAll()).singleElement().satisfies((workOrder) -> {
             assertThat(workOrder.getOrderNo()).isEqualTo("P802335189951019482");
-            assertThat(workOrder.getSource()).isEqualTo(WorkOrderSource.QIANNIU);
+            assertThat(workOrder.getSource()).isEqualTo(WorkOrderSource.XIAOHONGSHU);
         });
+    }
+
+    @Test
+    void filenameSourceTakesPriorityOverOrderNumberFormat() throws Exception {
+        MockMultipartFile file = xlsxWithRows(
+                "2026-08-17 千牛订单.xlsx",
+                List.of("订单编号", "买家实付金额", "应发货时间"),
+                List.of(List.of("P802335189951019482", "100.00", "2026-08-30 16:39:54"))
+        );
+
+        ImportWorkOrderResponse response = importService.importXlsx(file);
+
+        assertThat(response.createdCount()).isEqualTo(1);
+        assertThat(response.errors()).isEmpty();
+        assertThat(repository.findAll().getFirst().getSource()).isEqualTo(WorkOrderSource.QIANNIU);
+    }
+
+    @Test
+    void detectsConfiguredCustomSourceFromFilename() throws Exception {
+        appSettingsService.updateSettings(new UpdateAppSettingsRequest(
+                BigDecimal.valueOf(100),
+                LocalTime.of(6, 0),
+                List.of("千牛", "小红书", "抖音")
+        ));
+        MockMultipartFile file = xlsxWithRows(
+                "抖音导出订单.xlsx",
+                List.of("订单编号", "买家实付金额", "应发货时间"),
+                List.of(List.of("DOUYIN-ORDER-1", "100.00", "2026-08-30 16:39:54"))
+        );
+
+        ImportWorkOrderResponse response = importService.importXlsx(file);
+
+        assertThat(response.createdCount()).isEqualTo(1);
+        assertThat(response.errors()).isEmpty();
+        assertThat(repository.findAll()).singleElement().satisfies((workOrder) -> {
+            assertThat(workOrder.getSource()).isEqualTo(WorkOrderSource.CUSTOM);
+            assertThat(workOrder.getSourceName()).isEqualTo("抖音");
+        });
+    }
+
+    @Test
+    void rejectsFilenameMatchingMultipleConfiguredSources() throws Exception {
+        MockMultipartFile file = xlsxWithRows(
+                "千牛转小红书订单.xlsx",
+                List.of("订单编号", "买家实付金额", "应发货时间"),
+                List.of(List.of("ORDER-1", "100.00", "2026-08-30 16:39:54"))
+        );
+
+        assertThatThrownBy(() -> importService.importXlsx(file))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("文件名同时匹配多个订单来源：千牛、小红书");
+        assertThat(repository.findAll()).isEmpty();
+    }
+
+    @Test
+    void detectsTraditionalXiaohongshuNameFromFilename() throws Exception {
+        MockMultipartFile file = xlsxWithRows(
+                "小紅書訂單.xlsx",
+                List.of("订单号", "订单状态", "用户应付金额(元)", "承诺发货时间"),
+                List.of(List.of(
+                        "NON-P-ORDER", "待配货", "324.99", "2026-08-30 16:39:54"
+                ))
+        );
+
+        ImportWorkOrderResponse response = importService.importXlsx(file);
+
+        assertThat(response.createdCount()).isEqualTo(1);
+        assertThat(response.errors()).isEmpty();
+        assertThat(repository.findAll().getFirst().getSource()).isEqualTo(WorkOrderSource.XIAOHONGSHU);
     }
 
     @Test
@@ -901,6 +972,7 @@ class WorkOrderImportServiceTests {
     @Test
     void rejectsXiaohongshuWorkbookWithoutOrderStatusHeader() throws Exception {
         MockMultipartFile file = xlsxWithRows(
+                "小红书订单.xlsx",
                 List.of("订单号", "小红书编码", "用户应付金额(元)", "承诺发货时间"),
                 List.of(List.of(
                         "P802335189951019482", "XHS-SKU", "324.99", "2026-08-30 16:39:54"
@@ -1012,6 +1084,14 @@ class WorkOrderImportServiceTests {
     }
 
     private MockMultipartFile xlsxWithRows(List<String> headers, List<List<String>> rows) throws Exception {
+        return xlsxWithRows("orders.xlsx", headers, rows);
+    }
+
+    private MockMultipartFile xlsxWithRows(
+            String originalFilename,
+            List<String> headers,
+            List<List<String>> rows
+    ) throws Exception {
         try (Workbook workbook = new XSSFWorkbook(); ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
             Sheet sheet = workbook.createSheet("orders");
             Row header = sheet.createRow(0);
@@ -1033,7 +1113,7 @@ class WorkOrderImportServiceTests {
 
             return new MockMultipartFile(
                     "file",
-                    "orders.xlsx",
+                    originalFilename,
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     outputStream.toByteArray()
             );

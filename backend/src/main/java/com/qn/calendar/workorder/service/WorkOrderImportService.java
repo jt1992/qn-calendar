@@ -78,8 +78,6 @@ public class WorkOrderImportService {
             "(?:发|發)[^\\n，,。；;]{0,8}(\\d{1,2})号"
     );
     private static final Pattern XIAOHONGSHU_ORDER_NO_PATTERN = Pattern.compile("^P\\d+$");
-    private static final String XIAOHONGSHU_CODE_HEADER = ImportFieldSettingsService.normalizeHeader("小红书编码");
-    private static final String XIAOHONGSHU_ORDER_NO_HEADER = ImportFieldSettingsService.normalizeHeader("订单号");
     private static final String ORDER_STATUS_HEADER = ImportFieldSettingsService.normalizeHeader("订单状态");
     private static final String XIAOHONGSHU_PENDING_STATUS = "待配货";
 
@@ -107,6 +105,8 @@ public class WorkOrderImportService {
             throw new IllegalArgumentException("XLSX 文件不可为空");
         }
 
+        Optional<SourceSelection> filenameSource = detectFilenameSource(file.getOriginalFilename());
+
         try (Workbook workbook = WorkbookFactory.create(file.getInputStream())) {
             Sheet sheet = workbook.getNumberOfSheets() > 0 ? workbook.getSheetAt(0) : null;
 
@@ -118,7 +118,7 @@ public class WorkOrderImportService {
             ImportFieldSettingsSnapshot importSettings = importFieldSettingsService.getImportSnapshot();
             HeaderMapping headerMapping = readHeaders(sheet, evaluator, importSettings);
             validateRequiredHeaders(headerMapping.canonicalHeaders());
-            validateXiaohongshuHeaders(headerMapping);
+            validateXiaohongshuHeaders(headerMapping, filenameSource);
 
             BigDecimal estimatedHourlyBaseAmount = appSettingsService.getEstimatedHourlyBaseAmount();
             List<ImportRowError> errors = new ArrayList<>();
@@ -145,7 +145,8 @@ public class WorkOrderImportService {
                         throw new IllegalArgumentException("订单编号不可为空");
                     }
 
-                    WorkOrderSource source = detectSource(headerMapping, orderNo);
+                    SourceSelection sourceSelection = filenameSource.orElseGet(() -> detectSource(orderNo));
+                    WorkOrderSource source = sourceSelection.source();
 
                     if (source == WorkOrderSource.XIAOHONGSHU) {
                         String orderStatus = readStringIfPresent(
@@ -171,7 +172,7 @@ public class WorkOrderImportService {
                             estimatedHourlyBaseAmount,
                             importSettings,
                             orderNo,
-                            source
+                            sourceSelection
                     );
                     parsedWorkOrders.put(parsedWorkOrder.orderNo(), parsedWorkOrder);
                 } catch (RuntimeException exception) {
@@ -186,7 +187,8 @@ public class WorkOrderImportService {
                 Optional<WorkOrder> existingWorkOrder = repository.findByOrderNo(parsedWorkOrder.orderNo());
 
                 if (existingWorkOrder.isPresent()) {
-                    if (existingWorkOrder.get().getSource() != parsedWorkOrder.source()) {
+                    if (existingWorkOrder.get().getSource() != parsedWorkOrder.source()
+                            || !existingWorkOrder.get().getSourceName().equals(parsedWorkOrder.sourceName())) {
                         throw new IllegalArgumentException(
                                 "订单编号 " + parsedWorkOrder.orderNo() + " 已属于其他订单来源"
                         );
@@ -199,7 +201,8 @@ public class WorkOrderImportService {
                             parsedWorkOrder.urgent(),
                             parsedWorkOrder.latestShipTime(),
                             parsedWorkOrder.orderTime(),
-                            parsedWorkOrder.source()
+                            parsedWorkOrder.source(),
+                            parsedWorkOrder.sourceName()
                     );
                     updatedCount++;
                     continue;
@@ -214,7 +217,8 @@ public class WorkOrderImportService {
                         parsedWorkOrder.urgent(),
                         parsedWorkOrder.latestShipTime(),
                         parsedWorkOrder.orderTime(),
-                        parsedWorkOrder.source()
+                        parsedWorkOrder.source(),
+                        parsedWorkOrder.sourceName()
                 ));
                 createdCount++;
             }
@@ -294,7 +298,7 @@ public class WorkOrderImportService {
             BigDecimal estimatedHourlyBaseAmount,
             ImportFieldSettingsSnapshot importSettings,
             String orderNo,
-            WorkOrderSource source
+            SourceSelection sourceSelection
     ) {
         BigDecimal price = readPrice(row, headers.get(ImportFieldKey.PRICE), evaluator);
         boolean urgent = headers.containsKey(ImportFieldKey.URGENT)
@@ -314,7 +318,8 @@ public class WorkOrderImportService {
                 urgent,
                 latestShipTime,
                 orderTime,
-                source
+                sourceSelection.source(),
+                sourceSelection.sourceName()
         );
     }
 
@@ -348,7 +353,7 @@ public class WorkOrderImportService {
                 continue;
             }
 
-            HeaderMatch match = new HeaderMatch(cell.getColumnIndex(), originalHeader, normalizedHeader);
+            HeaderMatch match = new HeaderMatch(cell.getColumnIndex(), originalHeader);
             Map<ImportFieldKey, List<HeaderMatch>> target = importSettings.customHeaderAliases()
                     .contains(normalizedHeader)
                     ? customMatches
@@ -357,7 +362,6 @@ public class WorkOrderImportService {
         }
 
         Map<ImportFieldKey, Integer> canonicalHeaders = new EnumMap<>(ImportFieldKey.class);
-        Map<ImportFieldKey, String> selectedNormalizedHeaders = new EnumMap<>(ImportFieldKey.class);
         for (ImportFieldKey fieldKey : ImportFieldKey.values()) {
             List<HeaderMatch> fieldBuiltInMatches = builtInMatches.getOrDefault(fieldKey, List.of());
             List<HeaderMatch> fieldCustomMatches = customMatches.getOrDefault(fieldKey, List.of());
@@ -369,11 +373,10 @@ public class WorkOrderImportService {
                     : fieldBuiltInMatches.isEmpty() ? null : fieldBuiltInMatches.getFirst();
             if (selectedMatch != null) {
                 canonicalHeaders.put(fieldKey, selectedMatch.columnIndex());
-                selectedNormalizedHeaders.put(fieldKey, selectedMatch.normalizedName());
             }
         }
 
-        return new HeaderMapping(canonicalHeaders, rawHeaders, selectedNormalizedHeaders);
+        return new HeaderMapping(canonicalHeaders, rawHeaders);
     }
 
     private void validateSingleHeaderMatch(ImportFieldKey fieldKey, List<HeaderMatch> matches) {
@@ -401,26 +404,60 @@ public class WorkOrderImportService {
         }
     }
 
-    private void validateXiaohongshuHeaders(HeaderMapping headerMapping) {
-        if (headerMapping.rawHeaders().containsKey(XIAOHONGSHU_CODE_HEADER)
+    private void validateXiaohongshuHeaders(
+            HeaderMapping headerMapping,
+            Optional<SourceSelection> filenameSource
+    ) {
+        if (filenameSource.filter((selection) -> selection.source() == WorkOrderSource.XIAOHONGSHU).isPresent()
                 && !headerMapping.rawHeaders().containsKey(ORDER_STATUS_HEADER)) {
             throw new IllegalArgumentException("小红书 XLSX 缺少订单状态字段");
         }
     }
 
-    private WorkOrderSource detectSource(HeaderMapping headerMapping, String orderNo) {
-        if (headerMapping.rawHeaders().containsKey(XIAOHONGSHU_CODE_HEADER)) {
-            return WorkOrderSource.XIAOHONGSHU;
+    private Optional<SourceSelection> detectFilenameSource(String originalFilename) {
+        String filename = normalizeSourceMatchText(originalFilename);
+        if (filename.isBlank()) {
+            return Optional.empty();
         }
 
-        if (XIAOHONGSHU_ORDER_NO_HEADER.equals(
-                headerMapping.selectedNormalizedHeaders().get(ImportFieldKey.ORDER_NO)
-        )
-                && XIAOHONGSHU_ORDER_NO_PATTERN.matcher(orderNo).matches()) {
-            return WorkOrderSource.XIAOHONGSHU;
+        Map<String, SourceSelection> matches = new LinkedHashMap<>();
+        for (String option : appSettingsService.getOrderSourceOptions()) {
+            if (!filename.contains(normalizeSourceMatchText(option))) {
+                continue;
+            }
+
+            WorkOrderSource source = WorkOrderSource.fromName(option);
+            String sourceName = source.displayName(option);
+            String matchKey = source == WorkOrderSource.CUSTOM
+                    ? source.name() + ":" + normalizeSourceMatchText(sourceName)
+                    : source.name();
+            matches.putIfAbsent(matchKey, new SourceSelection(source, sourceName));
         }
 
-        return WorkOrderSource.QIANNIU;
+        if (matches.size() > 1) {
+            throw new IllegalArgumentException(
+                    "文件名同时匹配多个订单来源：" + String.join(
+                            "、",
+                            matches.values().stream().map(SourceSelection::sourceName).toList()
+                    )
+            );
+        }
+
+        return matches.values().stream().findFirst();
+    }
+
+    private SourceSelection detectSource(String orderNo) {
+        WorkOrderSource source = XIAOHONGSHU_ORDER_NO_PATTERN.matcher(orderNo).matches()
+                ? WorkOrderSource.XIAOHONGSHU
+                : WorkOrderSource.QIANNIU;
+        return new SourceSelection(source, source.displayName(null));
+    }
+
+    private String normalizeSourceMatchText(String value) {
+        return trimToEmpty(value)
+                .toLowerCase(Locale.ROOT)
+                .replace('紅', '红')
+                .replace('書', '书');
     }
 
     private String fieldLabel(ImportFieldKey fieldKey) {
@@ -709,21 +746,26 @@ public class WorkOrderImportService {
             boolean urgent,
             LocalDateTime latestShipTime,
             LocalDateTime orderTime,
-            WorkOrderSource source
+            WorkOrderSource source,
+            String sourceName
     ) {
     }
 
     private record HeaderMapping(
             Map<ImportFieldKey, Integer> canonicalHeaders,
-            Map<String, Integer> rawHeaders,
-            Map<ImportFieldKey, String> selectedNormalizedHeaders
+            Map<String, Integer> rawHeaders
     ) {
     }
 
     private record HeaderMatch(
             int columnIndex,
-            String originalName,
-            String normalizedName
+            String originalName
+    ) {
+    }
+
+    private record SourceSelection(
+            WorkOrderSource source,
+            String sourceName
     ) {
     }
 }
