@@ -39,6 +39,12 @@ public class ImportFieldSettingsService {
             new UrgentRuleDefinition("急件", ImportUrgentMatchType.CONTAINS)
     );
 
+    private static final Set<String> OBSOLETE_PAID_AT_ALIASES = Set.of(
+            "訂單時間", "订单时间",
+            "下單時間", "下单时间",
+            "下單日期", "下单日期"
+    );
+
     private static final Map<String, ImportFieldKey> BUILT_IN_HEADER_ALIASES = builtInHeaderAliases();
     private static final Set<String> BUILT_IN_URGENT_VALUES = builtInUrgentValues();
 
@@ -53,8 +59,9 @@ public class ImportFieldSettingsService {
         this.urgentMatchRuleRepository = urgentMatchRuleRepository;
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public ImportFieldSettingsResponse getSettings() {
+        deleteObsoletePaidAtAliases();
         List<ImportFieldAlias> aliases = fieldAliasRepository.findAllByOrderByIdAsc();
         List<ImportUrgentMatchRule> urgentRules = urgentMatchRuleRepository.findAllByOrderByIdAsc();
         return toResponse(aliases, urgentRules);
@@ -74,8 +81,9 @@ public class ImportFieldSettingsService {
         return toResponse(aliases, urgentRules);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public ImportFieldSettingsSnapshot getImportSnapshot() {
+        deleteObsoletePaidAtAliases();
         List<ImportFieldAlias> customAliases = fieldAliasRepository.findAllByOrderByIdAsc();
         List<ImportUrgentMatchRule> customUrgentRules = urgentMatchRuleRepository.findAllByOrderByIdAsc();
 
@@ -173,7 +181,7 @@ public class ImportFieldSettingsService {
             }
 
             for (String requestedAlias : requestedField.customAliases()) {
-                String alias = validateAndTrimAlias(requestedAlias);
+                String alias = validateAndTrimAlias(fieldKey, requestedAlias);
                 String normalizedAlias = normalizeHeader(alias);
                 ImportFieldKey existingOwner = aliasOwners.putIfAbsent(normalizedAlias, fieldKey);
                 if (existingOwner != null) {
@@ -200,7 +208,7 @@ public class ImportFieldSettingsService {
                 .orElseThrow(() -> new IllegalArgumentException("未知字段：" + key));
     }
 
-    private String validateAndTrimAlias(String requestedAlias) {
+    private String validateAndTrimAlias(ImportFieldKey fieldKey, String requestedAlias) {
         String alias = requestedAlias == null ? "" : requestedAlias.trim();
         if (alias.isEmpty()) {
             throw new IllegalArgumentException("自定义字段名不可为空");
@@ -211,7 +219,18 @@ public class ImportFieldSettingsService {
         if (normalizeHeader(alias).isEmpty()) {
             throw new IllegalArgumentException("自定义字段名不可只包含空格、下划线或连字符");
         }
+        if (fieldKey == ImportFieldKey.PAID_AT
+                && OBSOLETE_PAID_AT_ALIASES.contains(normalizeHeader(alias))) {
+            throw new IllegalArgumentException("自定义字段名“" + alias + "”不能用于订单付款时间");
+        }
         return alias;
+    }
+
+    private void deleteObsoletePaidAtAliases() {
+        fieldAliasRepository.deleteAllByFieldKeyAndNormalizedAliasIn(
+                ImportFieldKey.PAID_AT,
+                OBSOLETE_PAID_AT_ALIASES
+        );
     }
 
     private List<ImportUrgentMatchRule> validateUrgentRules(

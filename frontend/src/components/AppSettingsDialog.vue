@@ -31,7 +31,9 @@ const orderSourceOptions = ref([])
 const orderSourceOptionInput = ref('')
 const orderSourceOptionsError = ref('')
 const orderSourceOptionInputElement = ref(null)
+const orderSourceIdentifierInputElement = ref(null)
 const selectedOrderSourceIndex = ref(-1)
+const settingsTabsScrolling = ref(false)
 const orderSourceDeletingIdentifier = ref('')
 const orderSourceEditorErrors = reactive({
   name: '',
@@ -64,6 +66,7 @@ const recipientCreateNameInput = ref(null)
 const recipientNameInput = ref(null)
 let fieldErrorTimer = null
 let savedMessageTimer = null
+let settingsTabsScrollTimer = null
 const basicFieldMessageTimers = {}
 
 const emailForm = reactive({
@@ -204,6 +207,9 @@ onBeforeUnmount(() => {
   clearSavedMessage()
   clearBasicFieldMessages()
   clearFormValidation()
+  if (settingsTabsScrollTimer) {
+    window.clearTimeout(settingsTabsScrollTimer)
+  }
 })
 
 async function submit() {
@@ -477,6 +483,7 @@ function addOrderSourceOption() {
   orderSourceOptionInput.value = ''
   orderSourceOptionsError.value = ''
   clearOrderSourceEditorErrors()
+  nextTick(() => orderSourceIdentifierInputElement.value?.focus())
   return true
 }
 
@@ -561,9 +568,35 @@ function selectOrderSourceOption(index) {
   clearOrderSourceEditorErrors()
 }
 
-function closeOrderSourceOptionEditor() {
+function handleOrderSourceOptionInputFocus() {
+  const option = selectedOrderSourceOption.value
+
+  if (option && !option._persistedIdentifier && !normalizedText(option.identifier)) {
+    const abandon = window.confirm(
+      `订单来源「${option.name}」尚未填写识别文字，这笔资料不会保存。是否放弃这次新增？`
+    )
+
+    if (abandon) {
+      removeLocalOrderSourceOption(selectedOrderSourceIndex.value)
+    } else {
+      nextTick(() => orderSourceIdentifierInputElement.value?.focus())
+    }
+    return
+  }
+
   selectedOrderSourceIndex.value = -1
   clearOrderSourceEditorErrors()
+}
+
+function handleSettingsTabsScroll() {
+  settingsTabsScrolling.value = true
+  if (settingsTabsScrollTimer) {
+    window.clearTimeout(settingsTabsScrollTimer)
+  }
+  settingsTabsScrollTimer = window.setTimeout(() => {
+    settingsTabsScrolling.value = false
+    settingsTabsScrollTimer = null
+  }, 700)
 }
 
 function normalizeSelectedSourceIdentifier() {
@@ -1065,49 +1098,54 @@ function securityLabel(value) {
     @click="emit('close')"
   >
     <form class="dialog settings-dialog" aria-label="全局设置" novalidate @click.stop @submit.prevent="submit">
-      <div class="dialog-heading">
+      <div class="dialog-heading settings-dialog-heading">
         <h2>全局设置</h2>
+        <div
+          class="settings-tabs"
+          :class="{ scrolling: settingsTabsScrolling }"
+          role="tablist"
+          aria-label="全局设置分类"
+          @scroll.passive="handleSettingsTabsScroll"
+        >
+          <button
+            type="button"
+            role="tab"
+            :aria-selected="activeTab === 'recipients'"
+            :class="{ active: activeTab === 'recipients' }"
+            @click="activateTab('recipients')"
+          >
+            Email 收件者
+          </button>
+          <button
+            type="button"
+            role="tab"
+            :aria-selected="activeTab === 'email'"
+            :class="{ active: activeTab === 'email' }"
+            @click="activateTab('email')"
+          >
+            Email 寄件者
+          </button>
+          <button
+            type="button"
+            role="tab"
+            :aria-selected="activeTab === 'basic'"
+            :class="{ active: activeTab === 'basic' }"
+            @click="activateTab('basic')"
+          >
+            基础设置
+          </button>
+          <button
+            type="button"
+            role="tab"
+            :aria-selected="activeTab === 'fields'"
+            :class="{ active: activeTab === 'fields' }"
+            @click="activateTab('fields')"
+          >
+            字段识别设置
+          </button>
+        </div>
         <button class="icon-only-button" type="button" aria-label="关闭" @click="emit('close')">
           <X :size="18" />
-        </button>
-      </div>
-
-      <div class="settings-tabs" role="tablist" aria-label="全局设置分类">
-        <button
-          type="button"
-          role="tab"
-          :aria-selected="activeTab === 'recipients'"
-          :class="{ active: activeTab === 'recipients' }"
-          @click="activateTab('recipients')"
-        >
-          Email 收件者
-        </button>
-        <button
-          type="button"
-          role="tab"
-          :aria-selected="activeTab === 'email'"
-          :class="{ active: activeTab === 'email' }"
-          @click="activateTab('email')"
-        >
-          Email 寄件者
-        </button>
-        <button
-          type="button"
-          role="tab"
-          :aria-selected="activeTab === 'basic'"
-          :class="{ active: activeTab === 'basic' }"
-          @click="activateTab('basic')"
-        >
-          基础设置
-        </button>
-        <button
-          type="button"
-          role="tab"
-          :aria-selected="activeTab === 'fields'"
-          :class="{ active: activeTab === 'fields' }"
-          @click="activateTab('fields')"
-        >
-          字段识别设置
         </button>
       </div>
 
@@ -1241,7 +1279,7 @@ function securityLabel(value) {
                   :aria-invalid="Boolean(orderSourceOptionsError)"
                   :disabled="settingsBusy"
                   :placeholder="orderSourceOptions.length ? '继续添加' : '输入订单来源'"
-                  @focus="closeOrderSourceOptionEditor"
+                  @focus="handleOrderSourceOptionInputFocus"
                   @keydown="handleOrderSourceOptionKeydown"
                 />
               </div>
@@ -1250,6 +1288,7 @@ function securityLabel(value) {
                 <label>
                   <span class="form-field-label">
                     来源名称
+                    <span class="required-marker" aria-hidden="true">*</span>
                     <small
                       v-if="orderSourceEditorErrors.name"
                       class="form-field-error"
@@ -1272,6 +1311,7 @@ function securityLabel(value) {
                 <label>
                   <span class="form-field-label">
                     识别文字
+                    <span class="required-marker" aria-hidden="true">*</span>
                     <small
                       v-if="orderSourceEditorErrors.identifier"
                       class="form-field-error"
@@ -1281,6 +1321,7 @@ function securityLabel(value) {
                     </small>
                   </span>
                   <input
+                    ref="orderSourceIdentifierInputElement"
                     v-model="selectedOrderSourceOption.identifier"
                     type="text"
                     maxlength="40"
@@ -1295,6 +1336,7 @@ function securityLabel(value) {
                 <label>
                   <span class="form-field-label">
                     标签颜色
+                    <span class="required-marker" aria-hidden="true">*</span>
                     <small
                       v-if="orderSourceEditorErrors.badgeColor"
                       class="form-field-error"
@@ -1317,6 +1359,7 @@ function securityLabel(value) {
                       placeholder="#3B82F6"
                       :aria-invalid="Boolean(orderSourceEditorErrors.badgeColor)"
                       :disabled="settingsBusy"
+                      required
                       @blur="normalizeSelectedSourceColor"
                     />
                   </span>
@@ -1324,6 +1367,7 @@ function securityLabel(value) {
                 <label>
                   <span class="form-field-label">
                     标签单一文字
+                    <span class="required-marker" aria-hidden="true">*</span>
                     <small
                       v-if="orderSourceEditorErrors.badgeText"
                       class="form-field-error"

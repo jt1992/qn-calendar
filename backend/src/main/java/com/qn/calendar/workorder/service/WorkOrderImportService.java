@@ -435,7 +435,12 @@ public class WorkOrderImportService {
 
         Map<String, SourceSelection> matches = new LinkedHashMap<>();
         for (OrderSourceOption option : appSettingsService.getOrderSourceOptions()) {
-            if (!filename.contains(normalizeSourceMatchText(option.getName()))) {
+            String sourceName = normalizeSourceMatchText(option.getName());
+            String badgeText = normalizeSourceMatchText(option.getBadgeText());
+            boolean nameMatched = !sourceName.isBlank() && filename.contains(sourceName);
+            boolean badgeMatched = !badgeText.isBlank() && filename.contains(badgeText);
+
+            if (!nameMatched && !badgeMatched) {
                 continue;
             }
 
@@ -707,7 +712,7 @@ public class WorkOrderImportService {
 
         return parseDateTimeText(value)
                 .orElseThrow(() -> new IllegalArgumentException(
-                        "订单时间格式不正确，请使用 yyyy-MM-dd 或 yyyy-MM-dd HH:mm:ss"
+                        "订单付款时间格式不正确，请使用 yyyy-MM-dd 或 yyyy-MM-dd HH:mm:ss"
                 ));
     }
 

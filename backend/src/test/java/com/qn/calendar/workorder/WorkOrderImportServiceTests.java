@@ -354,7 +354,7 @@ class WorkOrderImportServiceTests {
         assertThat(response.errors()).singleElement().satisfies((error) -> {
             assertThat(error.row()).isEqualTo(2);
             assertThat(error.message()).isEqualTo(
-                    "订单时间格式不正确，请使用 yyyy-MM-dd 或 yyyy-MM-dd HH:mm:ss"
+                    "订单付款时间格式不正确，请使用 yyyy-MM-dd 或 yyyy-MM-dd HH:mm:ss"
             );
         });
         assertThat(workOrder.getId()).isEqualTo(existing.getId());
@@ -923,6 +923,30 @@ class WorkOrderImportServiceTests {
                 "抖音导出订单.xlsx",
                 List.of("订单编号", "买家实付金额", "应发货时间"),
                 List.of(List.of("DOUYIN-ORDER-1", "100.00", "2026-08-30 16:39:54"))
+        );
+
+        ImportWorkOrderResponse response = importService.importXlsx(file);
+
+        assertThat(response.createdCount()).isEqualTo(1);
+        assertThat(response.errors()).isEmpty();
+        assertThat(repository.findAll()).singleElement().satisfies((workOrder) -> {
+            assertThat(workOrder.getSource()).isEqualTo(WorkOrderSource.CUSTOM);
+            assertThat(workOrder.getSourceCode()).isEqualTo("DOUYIN");
+            assertThat(workOrder.getSourceName()).isEqualTo("抖音");
+        });
+    }
+
+    @Test
+    void detectsConfiguredCustomSourceFromFilenameBadgeText() throws Exception {
+        appSettingsService.updateSettings(new UpdateAppSettingsRequest(
+                BigDecimal.valueOf(100),
+                LocalTime.of(6, 0),
+                sourcesWithDouyin()
+        ));
+        MockMultipartFile file = xlsxWithRows(
+                "抖订单.xlsx",
+                List.of("订单编号", "买家实付金额", "应发货时间"),
+                List.of(List.of("DOUYIN-BADGE-ORDER-1", "100.00", "2026-08-30 16:39:54"))
         );
 
         ImportWorkOrderResponse response = importService.importXlsx(file);

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { Plus, Trash2, X } from '@lucide/vue'
 import { useAppSettingsStore } from '../stores/appSettingsStore'
 
@@ -109,6 +109,8 @@ async function addAlias(field) {
   if (saved) {
     aliasInputs[field.key] = ''
     setFieldNotice(field.key, `${alias}已添加`)
+    await nextTick()
+    document.getElementById(fieldInputId(field.key))?.focus()
   } else {
     aliasInputs[field.key] = alias
   }

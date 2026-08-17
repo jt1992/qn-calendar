@@ -10,6 +10,7 @@ import java.util.Map;
 import com.qn.calendar.settings.constant.ImportUrgentMatchType;
 import com.qn.calendar.settings.dto.ImportFieldSettingsResponse;
 import com.qn.calendar.settings.dto.UpdateImportFieldSettingsRequest;
+import com.qn.calendar.settings.entity.ImportFieldAlias;
 import com.qn.calendar.settings.model.ImportFieldKey;
 import com.qn.calendar.settings.repository.ImportFieldAliasRepository;
 import com.qn.calendar.settings.repository.ImportUrgentMatchRuleRepository;
@@ -91,6 +92,8 @@ class ImportFieldSettingsServiceTests {
                 .contains("商家备注", "包裹备注信息");
         assertThat(field(settings, "paidAt").builtInAliases())
                 .contains("订单付款时间", "支付时间");
+        assertThat(field(settings, "paidAt").builtInAliases())
+                .doesNotContain("訂單時間", "订单时间", "下單時間", "下单时间", "下單日期", "下单日期");
         assertThat(settings.fields())
                 .flatExtracting(ImportFieldSettingsResponse.FieldSettings::builtInAliases)
                 .noneMatch((alias) -> alias.matches(".*[A-Za-z].*"));
@@ -146,6 +149,26 @@ class ImportFieldSettingsServiceTests {
         )))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("自定义字段名“订单号”与系统字段名冲突");
+    }
+
+    @Test
+    void removesAndRejectsObsoletePaidAtAliases() {
+        fieldAliasRepository.save(new ImportFieldAlias(
+                ImportFieldKey.PAID_AT,
+                "订单时间",
+                ImportFieldSettingsService.normalizeHeader("订单时间")
+        ));
+
+        ImportFieldSettingsResponse settings = service.getSettings();
+
+        assertThat(field(settings, "paidAt").customAliases()).isEmpty();
+        assertThat(fieldAliasRepository.count()).isZero();
+        assertThatThrownBy(() -> service.updateSettings(request(
+                Map.of(ImportFieldKey.PAID_AT, List.of("下单时间")),
+                List.of()
+        )))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("自定义字段名“下单时间”不能用于订单付款时间");
     }
 
     @Test
