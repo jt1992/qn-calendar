@@ -196,6 +196,7 @@ lastUsedAt DESC → usageCount DESC → 姓名或 Email（zh-CN）
 | 行为 | API |
 |---|---|
 | 读取/保存基础设置 | `GET /api/settings`、`PUT /api/settings` |
+| 读取来源删除影响/删除来源 | `GET /api/settings/order-sources/{identifier}/deletion-impact`、`DELETE /api/settings/order-sources/{identifier}` |
 | 保存 SMTP 寄件者 | `PUT /api/settings/email-sender` |
 | 读取/保存 XLSX 字段设置 | `GET /api/settings/import-fields`、`PUT /api/settings/import-fields` |
 | 读取/新增收件者 | `GET /api/email-recipients`、`POST /api/email-recipients` |
@@ -221,7 +222,7 @@ lastUsedAt DESC → usageCount DESC → 姓名或 Email（zh-CN）
 - 工时以 15 分钟增减，最低 15 分钟。
 - 删除只允许由卡片按钮触发，删除前确认，并提供 loading、disabled、accessible name。
 - 清单标题左侧显示笔数，右侧「新增待排工单」按钮打开表单；订单来源、订单编号、金额、期限必填且显示红色 `*`，建立后刷新待排清单。
-- 手动新增的订单来源选项读取自基础设置；自定义来源在待排显示名称首字，排入日历后以完整名称作为订单编号前缀。
+- 手动新增的订单来源选项读取自基础设置；待排与日历使用后端回传的来源单字标签，待排标签颜色也使用来源设置值。
 - pointer 位移小于 6px 的短按会复制不含 `#` 的订单编号；拖拽不可触发复制。
 - 待排卡片 focus/hover 显示价格、工时、状态、最晚发货、备注 tooltip。
 - 聚焦待排工单时，周视图显示最晚发货红线。
@@ -331,9 +332,10 @@ lastUsedAt DESC → usageCount DESC → 姓名或 Email（zh-CN）
 
 - 预估工时基础金额必填、大于 0、最多两位小数。
 - 周表默认开始时间只接受 `HH:00` 或 `HH:30`。
-- 订单来源选项使用横跨两栏的 InputTag，默认千牛、小红书；支持 1–20 个不重复选项，每项最长 80 字，删除前明确确认目标。
-- 三项设置一起通过 `PUT /api/settings` 保存。
-- 值相对原设置发生变化时启用提交；点击提交后才验证金额与时间格式。
+- 基础金额与周表开始时间各自在 `change` 时通过 `PUT /api/settings` 自动保存；成功提示显示在对应字段标题右侧并于 5 秒后消失，不提供基础设置总保存按钮。
+- 订单来源选项使用横跨两栏的 InputTag，默认千牛、小红书；新增后或点击既有标签会在下方编辑名称、identifier、标签色码与单字标签，并使用编辑器内的保存按钮提交；重新聚焦添加输入框会收起编辑器。支持 1–20 个名称/identifier 不重复的选项。
+- 删除已保存来源前通过后端读取受影响工单数；有工单时确认文案必须明确说明工单与排程会永久删除。确认后调用来源删除 API，并刷新待排、日历与完工统计；红色删除提示显示在订单来源字段标题右侧 5 秒。
+- 来源编辑保存成功后刷新待排清单、目前日历区间与完工统计，使来源名称、标签文字与颜色立即生效。
 
 字段设置：
 

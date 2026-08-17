@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 import com.qn.calendar.workorder.constant.WorkOrderSource;
 import com.qn.calendar.workorder.constant.WorkOrderStatus;
@@ -42,6 +43,15 @@ public class WorkOrder {
 
     @Column(name = "source_name", length = 80)
     private String sourceName;
+
+    @Column(name = "source_code", length = 40)
+    private String sourceCode;
+
+    @Column(name = "source_badge_color", length = 7)
+    private String sourceBadgeColor;
+
+    @Column(name = "source_badge_text", length = 8)
+    private String sourceBadgeText;
 
     @Column(name = "buyer_nickname", length = 120)
     private String buyerNickname;
@@ -174,9 +184,48 @@ public class WorkOrder {
             WorkOrderSource source,
             String sourceName
     ) {
+        this(
+                orderNo,
+                buyerNickname,
+                remark,
+                price,
+                estimatedMinutes,
+                urgent,
+                latestShipTime,
+                orderTime,
+                source,
+                source == null ? WorkOrderSource.QIANNIU.name() : source.name(),
+                source == WorkOrderSource.CUSTOM ? sourceName : source == null ? "千牛" : source.displayName(null),
+                defaultBadgeColor(source),
+                defaultBadgeText(source, sourceName)
+        );
+    }
+
+    public WorkOrder(
+            String orderNo,
+            String buyerNickname,
+            String remark,
+            BigDecimal price,
+            int estimatedMinutes,
+            boolean urgent,
+            LocalDateTime latestShipTime,
+            LocalDateTime orderTime,
+            WorkOrderSource source,
+            String sourceCode,
+            String sourceName,
+            String sourceBadgeColor,
+            String sourceBadgeText
+    ) {
         this.orderNo = orderNo;
-        this.source = source == null ? WorkOrderSource.QIANNIU : source;
-        this.sourceName = this.source == WorkOrderSource.CUSTOM ? sourceName : null;
+        this.source = source == null || source == WorkOrderSource.CUSTOM ? null : source;
+        this.sourceCode = hasText(sourceCode)
+                ? sourceCode.trim().toUpperCase(Locale.ROOT)
+                : source == null ? WorkOrderSource.QIANNIU.name() : source.name();
+        this.sourceName = hasText(sourceName)
+                ? sourceName.trim()
+                : source == null ? "千牛" : source.displayName(null);
+        this.sourceBadgeColor = sourceBadgeColor;
+        this.sourceBadgeText = sourceBadgeText;
         this.buyerNickname = buyerNickname;
         this.remark = remark;
         this.price = price;
@@ -191,7 +240,7 @@ public class WorkOrder {
     @PrePersist
     void prePersist() {
         LocalDateTime now = LocalDateTime.now();
-        this.source = getSource();
+        this.source = legacySourceFor(getSourceCode());
         this.createdAt = now;
         this.updatedAt = now;
     }
@@ -232,7 +281,10 @@ public class WorkOrder {
             LocalDateTime latestShipTime,
             LocalDateTime orderTime,
             WorkOrderSource source,
-            String sourceName
+            String sourceCode,
+            String sourceName,
+            String sourceBadgeColor,
+            String sourceBadgeText
     ) {
         boolean actualMinutesFollowEstimate = this.status == WorkOrderStatus.PENDING
                 && this.actualMinutes == this.estimatedMinutes;
@@ -243,8 +295,15 @@ public class WorkOrder {
         this.urgent = urgent;
         this.latestShipTime = latestShipTime;
         this.orderTime = orderTime;
-        this.source = source == null ? WorkOrderSource.QIANNIU : source;
-        this.sourceName = this.source == WorkOrderSource.CUSTOM ? sourceName : null;
+        this.source = source == null || source == WorkOrderSource.CUSTOM ? null : source;
+        this.sourceCode = hasText(sourceCode)
+                ? sourceCode.trim().toUpperCase(Locale.ROOT)
+                : source == null ? WorkOrderSource.QIANNIU.name() : source.name();
+        this.sourceName = hasText(sourceName)
+                ? sourceName.trim()
+                : source == null ? "千牛" : source.displayName(null);
+        this.sourceBadgeColor = sourceBadgeColor;
+        this.sourceBadgeText = sourceBadgeText;
 
         if (actualMinutesFollowEstimate) {
             this.actualMinutes = estimatedMinutes;
@@ -269,6 +328,12 @@ public class WorkOrder {
         this.completedAt = null;
     }
 
+    public void updateSourceMetadata(String sourceName, String sourceBadgeColor, String sourceBadgeText) {
+        this.sourceName = sourceName;
+        this.sourceBadgeColor = sourceBadgeColor;
+        this.sourceBadgeText = sourceBadgeText;
+    }
+
     public Long getId() {
         return id;
     }
@@ -278,11 +343,27 @@ public class WorkOrder {
     }
 
     public WorkOrderSource getSource() {
-        return source == null ? WorkOrderSource.QIANNIU : source;
+        return hasText(sourceCode)
+                ? WorkOrderSource.fromCode(sourceCode)
+                : source == null ? WorkOrderSource.QIANNIU : source;
     }
 
     public String getSourceName() {
-        return getSource().displayName(sourceName);
+        return hasText(sourceName) ? sourceName : getSource().displayName(null);
+    }
+
+    public String getSourceCode() {
+        return hasText(sourceCode)
+                ? sourceCode.trim().toUpperCase(Locale.ROOT)
+                : source == null ? WorkOrderSource.QIANNIU.name() : source.name();
+    }
+
+    public String getSourceBadgeColor() {
+        return hasText(sourceBadgeColor) ? sourceBadgeColor : defaultBadgeColor(getSource());
+    }
+
+    public String getSourceBadgeText() {
+        return hasText(sourceBadgeText) ? sourceBadgeText : defaultBadgeText(getSource(), getSourceName());
     }
 
     public String getBuyerNickname() {
@@ -339,5 +420,38 @@ public class WorkOrder {
 
     public LocalDateTime getUpdatedAt() {
         return updatedAt;
+    }
+
+    private static WorkOrderSource legacySourceFor(String sourceCode) {
+        WorkOrderSource resolved = WorkOrderSource.fromCode(sourceCode);
+        return resolved == WorkOrderSource.CUSTOM ? null : resolved;
+    }
+
+    private static String defaultBadgeColor(WorkOrderSource source) {
+        if (source == WorkOrderSource.XIAOHONGSHU) {
+            return "#FF5C5C";
+        }
+        if (source == WorkOrderSource.QIANNIU || source == null) {
+            return "#218BFF";
+        }
+        return "#3B82F6";
+    }
+
+    private static String defaultBadgeText(WorkOrderSource source, String sourceName) {
+        if (source == WorkOrderSource.XIAOHONGSHU) {
+            return "书";
+        }
+        if (source == WorkOrderSource.QIANNIU || source == null) {
+            return "千";
+        }
+        if (!hasText(sourceName)) {
+            return "其";
+        }
+        int endIndex = sourceName.offsetByCodePoints(0, 1);
+        return sourceName.substring(0, endIndex);
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.trim().isEmpty();
     }
 }

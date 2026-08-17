@@ -633,21 +633,20 @@ select:disabled {
   font-size: 0.78rem;
   font-weight: 900;
   line-height: 1;
+  background: color-mix(in srgb, var(--source-badge-color, currentColor) 14%, transparent);
+  color: var(--source-badge-color, currentColor);
 }
 
 .order-source-badge.qianniu {
-  background: var(--primary-soft);
-  color: var(--primary);
+  --source-badge-color: var(--primary);
 }
 
 .order-source-badge.xiaohongshu {
-  background: var(--danger-soft);
-  color: var(--danger);
+  --source-badge-color: var(--danger);
 }
 
 .order-source-badge.custom {
-  background: var(--surface-strong);
-  color: var(--text);
+  --source-badge-color: var(--text);
 }
 
 .order-summary {
@@ -1559,8 +1558,48 @@ select:disabled {
   gap: 6px;
 }
 
-.basic-settings-form .dialog-actions {
+.order-source-option-tag {
+  cursor: pointer;
+}
+
+.order-source-option-tag.active {
+  box-shadow: 0 0 0 2px var(--primary-soft);
+}
+
+.order-source-option-editor {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+  background: var(--surface-soft);
+}
+
+.order-source-option-editor-actions {
+  grid-column: 1 / -1;
+  display: flex;
   justify-content: flex-end;
+}
+
+.order-source-color-field {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.dialog .order-source-color-field input[type="color"] {
+  width: 46px;
+  padding: 4px;
+}
+
+.field-save-status {
+  color: var(--primary);
+  font-weight: 800;
+}
+
+.field-save-status.danger {
+  color: var(--danger);
 }
 
 .import-field-settings,

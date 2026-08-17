@@ -13,6 +13,7 @@ import java.util.List;
 
 import com.qn.calendar.settings.constant.ImportUrgentMatchType;
 import com.qn.calendar.settings.dto.UpdateAppSettingsRequest;
+import com.qn.calendar.settings.dto.UpdateAppSettingsRequest.OrderSourceOptionRequest;
 import com.qn.calendar.settings.dto.UpdateImportFieldSettingsRequest;
 import com.qn.calendar.settings.model.ImportFieldKey;
 import com.qn.calendar.settings.repository.AppSettingRepository;
@@ -42,6 +43,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
 
 @SpringBootTest
@@ -76,6 +78,9 @@ class WorkOrderImportServiceTests {
 
     @Autowired
     private Clock clock;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @BeforeEach
     void setUp() {
@@ -159,7 +164,7 @@ class WorkOrderImportServiceTests {
         appSettingsService.updateSettings(new UpdateAppSettingsRequest(
                 BigDecimal.valueOf(200),
                 LocalTime.of(6, 0),
-                List.of("千牛", "小红书")
+                defaultSources()
         ));
         MockMultipartFile file = xlsxWithOneOrder("ORD-BASE-AMOUNT", BigDecimal.valueOf(250), LocalDateTime.of(2026, 6, 10, 0, 0));
 
@@ -767,7 +772,7 @@ class WorkOrderImportServiceTests {
         appSettingsService.updateSettings(new UpdateAppSettingsRequest(
                 BigDecimal.valueOf(100),
                 LocalTime.of(6, 0),
-                List.of("千牛", "小红书", "抖音")
+                sourcesWithDouyin()
         ));
 
         WorkOrder workOrder = importService.createPendingWorkOrder(new CreateWorkOrderRequest(
@@ -782,7 +787,15 @@ class WorkOrderImportServiceTests {
         ));
 
         assertThat(workOrder.getSource()).isEqualTo(WorkOrderSource.CUSTOM);
+        assertThat(workOrder.getSourceCode()).isEqualTo("DOUYIN");
         assertThat(workOrder.getSourceName()).isEqualTo("抖音");
+        assertThat(workOrder.getSourceBadgeColor()).isEqualTo("#00AA66");
+        assertThat(workOrder.getSourceBadgeText()).isEqualTo("抖");
+        assertThat(jdbcTemplate.queryForObject(
+                "select source from work_order where order_no = ?",
+                String.class,
+                "ORD-CUSTOM-SOURCE"
+        )).isNull();
     }
 
     @Test
@@ -904,7 +917,7 @@ class WorkOrderImportServiceTests {
         appSettingsService.updateSettings(new UpdateAppSettingsRequest(
                 BigDecimal.valueOf(100),
                 LocalTime.of(6, 0),
-                List.of("千牛", "小红书", "抖音")
+                sourcesWithDouyin()
         ));
         MockMultipartFile file = xlsxWithRows(
                 "抖音导出订单.xlsx",
@@ -918,6 +931,7 @@ class WorkOrderImportServiceTests {
         assertThat(response.errors()).isEmpty();
         assertThat(repository.findAll()).singleElement().satisfies((workOrder) -> {
             assertThat(workOrder.getSource()).isEqualTo(WorkOrderSource.CUSTOM);
+            assertThat(workOrder.getSourceCode()).isEqualTo("DOUYIN");
             assertThat(workOrder.getSourceName()).isEqualTo("抖音");
         });
     }
@@ -1052,6 +1066,30 @@ class WorkOrderImportServiceTests {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("XLSX 字段「订单编号」与「订单号」同时映射到订单编号");
         assertThat(repository.findAll()).isEmpty();
+    }
+
+    private static List<OrderSourceOptionRequest> defaultSources() {
+        return List.of(
+                source("千牛", "QIANNIU", "#218BFF", "千"),
+                source("小红书", "XIAOHONGSHU", "#FF5C5C", "书")
+        );
+    }
+
+    private static List<OrderSourceOptionRequest> sourcesWithDouyin() {
+        return List.of(
+                source("千牛", "QIANNIU", "#218BFF", "千"),
+                source("小红书", "XIAOHONGSHU", "#FF5C5C", "书"),
+                source("抖音", "DOUYIN", "#00AA66", "抖")
+        );
+    }
+
+    private static OrderSourceOptionRequest source(
+            String name,
+            String identifier,
+            String badgeColor,
+            String badgeText
+    ) {
+        return new OrderSourceOptionRequest(name, identifier, badgeColor, badgeText);
     }
 
     private MockMultipartFile xlsxWithOneOrder(String orderNo, BigDecimal price, LocalDateTime latestShipDate) throws Exception {

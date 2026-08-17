@@ -10,6 +10,20 @@ export async function updateAppSettings(payload) {
   return data
 }
 
+export async function getOrderSourceDeletionImpact(identifier) {
+  const { data } = await http.get(
+    `/api/settings/order-sources/${encodeURIComponent(identifier)}/deletion-impact`
+  )
+  return data
+}
+
+export async function deleteOrderSource(identifier) {
+  const { data } = await http.delete(
+    `/api/settings/order-sources/${encodeURIComponent(identifier)}`
+  )
+  return data
+}
+
 export async function updateEmailSenderSettings(payload) {
   const { data } = await http.put('/api/settings/email-sender', payload)
   return data

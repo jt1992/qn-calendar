@@ -4,6 +4,7 @@ import { Check, Eye, EyeOff, Pencil, Plus, Save, Trash2, X } from '@lucide/vue'
 import HelpTooltip from './HelpTooltip.vue'
 import ImportFieldSettingsPanel from './ImportFieldSettingsPanel.vue'
 import { useAppSettingsStore } from '../stores/appSettingsStore'
+import { useWorkOrderStore } from '../stores/workOrderStore'
 
 const STORED_SMTP_AUTH_CODE = '••••••••'
 
@@ -20,6 +21,7 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'update-tab'])
 const settingsStore = useAppSettingsStore()
+const workOrderStore = useWorkOrderStore()
 const activeTab = ref(normalizeTab(props.initialTab))
 const amountInput = ref('')
 const amountError = ref('')
@@ -29,6 +31,24 @@ const orderSourceOptions = ref([])
 const orderSourceOptionInput = ref('')
 const orderSourceOptionsError = ref('')
 const orderSourceOptionInputElement = ref(null)
+const selectedOrderSourceIndex = ref(-1)
+const orderSourceDeletingIdentifier = ref('')
+const orderSourceEditorErrors = reactive({
+  name: '',
+  identifier: '',
+  badgeColor: '',
+  badgeText: ''
+})
+const basicFieldMessages = reactive({
+  amount: '',
+  weekStartTime: '',
+  orderSources: ''
+})
+const basicFieldMessageTones = reactive({
+  amount: 'info',
+  weekStartTime: 'info',
+  orderSources: 'info'
+})
 const fieldError = ref('')
 const savedMessage = ref('')
 const savedMessageTone = ref('info')
@@ -44,6 +64,7 @@ const recipientCreateNameInput = ref(null)
 const recipientNameInput = ref(null)
 let fieldErrorTimer = null
 let savedMessageTimer = null
+const basicFieldMessageTimers = {}
 
 const emailForm = reactive({
   senderEmail: '',
@@ -77,9 +98,12 @@ const recipientEditErrors = reactive({
 })
 
 const emailSender = computed(() => settingsStore.settings.emailSender || {})
+const selectedOrderSourceOption = computed(() => orderSourceOptions.value[selectedOrderSourceIndex.value] || null)
 const settingsBusy = computed(() =>
   settingsStore.loading ||
   settingsStore.saving ||
+  settingsStore.sourceDeleting ||
+  Boolean(orderSourceDeletingIdentifier.value) ||
   settingsStore.importFieldSettingsLoading ||
   settingsStore.importFieldSettingsSaving ||
   settingsStore.recipientsLoading ||
@@ -89,12 +113,19 @@ const showEmailFields = computed(() =>
   activeTab.value === 'email' && (!emailSender.value.configured || emailEditing.value)
 )
 const canSubmitActiveTab = computed(() => showEmailFields.value)
-const basicSettingsChanged = computed(() =>
-  !amountMatchesSavedValue() ||
-  !weekStartTimeMatchesSavedValue() ||
-  !orderSourceOptionsMatchSavedValue() ||
-  Boolean(normalizedText(orderSourceOptionInput.value))
-)
+const selectedOrderSourceChanged = computed(() => {
+  const option = selectedOrderSourceOption.value
+
+  if (!option) {
+    return false
+  }
+
+  const savedOption = (settingsStore.settings.orderSourceOptions || []).find(
+    (current) => current.identifier === option._persistedIdentifier
+  )
+
+  return !savedOption || JSON.stringify(comparableOrderSourceOption(option)) !== JSON.stringify(savedOption)
+})
 const emailSenderChanged = computed(() => {
   const original = emailSenderFormDefaults()
 
@@ -139,6 +170,7 @@ watch(
     activeTab.value = normalizeTab(props.initialTab)
     clearFieldError()
     clearSavedMessage()
+    clearBasicFieldMessages()
     clearFormValidation()
     resetBasicSettingsForm()
     resetEmailForm()
@@ -170,50 +202,93 @@ watch(
 onBeforeUnmount(() => {
   clearFieldError()
   clearSavedMessage()
+  clearBasicFieldMessages()
   clearFormValidation()
 })
 
 async function submit() {
-  if (activeTab.value === 'basic') {
-    await submitBasicSettings()
-    return
-  }
-
   if (showEmailFields.value) {
     await submitEmailSender()
-    return
   }
 }
 
-async function submitBasicSettings() {
-  if (settingsBusy.value || !basicSettingsChanged.value) {
+async function autoSaveAmount() {
+  if (settingsBusy.value || amountMatchesSavedValue()) {
     return
   }
 
   clearFieldError()
-  clearSavedMessage()
-
-  if (normalizedText(orderSourceOptionInput.value) && !addOrderSourceOption()) {
-    return
-  }
-
+  amountError.value = ''
   const amount = validateAmount()
-  const weekStartTime = validateWeekStartTime()
-  const validatedOrderSourceOptions = validateOrderSourceOptions()
 
-  if (amount === null || weekStartTime === null || validatedOrderSourceOptions === null) {
+  if (amount === null) {
     return
   }
 
   try {
     await settingsStore.saveSettings({
       estimatedHourlyBaseAmount: amount,
+      weekViewDefaultStartTime: settingsStore.settings.weekViewDefaultStartTime,
+      orderSourceOptions: settingsStore.settings.orderSourceOptions
+    })
+    amountInput.value = formatAmount(settingsStore.settings.estimatedHourlyBaseAmount)
+    showBasicFieldMessage('amount', '已保存')
+  } catch (error) {
+    showFieldError(error.message)
+  }
+}
+
+async function autoSaveWeekStartTime() {
+  if (settingsBusy.value || weekStartTimeMatchesSavedValue()) {
+    return
+  }
+
+  clearFieldError()
+  weekStartTimeError.value = ''
+  const weekStartTime = validateWeekStartTime()
+
+  if (weekStartTime === null) {
+    return
+  }
+
+  try {
+    await settingsStore.saveSettings({
+      estimatedHourlyBaseAmount: settingsStore.settings.estimatedHourlyBaseAmount,
       weekViewDefaultStartTime: weekStartTime,
+      orderSourceOptions: settingsStore.settings.orderSourceOptions
+    })
+    weekStartTimeInput.value = formatWeekStartTime(settingsStore.settings.weekViewDefaultStartTime)
+    showBasicFieldMessage('weekStartTime', '已保存')
+  } catch (error) {
+    showFieldError(error.message)
+  }
+}
+
+async function saveOrderSourceOptions() {
+  if (settingsBusy.value || !selectedOrderSourceChanged.value) {
+    return
+  }
+
+  clearFieldError()
+  const validatedOrderSourceOptions = validateOrderSourceOptions()
+
+  if (validatedOrderSourceOptions === null) {
+    return
+  }
+
+  try {
+    await settingsStore.saveSettings({
+      estimatedHourlyBaseAmount: settingsStore.settings.estimatedHourlyBaseAmount,
+      weekViewDefaultStartTime: settingsStore.settings.weekViewDefaultStartTime,
       orderSourceOptions: validatedOrderSourceOptions
     })
-    clearBasicSettingsValidation()
-    resetBasicSettingsForm()
-    showSavedMessage('设置已保存')
+    await Promise.all([
+      workOrderStore.fetchPendingWorkOrders(),
+      workOrderStore.refreshCalendarEvents(),
+      workOrderStore.fetchCompletedStats()
+    ])
+    resetOrderSourceOptionsForm()
+    showBasicFieldMessage('orderSources', '已保存')
   } catch (error) {
     showFieldError(error.message)
   }
@@ -304,21 +379,71 @@ function validateWeekStartTime() {
 }
 
 function validateOrderSourceOptions() {
-  const options = orderSourceOptions.value.map((option) => option.trim())
+  const options = orderSourceOptions.value.map((option) => ({
+    name: normalizedText(option.name),
+    identifier: normalizedText(option.identifier).toUpperCase(),
+    badgeColor: normalizedText(option.badgeColor).toUpperCase(),
+    badgeText: normalizedText(option.badgeText)
+  }))
   let error = ''
+  let invalidIndex = -1
 
   if (options.length === 0) {
     error = '请至少保留一个选项。'
   } else if (options.length > 20) {
     error = '最多添加 20 个选项。'
-  } else if (options.some((option) => !option)) {
+  } else if ((invalidIndex = options.findIndex((option) => !option.name)) >= 0) {
     error = '选项不可为空。'
-  } else if (options.some((option) => option.length > 80)) {
+  } else if ((invalidIndex = options.findIndex((option) => option.name.length > 80)) >= 0) {
     error = '每个选项最长为 80 个字符。'
-  } else if (new Set(options.map((option) => option.toLocaleLowerCase('zh-CN'))).size !== options.length) {
+  } else if (new Set(options.map((option) => option.name.toLocaleLowerCase('zh-CN'))).size !== options.length) {
     error = '选项不可重复。'
+    invalidIndex = options.findIndex((option, index) =>
+      options.findIndex(
+        (current) => current.name.toLocaleLowerCase('zh-CN') === option.name.toLocaleLowerCase('zh-CN')
+      ) !== index
+    )
+  } else if (new Set(options.map((option) => option.identifier)).size !== options.length) {
+    error = '识别文字不可重复。'
+    invalidIndex = options.findIndex((option, index) =>
+      options.findIndex((current) => current.identifier === option.identifier) !== index
+    )
+  } else {
+    invalidIndex = options.findIndex((option) => !/^[A-Z][A-Z0-9_]{0,39}$/.test(option.identifier))
+    if (invalidIndex >= 0) {
+      error = '识别文字须以英文字母开头，且仅能使用大写英文字母、数字或下划线。'
+    } else {
+      invalidIndex = options.findIndex((option) => !/^#[0-9A-F]{6}$/.test(option.badgeColor))
+      if (invalidIndex >= 0) {
+        error = '标签颜色须为六位十六进制色码。'
+      } else {
+        invalidIndex = options.findIndex((option) => Array.from(option.badgeText).length !== 1)
+        if (invalidIndex >= 0) {
+          error = '标签文字须为单一文字。'
+        }
+      }
+    }
   }
 
+  clearOrderSourceEditorErrors()
+  if (invalidIndex >= 0) {
+    selectedOrderSourceIndex.value = invalidIndex
+    if (!options[invalidIndex].name
+        || options[invalidIndex].name.length > 80
+        || options.filter(
+          (option) => option.name.toLocaleLowerCase('zh-CN') ===
+            options[invalidIndex].name.toLocaleLowerCase('zh-CN')
+        ).length > 1) {
+      orderSourceEditorErrors.name = error
+    } else if (!/^[A-Z][A-Z0-9_]{0,39}$/.test(options[invalidIndex].identifier)
+        || options.filter((option) => option.identifier === options[invalidIndex].identifier).length > 1) {
+      orderSourceEditorErrors.identifier = error
+    } else if (!/^#[0-9A-F]{6}$/.test(options[invalidIndex].badgeColor)) {
+      orderSourceEditorErrors.badgeColor = error
+    } else {
+      orderSourceEditorErrors.badgeText = error
+    }
+  }
   orderSourceOptionsError.value = error
   return error ? null : options
 }
@@ -337,24 +462,131 @@ function addOrderSourceOption() {
     orderSourceOptionsError.value = '最多添加 20 个选项。'
     return false
   }
-  if (orderSourceOptions.value.some((current) => current.toLocaleLowerCase('zh-CN') === option.toLocaleLowerCase('zh-CN'))) {
+  if (orderSourceOptions.value.some((current) => current.name.toLocaleLowerCase('zh-CN') === option.toLocaleLowerCase('zh-CN'))) {
     orderSourceOptionsError.value = '选项不可重复。'
     return false
   }
 
-  orderSourceOptions.value.push(option)
+  orderSourceOptions.value.push({
+    name: option,
+    identifier: '',
+    badgeColor: '#3B82F6',
+    badgeText: Array.from(option)[0] || '其'
+  })
+  selectedOrderSourceIndex.value = orderSourceOptions.value.length - 1
   orderSourceOptionInput.value = ''
   orderSourceOptionsError.value = ''
+  clearOrderSourceEditorErrors()
   return true
 }
 
-function removeOrderSourceOption(option) {
-  if (!window.confirm(`是否删除订单来源选项：${option}？`)) {
+async function removeOrderSourceOption(option, index) {
+  if (settingsBusy.value) {
     return
   }
 
-  orderSourceOptions.value = orderSourceOptions.value.filter((current) => current !== option)
+  if (orderSourceOptions.value.length <= 1) {
+    orderSourceOptionsError.value = '请至少保留一个选项。'
+    return
+  }
+
+  clearFieldError()
+  clearSavedMessage()
+  const persistedIdentifier = option._persistedIdentifier
+
+  if (!persistedIdentifier) {
+    if (window.confirm(`是否删除尚未保存的订单来源「${option.name}」？`)) {
+      removeLocalOrderSourceOption(index)
+    }
+    return
+  }
+
+  orderSourceDeletingIdentifier.value = persistedIdentifier
+
+  try {
+    const impact = await settingsStore.getOrderSourceDeletionImpact(persistedIdentifier)
+    const confirmation = impact.workOrderCount > 0
+      ? `订单来源「${impact.name}」目前已有 ${impact.workOrderCount} 笔工单。删除后，这些工单及其排程记录会永久删除。是否继续删除？`
+      : `是否删除订单来源「${impact.name}」？`
+
+    if (!window.confirm(confirmation)) {
+      return
+    }
+
+    const result = await settingsStore.deleteOrderSource(persistedIdentifier)
+    const currentIndex = orderSourceOptions.value.findIndex(
+      (current) => current._persistedIdentifier === persistedIdentifier
+    )
+
+    if (currentIndex >= 0) {
+      removeLocalOrderSourceOption(currentIndex)
+    }
+    showBasicFieldMessage(
+      'orderSources',
+      result.deletedWorkOrderCount > 0
+        ? `订单来源「${impact.name}」及 ${result.deletedWorkOrderCount} 笔工单已删除`
+        : `订单来源「${impact.name}」已删除`,
+      'danger'
+    )
+
+    try {
+      await Promise.all([
+        workOrderStore.fetchPendingWorkOrders(),
+        workOrderStore.refreshCalendarEvents(),
+        workOrderStore.fetchCompletedStats()
+      ])
+    } catch (error) {
+      showFieldError(`订单来源已删除，但工单列表刷新失败：${error.message}`)
+    }
+  } catch (error) {
+    showFieldError(error.message)
+  } finally {
+    orderSourceDeletingIdentifier.value = ''
+  }
+}
+
+function removeLocalOrderSourceOption(index) {
+  orderSourceOptions.value.splice(index, 1)
+  if (selectedOrderSourceIndex.value === index) {
+    selectedOrderSourceIndex.value = -1
+  } else if (selectedOrderSourceIndex.value > index) {
+    selectedOrderSourceIndex.value -= 1
+  }
   orderSourceOptionsError.value = orderSourceOptions.value.length ? '' : '请至少保留一个选项。'
+  clearOrderSourceEditorErrors()
+}
+
+function selectOrderSourceOption(index) {
+  selectedOrderSourceIndex.value = index
+  clearOrderSourceEditorErrors()
+}
+
+function closeOrderSourceOptionEditor() {
+  selectedOrderSourceIndex.value = -1
+  clearOrderSourceEditorErrors()
+}
+
+function normalizeSelectedSourceIdentifier() {
+  if (selectedOrderSourceOption.value) {
+    selectedOrderSourceOption.value.identifier = normalizedText(
+      selectedOrderSourceOption.value.identifier
+    ).toUpperCase()
+  }
+}
+
+function normalizeSelectedSourceColor() {
+  if (selectedOrderSourceOption.value) {
+    selectedOrderSourceOption.value.badgeColor = normalizedText(
+      selectedOrderSourceOption.value.badgeColor
+    ).toUpperCase()
+  }
+}
+
+function clearOrderSourceEditorErrors() {
+  orderSourceEditorErrors.name = ''
+  orderSourceEditorErrors.identifier = ''
+  orderSourceEditorErrors.badgeColor = ''
+  orderSourceEditorErrors.badgeText = ''
 }
 
 function handleOrderSourceOptionKeydown(event) {
@@ -624,18 +856,32 @@ function weekStartTimeMatchesSavedValue() {
   )
 }
 
-function orderSourceOptionsMatchSavedValue() {
-  const savedOptions = settingsStore.settings.orderSourceOptions || []
-
-  return orderSourceOptions.value.length === savedOptions.length &&
-    orderSourceOptions.value.every((option, index) => option === savedOptions[index])
+function comparableOrderSourceOption(option) {
+  return {
+    name: option.name,
+    identifier: option.identifier,
+    badgeColor: option.badgeColor,
+    badgeText: option.badgeText
+  }
 }
 
 function resetBasicSettingsForm() {
   amountInput.value = formatAmount(settingsStore.settings.estimatedHourlyBaseAmount)
   weekStartTimeInput.value = formatWeekStartTime(settingsStore.settings.weekViewDefaultStartTime)
-  orderSourceOptions.value = [...(settingsStore.settings.orderSourceOptions || ['千牛', '小红书'])]
+  resetOrderSourceOptionsForm()
+}
+
+function resetOrderSourceOptionsForm() {
+  orderSourceOptions.value = (settingsStore.settings.orderSourceOptions || [
+    { name: '千牛', identifier: 'QIANNIU', badgeColor: '#218BFF', badgeText: '千' },
+    { name: '小红书', identifier: 'XIAOHONGSHU', badgeColor: '#FF5C5C', badgeText: '书' }
+  ]).map((option) => ({
+    ...option,
+    _persistedIdentifier: option.identifier
+  }))
   orderSourceOptionInput.value = ''
+  selectedOrderSourceIndex.value = -1
+  clearOrderSourceEditorErrors()
 }
 
 function recipientHasChanges(recipient) {
@@ -675,6 +921,7 @@ function clearBasicSettingsValidation() {
   amountError.value = ''
   weekStartTimeError.value = ''
   orderSourceOptionsError.value = ''
+  clearOrderSourceEditorErrors()
 }
 
 function clearValidationErrors(errors) {
@@ -736,6 +983,33 @@ function clearSavedMessage() {
     window.clearTimeout(savedMessageTimer)
     savedMessageTimer = null
   }
+}
+
+function showBasicFieldMessage(field, message, tone = 'info') {
+  basicFieldMessages[field] = message
+  basicFieldMessageTones[field] = tone
+
+  if (basicFieldMessageTimers[field]) {
+    window.clearTimeout(basicFieldMessageTimers[field])
+  }
+
+  basicFieldMessageTimers[field] = window.setTimeout(() => {
+    basicFieldMessages[field] = ''
+    basicFieldMessageTones[field] = 'info'
+    delete basicFieldMessageTimers[field]
+  }, 5000)
+}
+
+function clearBasicFieldMessages() {
+  Object.keys(basicFieldMessages).forEach((field) => {
+    basicFieldMessages[field] = ''
+    basicFieldMessageTones[field] = 'info'
+
+    if (basicFieldMessageTimers[field]) {
+      window.clearTimeout(basicFieldMessageTimers[field])
+      delete basicFieldMessageTimers[field]
+    }
+  })
 }
 
 function formatAmount(value) {
@@ -843,6 +1117,13 @@ function securityLabel(value) {
             <label>
               <span class="form-field-label">
                 预估工时基础金额（元/小时）
+                <small
+                  v-if="basicFieldMessages.amount"
+                  class="field-save-status"
+                  role="status"
+                >
+                  {{ basicFieldMessages.amount }}
+                </small>
                 <small v-if="amountError" id="base-amount-error" class="form-field-error" role="alert">
                   {{ amountError }}
                 </small>
@@ -857,7 +1138,9 @@ function securityLabel(value) {
                 :aria-describedby="amountError ? 'base-amount-error' : undefined"
                 :aria-invalid="Boolean(amountError)"
                 :disabled="settingsBusy"
-                @keydown.enter.prevent="submitBasicSettings"
+                @blur="autoSaveAmount"
+                @change="autoSaveAmount"
+                @keydown.enter.prevent="$event.currentTarget.blur()"
               />
             </label>
 
@@ -867,6 +1150,13 @@ function securityLabel(value) {
                 <HelpTooltip aria-label="查看周表默认开始时间说明">
                   <p>当前周没有已排工单时，从此时间开始显示；有工单时会自动显示该周最早的工单时间。</p>
                 </HelpTooltip>
+                <small
+                  v-if="basicFieldMessages.weekStartTime"
+                  class="field-save-status"
+                  role="status"
+                >
+                  {{ basicFieldMessages.weekStartTime }}
+                </small>
                 <small
                   v-if="weekStartTimeError"
                   id="week-start-time-error"
@@ -884,7 +1174,9 @@ function securityLabel(value) {
                 :aria-describedby="weekStartTimeError ? 'week-start-time-error' : undefined"
                 :aria-invalid="Boolean(weekStartTimeError)"
                 :disabled="settingsBusy"
-                @keydown.enter.prevent="submitBasicSettings"
+                @blur="autoSaveWeekStartTime"
+                @change="autoSaveWeekStartTime"
+                @keydown.enter.prevent="$event.currentTarget.blur()"
               />
             </label>
 
@@ -894,6 +1186,14 @@ function securityLabel(value) {
                 <HelpTooltip aria-label="查看订单来源选项说明">
                   <p>用于手动新增待排工单时选择订单来源；输入后按 Enter 或逗号添加。</p>
                 </HelpTooltip>
+                <small
+                  v-if="basicFieldMessages.orderSources"
+                  class="field-save-status"
+                  :class="{ danger: basicFieldMessageTones.orderSources === 'danger' }"
+                  role="status"
+                >
+                  {{ basicFieldMessages.orderSources }}
+                </small>
                 <small
                   v-if="orderSourceOptionsError"
                   id="order-source-options-error"
@@ -908,13 +1208,24 @@ function securityLabel(value) {
                 :class="{ invalid: orderSourceOptionsError }"
                 @click="orderSourceOptionInputElement?.focus()"
               >
-                <span v-for="option in orderSourceOptions" :key="option" class="recipient-tag">
-                  <span>{{ option }}</span>
+                <span
+                  v-for="(option, index) in orderSourceOptions"
+                  :key="option._persistedIdentifier || option.identifier || `${option.name}-${index}`"
+                  class="recipient-tag order-source-option-tag"
+                  :class="{ active: selectedOrderSourceIndex === index }"
+                  role="button"
+                  tabindex="0"
+                  :aria-label="`编辑订单来源 ${option.name}`"
+                  @click.stop="selectOrderSourceOption(index)"
+                  @keydown.enter.prevent="selectOrderSourceOption(index)"
+                  @keydown.space.prevent="selectOrderSourceOption(index)"
+                >
+                  <span>{{ option.name }}</span>
                   <button
                     type="button"
-                    :aria-label="`删除订单来源选项 ${option}`"
+                    :aria-label="`删除订单来源选项 ${option.name}`"
                     :disabled="settingsBusy"
-                    @click.stop="removeOrderSourceOption(option)"
+                    @click.stop="removeOrderSourceOption(option, index)"
                   >
                     <X :size="13" />
                   </button>
@@ -930,30 +1241,121 @@ function securityLabel(value) {
                   :aria-invalid="Boolean(orderSourceOptionsError)"
                   :disabled="settingsBusy"
                   :placeholder="orderSourceOptions.length ? '继续添加' : '输入订单来源'"
+                  @focus="closeOrderSourceOptionEditor"
                   @keydown="handleOrderSourceOptionKeydown"
                 />
               </div>
-            </div>
-          </div>
 
-          <div class="dialog-actions">
-            <span
-              v-if="savedMessage"
-              class="dialog-status"
-              :class="{ danger: savedMessageTone === 'danger' }"
-              role="status"
-            >
-              {{ savedMessage }}
-            </span>
-            <button
-              class="icon-button primary-action"
-              type="submit"
-              :disabled="settingsBusy || !basicSettingsChanged"
-            >
-              <span v-if="activeSaving" class="loading-spinner" aria-hidden="true"></span>
-              <Save v-else :size="18" />
-              {{ submitButtonText }}
-            </button>
+              <div v-if="selectedOrderSourceOption" class="order-source-option-editor">
+                <label>
+                  <span class="form-field-label">
+                    来源名称
+                    <small
+                      v-if="orderSourceEditorErrors.name"
+                      class="form-field-error"
+                      role="alert"
+                    >
+                      {{ orderSourceEditorErrors.name }}
+                    </small>
+                  </span>
+                  <input
+                    v-model="selectedOrderSourceOption.name"
+                    type="text"
+                    maxlength="80"
+                    placeholder="例如 小红书"
+                    autocomplete="off"
+                    required
+                    :aria-invalid="Boolean(orderSourceEditorErrors.name)"
+                    :disabled="settingsBusy"
+                  />
+                </label>
+                <label>
+                  <span class="form-field-label">
+                    识别文字
+                    <small
+                      v-if="orderSourceEditorErrors.identifier"
+                      class="form-field-error"
+                      role="alert"
+                    >
+                      {{ orderSourceEditorErrors.identifier }}
+                    </small>
+                  </span>
+                  <input
+                    v-model="selectedOrderSourceOption.identifier"
+                    type="text"
+                    maxlength="40"
+                    placeholder="例如 DOUYIN"
+                    autocomplete="off"
+                    required
+                    :aria-invalid="Boolean(orderSourceEditorErrors.identifier)"
+                    :disabled="settingsBusy"
+                    @blur="normalizeSelectedSourceIdentifier"
+                  />
+                </label>
+                <label>
+                  <span class="form-field-label">
+                    标签颜色
+                    <small
+                      v-if="orderSourceEditorErrors.badgeColor"
+                      class="form-field-error"
+                      role="alert"
+                    >
+                      {{ orderSourceEditorErrors.badgeColor }}
+                    </small>
+                  </span>
+                  <span class="order-source-color-field">
+                    <input
+                      v-model="selectedOrderSourceOption.badgeColor"
+                      type="color"
+                      :disabled="settingsBusy"
+                      aria-label="选择订单来源标签颜色"
+                    />
+                    <input
+                      v-model="selectedOrderSourceOption.badgeColor"
+                      type="text"
+                      maxlength="7"
+                      placeholder="#3B82F6"
+                      :aria-invalid="Boolean(orderSourceEditorErrors.badgeColor)"
+                      :disabled="settingsBusy"
+                      @blur="normalizeSelectedSourceColor"
+                    />
+                  </span>
+                </label>
+                <label>
+                  <span class="form-field-label">
+                    标签单一文字
+                    <small
+                      v-if="orderSourceEditorErrors.badgeText"
+                      class="form-field-error"
+                      role="alert"
+                    >
+                      {{ orderSourceEditorErrors.badgeText }}
+                    </small>
+                  </span>
+                  <input
+                    v-model="selectedOrderSourceOption.badgeText"
+                    type="text"
+                    maxlength="8"
+                    placeholder="例如 抖"
+                    required
+                    :aria-invalid="Boolean(orderSourceEditorErrors.badgeText)"
+                    :disabled="settingsBusy"
+                  />
+                </label>
+                <div class="order-source-option-editor-actions">
+                  <button
+                    class="icon-button primary-action"
+                    type="button"
+                    :disabled="settingsBusy || !selectedOrderSourceChanged"
+                    @click="saveOrderSourceOptions"
+                  >
+                    <span v-if="settingsStore.saving" class="loading-spinner" aria-hidden="true"></span>
+                    <Save v-else :size="18" />
+                    {{ settingsStore.saving ? '保存中' : '保存' }}
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </section>

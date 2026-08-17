@@ -20,6 +20,7 @@ import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import com.qn.calendar.settings.entity.OrderSourceOption;
 import com.qn.calendar.settings.model.ImportFieldKey;
 import com.qn.calendar.settings.model.ImportFieldSettingsSnapshot;
 import com.qn.calendar.settings.service.AppSettingsService;
@@ -187,7 +188,7 @@ public class WorkOrderImportService {
                 Optional<WorkOrder> existingWorkOrder = repository.findByOrderNo(parsedWorkOrder.orderNo());
 
                 if (existingWorkOrder.isPresent()) {
-                    if (existingWorkOrder.get().getSource() != parsedWorkOrder.source()
+                    if (!existingWorkOrder.get().getSourceCode().equals(parsedWorkOrder.sourceCode())
                             || !existingWorkOrder.get().getSourceName().equals(parsedWorkOrder.sourceName())) {
                         throw new IllegalArgumentException(
                                 "订单编号 " + parsedWorkOrder.orderNo() + " 已属于其他订单来源"
@@ -202,7 +203,10 @@ public class WorkOrderImportService {
                             parsedWorkOrder.latestShipTime(),
                             parsedWorkOrder.orderTime(),
                             parsedWorkOrder.source(),
-                            parsedWorkOrder.sourceName()
+                            parsedWorkOrder.sourceCode(),
+                            parsedWorkOrder.sourceName(),
+                            parsedWorkOrder.sourceBadgeColor(),
+                            parsedWorkOrder.sourceBadgeText()
                     );
                     updatedCount++;
                     continue;
@@ -218,7 +222,10 @@ public class WorkOrderImportService {
                         parsedWorkOrder.latestShipTime(),
                         parsedWorkOrder.orderTime(),
                         parsedWorkOrder.source(),
-                        parsedWorkOrder.sourceName()
+                        parsedWorkOrder.sourceCode(),
+                        parsedWorkOrder.sourceName(),
+                        parsedWorkOrder.sourceBadgeColor(),
+                        parsedWorkOrder.sourceBadgeText()
                 ));
                 createdCount++;
             }
@@ -246,8 +253,8 @@ public class WorkOrderImportService {
         if (requestedSourceName.isBlank()) {
             throw new IllegalArgumentException("订单来源不可为空");
         }
-        String sourceName = appSettingsService.getOrderSourceOptions().stream()
-                .filter((option) -> option.equalsIgnoreCase(requestedSourceName))
+        OrderSourceOption sourceOption = appSettingsService.getOrderSourceOptions().stream()
+                .filter((option) -> option.getName().equalsIgnoreCase(requestedSourceName))
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("订单来源不在基础设置的可选范围内"));
         if (request.price() == null) {
@@ -271,7 +278,7 @@ public class WorkOrderImportService {
         String urgentValue = ImportFieldSettingsService.normalizeUrgentValue(request.urgentText());
         boolean urgent = importSettings.urgentExactValues().contains(urgentValue)
                 || importSettings.urgentContainsValues().stream().anyMatch(urgentValue::contains);
-        WorkOrderSource source = WorkOrderSource.fromName(sourceName);
+        WorkOrderSource source = WorkOrderSource.fromCode(sourceOption.getIdentifier());
         int estimatedMinutes = calculateEstimatedMinutes(
                 request.price(),
                 appSettingsService.getEstimatedHourlyBaseAmount()
@@ -287,7 +294,10 @@ public class WorkOrderImportService {
                 request.latestShipTime(),
                 request.paidAt(),
                 source,
-                sourceName
+                sourceOption.getIdentifier(),
+                sourceOption.getName(),
+                sourceOption.getBadgeColor(),
+                sourceOption.getBadgeText()
         ));
     }
 
@@ -319,7 +329,10 @@ public class WorkOrderImportService {
                 latestShipTime,
                 orderTime,
                 sourceSelection.source(),
-                sourceSelection.sourceName()
+                sourceSelection.sourceCode(),
+                sourceSelection.sourceName(),
+                sourceSelection.sourceBadgeColor(),
+                sourceSelection.sourceBadgeText()
         );
     }
 
@@ -421,17 +434,13 @@ public class WorkOrderImportService {
         }
 
         Map<String, SourceSelection> matches = new LinkedHashMap<>();
-        for (String option : appSettingsService.getOrderSourceOptions()) {
-            if (!filename.contains(normalizeSourceMatchText(option))) {
+        for (OrderSourceOption option : appSettingsService.getOrderSourceOptions()) {
+            if (!filename.contains(normalizeSourceMatchText(option.getName()))) {
                 continue;
             }
 
-            WorkOrderSource source = WorkOrderSource.fromName(option);
-            String sourceName = source.displayName(option);
-            String matchKey = source == WorkOrderSource.CUSTOM
-                    ? source.name() + ":" + normalizeSourceMatchText(sourceName)
-                    : source.name();
-            matches.putIfAbsent(matchKey, new SourceSelection(source, sourceName));
+            SourceSelection selection = sourceSelection(option);
+            matches.putIfAbsent(selection.sourceCode(), selection);
         }
 
         if (matches.size() > 1) {
@@ -447,10 +456,33 @@ public class WorkOrderImportService {
     }
 
     private SourceSelection detectSource(String orderNo) {
-        WorkOrderSource source = XIAOHONGSHU_ORDER_NO_PATTERN.matcher(orderNo).matches()
-                ? WorkOrderSource.XIAOHONGSHU
-                : WorkOrderSource.QIANNIU;
-        return new SourceSelection(source, source.displayName(null));
+        String fallbackIdentifier = XIAOHONGSHU_ORDER_NO_PATTERN.matcher(orderNo).matches()
+                ? WorkOrderSource.XIAOHONGSHU.name()
+                : WorkOrderSource.QIANNIU.name();
+        return appSettingsService.getOrderSourceOptions().stream()
+                .filter((option) -> fallbackIdentifier.equalsIgnoreCase(option.getIdentifier()))
+                .findFirst()
+                .map(this::sourceSelection)
+                .orElseGet(() -> {
+                    WorkOrderSource source = WorkOrderSource.fromCode(fallbackIdentifier);
+                    return new SourceSelection(
+                            source,
+                            fallbackIdentifier,
+                            source.displayName(null),
+                            source == WorkOrderSource.XIAOHONGSHU ? "#FF5C5C" : "#218BFF",
+                            source == WorkOrderSource.XIAOHONGSHU ? "书" : "千"
+                    );
+                });
+    }
+
+    private SourceSelection sourceSelection(OrderSourceOption option) {
+        return new SourceSelection(
+                WorkOrderSource.fromCode(option.getIdentifier()),
+                option.getIdentifier(),
+                option.getName(),
+                option.getBadgeColor(),
+                option.getBadgeText()
+        );
     }
 
     private String normalizeSourceMatchText(String value) {
@@ -747,7 +779,10 @@ public class WorkOrderImportService {
             LocalDateTime latestShipTime,
             LocalDateTime orderTime,
             WorkOrderSource source,
-            String sourceName
+            String sourceCode,
+            String sourceName,
+            String sourceBadgeColor,
+            String sourceBadgeText
     ) {
     }
 
@@ -765,7 +800,10 @@ public class WorkOrderImportService {
 
     private record SourceSelection(
             WorkOrderSource source,
-            String sourceName
+            String sourceCode,
+            String sourceName,
+            String sourceBadgeColor,
+            String sourceBadgeText
     ) {
     }
 }

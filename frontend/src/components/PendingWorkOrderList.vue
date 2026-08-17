@@ -62,7 +62,10 @@ function toExternalEvent(workOrder) {
       workOrderId: workOrder.id,
       orderNo: workOrder.orderNo,
       source: workOrder.source,
+      sourceCode: workOrder.sourceCode,
       sourceName: workOrder.sourceName,
+      sourceBadgeColor: workOrder.sourceBadgeColor,
+      sourceBadgeText: workOrder.sourceBadgeText,
       urgent: workOrder.urgent,
       status: workOrder.status,
       latestShipTime: workOrder.latestShipTime,
@@ -191,14 +194,7 @@ function statusLabel(status) {
 }
 
 function sourceLabel(workOrder) {
-  if (workOrder.source === 'XIAOHONGSHU') {
-    return '书'
-  }
-  if (workOrder.source === 'QIANNIU') {
-    return '千'
-  }
-
-  return workOrder.sourceName?.trim().slice(0, 1) || '其'
+  return workOrder.sourceBadgeText || workOrder.sourceName?.trim().slice(0, 1) || '其'
 }
 
 function sourceLabelText(workOrder) {
@@ -207,6 +203,12 @@ function sourceLabelText(workOrder) {
 
 function sourceClass(source) {
   return source === 'XIAOHONGSHU' ? 'xiaohongshu' : source === 'QIANNIU' ? 'qianniu' : 'custom'
+}
+
+function sourceBadgeStyle(workOrder) {
+  return workOrder.sourceBadgeColor
+    ? { '--source-badge-color': workOrder.sourceBadgeColor }
+    : undefined
 }
 
 function formatRemarkText(value) {
@@ -345,6 +347,7 @@ function hideOrderTooltip() {
           <span
             class="order-source-badge"
             :class="sourceClass(workOrder.source)"
+            :style="sourceBadgeStyle(workOrder)"
             :aria-label="sourceLabelText(workOrder)"
             :title="sourceLabelText(workOrder)"
           >

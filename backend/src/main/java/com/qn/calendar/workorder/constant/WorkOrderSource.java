@@ -21,6 +21,18 @@ public enum WorkOrderSource {
         return CUSTOM;
     }
 
+    public static WorkOrderSource fromCode(String sourceCode) {
+        if (sourceCode != null) {
+            for (WorkOrderSource source : values()) {
+                if (source != CUSTOM && source.name().equalsIgnoreCase(sourceCode.trim())) {
+                    return source;
+                }
+            }
+        }
+
+        return CUSTOM;
+    }
+
     public String displayName(String customName) {
         return this == CUSTOM ? customName : defaultName;
     }

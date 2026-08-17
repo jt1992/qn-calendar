@@ -2,9 +2,11 @@ import { defineStore } from 'pinia'
 import {
   createEmailRecipient as createEmailRecipientRequest,
   deleteEmailRecipient as deleteEmailRecipientRequest,
+  deleteOrderSource as deleteOrderSourceRequest,
   getAppSettings,
   getEmailRecipients,
   getImportFieldSettings,
+  getOrderSourceDeletionImpact as getOrderSourceDeletionImpactRequest,
   updateAppSettings,
   updateEmailRecipient as updateEmailRecipientRequest,
   updateEmailSenderSettings,
@@ -18,7 +20,10 @@ export const useAppSettingsStore = defineStore('appSettings', {
     settings: {
       estimatedHourlyBaseAmount: 100,
       weekViewDefaultStartTime: '06:00',
-      orderSourceOptions: ['千牛', '小红书'],
+      orderSourceOptions: [
+        { name: '千牛', identifier: 'QIANNIU', badgeColor: '#218BFF', badgeText: '千' },
+        { name: '小红书', identifier: 'XIAOHONGSHU', badgeColor: '#FF5C5C', badgeText: '书' }
+      ],
       emailSender: {
         configured: false,
         senderEmailMasked: '',
@@ -39,6 +44,7 @@ export const useAppSettingsStore = defineStore('appSettings', {
     settingsLoaded: false,
     loading: false,
     saving: false,
+    sourceDeleting: false,
     importFieldSettingsLoading: false,
     importFieldSettingsSaving: false,
     recipientsLoading: false,
@@ -84,6 +90,34 @@ export const useAppSettingsStore = defineStore('appSettings', {
         throw error
       } finally {
         this.saving = false
+      }
+    },
+
+    async getOrderSourceDeletionImpact(identifier) {
+      this.clearError()
+
+      try {
+        return await getOrderSourceDeletionImpactRequest(identifier)
+      } catch (error) {
+        this.setError(error.message)
+        throw error
+      }
+    },
+
+    async deleteOrderSource(identifier) {
+      this.sourceDeleting = true
+      this.clearError()
+
+      try {
+        const result = await deleteOrderSourceRequest(identifier)
+        this.settings = result.settings
+        this.settingsLoaded = true
+        return result
+      } catch (error) {
+        this.setError(error.message)
+        throw error
+      } finally {
+        this.sourceDeleting = false
       }
     },
 

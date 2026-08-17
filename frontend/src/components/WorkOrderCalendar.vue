@@ -351,11 +351,9 @@ function eventContent(info) {
   const totalMinutes = info.event.extendedProps.totalMinutes || segmentMinutes
   const pausedMinutes = info.event.extendedProps.pausedMinutes || 0
   const orderNo = info.event.extendedProps.orderNo || info.event.title
-  const orderSource = info.event.extendedProps.source === 'XIAOHONGSHU'
-    ? '书'
-    : info.event.extendedProps.source === 'QIANNIU'
-      ? '千'
-      : info.event.extendedProps.sourceName || '其他'
+  const orderSource = info.event.extendedProps.sourceBadgeText ||
+    info.event.extendedProps.sourceName ||
+    '其他'
 
   root.className = 'calendar-event-card'
   root.dataset.workOrderId = String(info.event.extendedProps.workOrderId || '')

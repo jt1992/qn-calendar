@@ -34,7 +34,7 @@ watch(
 
     try {
       await settingsStore.ensureSettingsLoaded()
-      form.sourceName = orderSourceOptions.value[0] || ''
+      form.sourceName = orderSourceOptions.value[0]?.name || ''
     } catch (error) {
       submitError.value = error.message || '读取订单来源选项失败'
     } finally {
@@ -130,7 +130,7 @@ function validate() {
 
   if (!form.sourceName) {
     errors.sourceName = '不能为空。'
-  } else if (!orderSourceOptions.value.includes(form.sourceName)) {
+  } else if (!orderSourceOptions.value.some((option) => option.name === form.sourceName)) {
     errors.sourceName = '请选择基础设置中的订单来源。'
   }
 
@@ -242,8 +242,8 @@ function handleDateTimeKeydown(event) {
             :disabled="submitting || loadingSources"
           >
             <option disabled value="">{{ loadingSources ? '读取中...' : '请选择订单来源' }}</option>
-            <option v-for="option in orderSourceOptions" :key="option" :value="option">
-              {{ option }}
+            <option v-for="option in orderSourceOptions" :key="option.identifier" :value="option.name">
+              {{ option.name }}
             </option>
           </select>
         </label>

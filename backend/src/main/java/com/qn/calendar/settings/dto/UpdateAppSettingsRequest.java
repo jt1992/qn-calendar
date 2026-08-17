@@ -8,6 +8,7 @@ import com.fasterxml.jackson.annotation.JsonFormat;
 import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 
@@ -21,6 +22,21 @@ public record UpdateAppSettingsRequest(
         LocalTime weekViewDefaultStartTime,
         @NotNull(message = "订单来源选项不可为空")
         @Size(min = 1, max = 20, message = "订单来源选项必须介于 1 到 20 个")
-        List<@NotBlank(message = "订单来源选项不可为空") @Size(max = 80, message = "订单来源选项最长为 80 个字符") String> orderSourceOptions
+        List<@Valid OrderSourceOptionRequest> orderSourceOptions
 ) {
+
+    public record OrderSourceOptionRequest(
+            @NotBlank(message = "订单来源名称不可为空")
+            @Size(max = 80, message = "订单来源名称最长为 80 个字符")
+            String name,
+            @NotBlank(message = "订单来源识别文字不可为空")
+            @Size(max = 40, message = "订单来源识别文字最长为 40 个字符")
+            String identifier,
+            @NotBlank(message = "订单来源标签颜色不可为空")
+            String badgeColor,
+            @NotBlank(message = "订单来源标签文字不可为空")
+            @Size(max = 8, message = "订单来源标签文字过长")
+            String badgeText
+    ) {
+    }
 }

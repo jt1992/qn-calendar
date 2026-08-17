@@ -77,7 +77,7 @@ Spring Boot 同时提供 `/api/**` 与 Vue production build。
 - `WorkOrderScheduleService`：仅把建立排程委派给 `WorkOrderSegmentService`，不拥有验证规则。
 - `WorkOrderSegmentService`：片段建立/移动/删除/拆分/融合、重叠验证、暂停/继续/完成、自动顺延。
 - `WorkOrderEmailService`：读取报表资料、建立 view model、Thymeleaf、PDF、SMTP。
-- `AppSettingsService`：singleton 基础设置与 SMTP。
+- `AppSettingsService`：singleton 基础设置与 SMTP；保存来源设置时依 identifier 同步既有工单的来源名称、标签颜色与文字；删除来源时在同一交易清除该来源的暂停、片段与全部工单。
 - `ImportFieldSettingsService`：固定字段别名、自定义别名与加急文字规则的读取、验证和导入快照。
 - `EmailRecipientService`：常用收件者 CRUD 与寄送成功后的使用纪录。
 
@@ -91,8 +91,10 @@ Spring Boot 同时提供 `/api/**` 与 Vue production build。
 |---|---|
 | `id` | 主键 |
 | `order_no` | 唯一订单编号，最长 80 |
-| `source` | `QIANNIU` / `XIAOHONGSHU` / `CUSTOM`；旧资料 null 由 getter 视为 `QIANNIU` |
-| `source_name` | 自定义来源名称；内建来源由 enum 提供固定中文名称 |
+| `source` | 旧版内建来源相容栏位，只保存 `QIANNIU` / `XIAOHONGSHU`；自定义来源为 null |
+| `source_code` | 来源设置中的稳定识别文字，例如 `QIANNIU`、`XIAOHONGSHU`、`DOUYIN` |
+| `source_name` | 建立工单时保存的来源名称快照 |
+| `source_badge_color` / `source_badge_text` | 建立工单时保存的来源标签颜色与单字标签快照 |
 | `buyer_nickname` | 买家昵称；当前导入不会写入，API 也没有更新入口 |
 | `remark` | 合并后的买家留言/商家备注，最长 1000 |
 | `price` | 订单价格，`decimal(14,2)` |
@@ -126,7 +128,7 @@ Spring Boot 同时提供 `/api/**` 与 Vue production build。
 
 - 固定 singleton ID `1`。
 - 保存预估工时基础金额、周表默认开始时间。
-- `app_setting_order_source_option` 按顺序保存手动新增工单可选的来源名称。
+- `app_setting_order_source_option` 按顺序保存来源名称、唯一识别文字、标签颜色与单字标签。
 - 保存寄件 Email、SMTP host/port/security/auth code。
 - SMTP auth code 当前以明文保存在 SQLite；API 不回传它。
 
@@ -203,6 +205,8 @@ Spring Boot 同时提供 `/api/**` 与 Vue production build。
 |---|---|---|
 | `GET` | `/api/settings` | 读取或建立默认 singleton |
 | `PUT` | `/api/settings` | 保存基础金额与周表开始时间 |
+| `GET` | `/api/settings/order-sources/{identifier}/deletion-impact` | 返回来源名称与受影响工单数 |
+| `DELETE` | `/api/settings/order-sources/{identifier}` | 删除来源及该来源全部暂停、片段与工单 |
 | `PUT` | `/api/settings/email-sender` | 保存 SMTP |
 | `GET` | `/api/settings/import-fields` | 读取系统/自定义字段别名与加急文字规则 |
 | `PUT` | `/api/settings/import-fields` | 以完整快照替换自定义字段别名与加急文字规则 |
@@ -237,11 +241,11 @@ Spring Boot 同时提供 `/api/**` 与 Vue production build。
 
 订单来源与小红书：
 
-- 先以 `MultipartFile#getOriginalFilename()` 比对基础设置的所有订单来源选项；忽略英文字母大小写，且将 `小紅書` 正规化为 `小红书`。自定义选项命中时使用 `CUSTOM + sourceName`。
+- 先以 `MultipartFile#getOriginalFilename()` 比对基础设置的所有订单来源名称；忽略英文字母大小写，且将 `小紅書` 正规化为 `小红书`。命中时保存该选项的 identifier、名称、标签颜色与文字。
 - 文件名同时命中多个设置来源时整份拒绝；没有命中时逐行以订单编号 fallback，`^P\d+$` 为 `XIAOHONGSHU`，其余为 `QIANNIU`。表头不再参与来源判断。
 - 小红书只处理 `订单状态 = 待配货`；其他状态在解析金额/期限前略过并累计 `skippedCount`。
 - 文件名已辨识为小红书且缺少 `订单状态` 时整份拒绝；小红书资料行的状态空白时记录逐行错误。
-- 已存在订单的 enum 来源或自定义 `sourceName` 与新导入不一致时，整次导入回滚。
+- 已存在订单的 `sourceCode` 或 `sourceName` 与新导入不一致时，整次导入回滚。
 
 ### 7.2 资料行解析
 
@@ -478,12 +482,13 @@ hourlyRate = price × 60 / actualTotalMinutes
 ```text
 estimatedHourlyBaseAmount = 100
 weekViewDefaultStartTime = 06:00
-orderSourceOptions = [千牛, 小红书]
+orderSourceOptions = [{千牛, QIANNIU, #218BFF, 千}, {小红书, XIAOHONGSHU, #FF5C5C, 书}]
 ```
 
 - 基础金额必须大于 0、整数部分最多 12 位且小数最多两位。
 - 周表开始时间必须为 `HH:mm` 的 30 分钟边界。
-- 订单来源选项为 1–20 个、每项最长 80 字，trim 后忽略大小写不可重复；既有设置缺少选项时补入千牛与小红书。
+- 订单来源选项为 1–20 个；名称 trim 后忽略大小写不可重复；identifier 为唯一的大写英数/下划线代码；颜色为六位十六进制；标签恰为一个 Unicode 字符。既有名称资料会自动补入这些 metadata。
+- 删除来源前可读取受影响工单数；实际删除必须至少保留一个来源，并依暂停、片段、工单、来源设置顺序在同一交易完成，涵盖 PENDING/SCHEDULED/DONE。
 - 初次读取若 singleton 不存在会写入默认值。
 - 旧资料的周表开始时间为空时会补 `06:00`。
 

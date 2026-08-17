@@ -41,8 +41,7 @@ public class AppSetting {
             joinColumns = @JoinColumn(name = "app_setting_id")
     )
     @OrderColumn(name = "sort_order")
-    @Column(name = "option_name", nullable = false, length = 80)
-    private List<String> orderSourceOptions = new ArrayList<>();
+    private List<OrderSourceOption> orderSourceOptions = new ArrayList<>();
 
     @Column(name = "email_sender", length = 320)
     private String emailSender;
@@ -85,7 +84,7 @@ public class AppSetting {
     public void updateBasicSettings(
             BigDecimal estimatedHourlyBaseAmount,
             LocalTime weekViewDefaultStartTime,
-            List<String> orderSourceOptions
+            List<OrderSourceOption> orderSourceOptions
     ) {
         this.estimatedHourlyBaseAmount = estimatedHourlyBaseAmount;
         this.weekViewDefaultStartTime = weekViewDefaultStartTime;
@@ -123,7 +122,7 @@ public class AppSetting {
         return weekViewDefaultStartTime;
     }
 
-    public List<String> getOrderSourceOptions() {
+    public List<OrderSourceOption> getOrderSourceOptions() {
         return List.copyOf(orderSourceOptions);
     }
 
