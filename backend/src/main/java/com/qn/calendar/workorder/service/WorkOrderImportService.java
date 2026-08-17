@@ -25,6 +25,7 @@ import com.qn.calendar.settings.model.ImportFieldSettingsSnapshot;
 import com.qn.calendar.settings.service.AppSettingsService;
 import com.qn.calendar.settings.service.ImportFieldSettingsService;
 import com.qn.calendar.workorder.constant.WorkOrderSource;
+import com.qn.calendar.workorder.dto.CreateWorkOrderRequest;
 import com.qn.calendar.workorder.dto.ImportRowError;
 import com.qn.calendar.workorder.dto.ImportWorkOrderResponse;
 import com.qn.calendar.workorder.entity.WorkOrder;
@@ -222,6 +223,61 @@ public class WorkOrderImportService {
         } catch (IOException exception) {
             throw new IllegalArgumentException("无法读取 XLSX 文件");
         }
+    }
+
+    @Transactional
+    public WorkOrder createPendingWorkOrder(CreateWorkOrderRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("工单内容不可为空");
+        }
+
+        String orderNo = trimToEmpty(request.orderNo());
+        if (orderNo.isBlank()) {
+            throw new IllegalArgumentException("订单编号不可为空");
+        }
+        if (repository.findByOrderNo(orderNo).isPresent()) {
+            throw new IllegalStateException("订单编号 " + orderNo + " 已存在");
+        }
+        if (request.price() == null) {
+            throw new IllegalArgumentException("买家实付金额不可为空");
+        }
+        if (request.price().signum() < 0) {
+            throw new IllegalArgumentException("买家实付金额不可为负数");
+        }
+        if (request.latestShipTime() == null) {
+            throw new IllegalArgumentException("应发货时间不可为空");
+        }
+
+        String buyerMessage = trimToEmpty(request.buyerMessage());
+        String merchantRemark = trimToEmpty(request.merchantRemark());
+        String remark = buildRemark(buyerMessage, merchantRemark);
+        if (remark.length() > 1000) {
+            throw new IllegalArgumentException("买家留言与商家备注合并后最长为 1000 个字符");
+        }
+
+        ImportFieldSettingsSnapshot importSettings = importFieldSettingsService.getImportSnapshot();
+        String urgentValue = ImportFieldSettingsService.normalizeUrgentValue(request.urgentText());
+        boolean urgent = importSettings.urgentExactValues().contains(urgentValue)
+                || importSettings.urgentContainsValues().stream().anyMatch(urgentValue::contains);
+        WorkOrderSource source = XIAOHONGSHU_ORDER_NO_PATTERN.matcher(orderNo).matches()
+                ? WorkOrderSource.XIAOHONGSHU
+                : WorkOrderSource.QIANNIU;
+        int estimatedMinutes = calculateEstimatedMinutes(
+                request.price(),
+                appSettingsService.getEstimatedHourlyBaseAmount()
+        );
+
+        return repository.save(new WorkOrder(
+                orderNo,
+                null,
+                remark,
+                request.price(),
+                estimatedMinutes,
+                urgent,
+                request.latestShipTime(),
+                request.paidAt(),
+                source
+        ));
     }
 
     private ParsedWorkOrder parseWorkOrder(
@@ -632,6 +688,10 @@ public class WorkOrderImportService {
 
     private boolean isDateOnly(LocalDateTime dateTime) {
         return dateTime.toLocalTime().equals(LocalTime.MIDNIGHT);
+    }
+
+    private String trimToEmpty(String value) {
+        return value == null ? "" : value.trim();
     }
 
     private record ParsedWorkOrder(

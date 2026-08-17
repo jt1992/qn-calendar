@@ -290,8 +290,7 @@ function ruleTypeLabel(matchType) {
 <template>
   <div class="import-field-settings">
     <div class="import-field-settings-intro">
-      <h3>导入字段识别</h3>
-      <p>为固定字段添加可识别的相似列名。系统别名不可删除；同一文件同时命中时优先读取自定义别名。</p>
+      <p>为固定字段添加可识别的相似列名。预设别名不可删除；同一文件同时命中时优先读取后添加的别名。</p>
     </div>
 
     <p
@@ -311,21 +310,18 @@ function ruleTypeLabel(matchType) {
         </div>
 
         <div class="import-alias-group">
-          <h4>系统别名</h4>
+          <h4>别名</h4>
           <div class="import-chip-list">
-            <span v-for="alias in field.builtInAliases" :key="alias" class="import-chip built-in">
+            <span
+              v-for="alias in field.builtInAliases"
+              :key="`built-in-${alias}`"
+              class="import-chip built-in"
+            >
               {{ alias }}
             </span>
-            <span v-if="field.builtInAliases.length === 0" class="import-chip-empty">暂无</span>
-          </div>
-        </div>
-
-        <div class="import-alias-group">
-          <h4>自定义别名</h4>
-          <div v-if="field.customAliases.length" class="import-chip-list">
             <span
               v-for="(alias, index) in field.customAliases"
-              :key="`${alias}-${index}`"
+              :key="`custom-${alias}-${index}`"
               class="import-chip custom"
             >
               <span>{{ alias }}</span>
@@ -339,7 +335,6 @@ function ruleTypeLabel(matchType) {
               </button>
             </span>
           </div>
-          <span v-else class="import-chip-empty">尚未添加</span>
 
           <div class="import-add-row">
             <label class="visually-hidden" :for="fieldInputId(field.key)">

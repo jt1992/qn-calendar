@@ -11,7 +11,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['focus-order', 'work-order-deleted'])
+const emit = defineEmits(['add-work-order', 'focus-order', 'work-order-deleted'])
 const store = useWorkOrderStore()
 const listRef = ref(null)
 const updatingDurations = ref(new Set())
@@ -290,6 +290,15 @@ function hideOrderTooltip() {
         <span class="count-badge">{{ workOrders.length }}</span>
         笔
       </span>
+      <button
+        type="button"
+        class="icon-only-button pending-add-button"
+        aria-label="新增待排工单"
+        @pointerdown.stop
+        @click="emit('add-work-order')"
+      >
+        <Plus :size="18" aria-hidden="true" />
+      </button>
     </div>
 
     <div ref="listRef" class="pending-list">

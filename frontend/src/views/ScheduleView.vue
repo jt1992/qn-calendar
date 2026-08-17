@@ -1,6 +1,7 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import WorkOrderImportButton from '../components/WorkOrderImportButton.vue'
+import ManualWorkOrderDialog from '../components/ManualWorkOrderDialog.vue'
 import PendingWorkOrderList from '../components/PendingWorkOrderList.vue'
 import WorkOrderCalendar from '../components/WorkOrderCalendar.vue'
 import { ORDER_NUMBER_COPY_NOTICE, useWorkOrderStore } from '../stores/workOrderStore'
@@ -8,6 +9,7 @@ import { ORDER_NUMBER_COPY_NOTICE, useWorkOrderStore } from '../stores/workOrder
 const emit = defineEmits(['range-change'])
 const store = useWorkOrderStore()
 const focusedWorkOrder = ref(null)
+const manualWorkOrderDialogOpen = ref(false)
 
 onMounted(async () => {
   try {
@@ -71,6 +73,7 @@ function clearFocusOnBackground(event) {
 
       <PendingWorkOrderList
         :work-orders="store.pendingWorkOrders"
+        @add-work-order="manualWorkOrderDialogOpen = true"
         @focus-order="focusWorkOrder"
         @work-order-deleted="clearDeletedWorkOrderFocus"
       />
@@ -81,6 +84,12 @@ function clearFocusOnBackground(event) {
       :focused-work-order="focusedWorkOrder"
       @focus-order="focusWorkOrder"
       @range-change="emit('range-change', $event)"
+    />
+
+    <ManualWorkOrderDialog
+      :open="manualWorkOrderDialogOpen"
+      @close="manualWorkOrderDialogOpen = false"
+      @created="focusWorkOrder"
     />
   </section>
 </template>

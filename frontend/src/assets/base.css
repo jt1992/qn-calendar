@@ -459,11 +459,23 @@ select:disabled {
 .panel-heading {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: space-between;
   min-height: 30px;
   padding: 0 0 2px;
   color: var(--muted);
   font-size: 0.9rem;
+}
+
+.pending-add-button {
+  width: 30px;
+  min-height: 30px;
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.pending-add-button:hover,
+.pending-add-button:focus-visible {
+  background: var(--primary-soft);
 }
 
 .pending-count {
@@ -1292,7 +1304,8 @@ select:disabled {
 }
 
 .email-dialog-backdrop,
-.settings-dialog-backdrop {
+.settings-dialog-backdrop,
+.manual-work-order-dialog-backdrop {
   place-items: start center;
   padding-top: 84px;
 }
@@ -1400,6 +1413,55 @@ select:disabled {
   padding: 0 10px;
   background: var(--surface-strong);
   color: var(--text);
+}
+
+.dialog textarea {
+  width: 100%;
+  min-height: 82px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  padding: 9px 10px;
+  background: var(--surface-strong);
+  color: var(--text);
+  font: inherit;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.manual-work-order-dialog {
+  width: min(620px, 100%);
+  max-height: calc(100dvh - 102px);
+  overflow-y: auto;
+}
+
+.manual-work-order-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 12px;
+}
+
+.manual-work-order-wide-field {
+  grid-column: 1 / -1;
+}
+
+.required-marker,
+.form-submit-error {
+  color: var(--danger);
+}
+
+.required-marker {
+  font-weight: 900;
+}
+
+.form-submit-error {
+  margin: 0;
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.manual-work-order-dialog .dialog-actions {
+  justify-content: flex-end;
 }
 
 .app-shell input:not([type="checkbox"]):not([type="file"]):not(.recipient-tag-search):focus,
@@ -2192,7 +2254,8 @@ select:disabled {
   }
 
   .email-dialog-backdrop,
-  .settings-dialog-backdrop {
+  .settings-dialog-backdrop,
+  .manual-work-order-dialog-backdrop {
     padding-top: 76px;
   }
 
@@ -2201,6 +2264,14 @@ select:disabled {
   }
 
   .basic-settings-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .manual-work-order-dialog {
+    max-height: calc(100dvh - 94px);
+  }
+
+  .manual-work-order-fields {
     grid-template-columns: 1fr;
   }
 

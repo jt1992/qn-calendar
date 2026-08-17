@@ -72,7 +72,7 @@ Spring Boot 同时提供 `/api/**` 与 Vue production build。
 
 服务边界：
 
-- `WorkOrderImportService`：XLSX 表头/资料行解析、逐行错误、去重、upsert、预估工时。
+- `WorkOrderImportService`：XLSX 表头/资料行解析、逐行错误、去重、upsert，以及手动建立待排工单与预估工时。
 - `WorkOrderService`：待排查询、日历查询、完工统计、待排工时、整单删除/清空、保留的整单完成/reopen。
 - `WorkOrderScheduleService`：仅把建立排程委派给 `WorkOrderSegmentService`，不拥有验证规则。
 - `WorkOrderSegmentService`：片段建立/移动/删除/拆分/融合、重叠验证、暂停/继续/完成、自动顺延。
@@ -173,6 +173,7 @@ Spring Boot 同时提供 `/api/**` 与 Vue production build。
 | Method | Path | 行为 |
 |---|---|---|
 | `POST` | `/api/work-orders/import` | multipart XLSX 导入 |
+| `POST` | `/api/work-orders` | 手动新增 PENDING，成功 201；重复订单编号返回 409 |
 | `GET` | `/api/work-orders/pending` | 待排清单 |
 | `GET` | `/api/work-orders/calendar?dateFrom&dateTo` | 区间内 SCHEDULED/DONE 片段 |
 | `GET` | `/api/work-orders/statistics/completed` | 全部完工统计 |
@@ -655,7 +656,7 @@ mvn package
 
 测试职责：
 
-- `WorkOrderImportServiceTests`：表头、可配置规则、小红书待配货过滤/来源、解析、去重、重导状态保留。
+- `WorkOrderImportServiceTests`：表头、可配置规则、小红书待配货过滤/来源、解析、去重、重导状态保留、手动建立待排工单。
 - `WorkOrderSegmentServiceTests`：片段、融合、重叠、拆分、暂停、顺延、完成、删除。
 - `WorkOrderServiceTests`：待排、duration、整单清空/删除、统计。
 - `WorkOrderEmailServiceTests`：周/月/统计 view model、模板、PDF、MIME。

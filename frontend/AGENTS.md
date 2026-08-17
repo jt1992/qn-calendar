@@ -44,13 +44,14 @@
 | `src/main.js` | 挂载 Vue、Pinia、Router 与全局 CSS |
 | `src/router/index.js` | `/schedule`、`/completed-stats` 与根路径重定向 |
 | `src/App.vue` | 应用壳层、顶栏、路由出口、主题、Email Dialog、设置 Dialog |
-| `src/views/ScheduleView.vue` | 组合 XLSX 上传、待排清单、日历；管理当前聚焦工单 |
+| `src/views/ScheduleView.vue` | 组合 XLSX 上传、手动新增、待排清单、日历；管理当前聚焦工单 |
 | `src/views/CompletedStatsView.vue` | 拉取完工统计并按订单月份筛选 |
 | `src/components/WorkOrderImportButton.vue` | 点击/拖拽选择 XLSX 与副档名预检 |
-| `src/components/PendingWorkOrderList.vue` | 待排卡片、工时调整、删除、复制、外部拖拽 |
+| `src/components/ManualWorkOrderDialog.vue` | 七个 canonical 字段的手动新增表单与前端校验 |
+| `src/components/PendingWorkOrderList.vue` | 待排笔数/新增入口、卡片、工时调整、删除、复制、外部拖拽 |
 | `src/components/WorkOrderCalendar.vue` | FullCalendar 配置与全部排程交互编排 |
 | `src/components/CompletedStatsTable.vue` | 完工统计表呈现与月份筛选 UI |
-| `src/components/AppSettingsDialog.vue` | 收件者、SMTP 寄件者、基础设置、字段设置四个 tab |
+| `src/components/AppSettingsDialog.vue` | 收件者、SMTP 寄件者、基础设置、字段识别设置四个 tab |
 | `src/components/ImportFieldSettingsPanel.vue` | XLSX 自定义字段别名与加急文字规则 |
 | `src/components/ScheduleEmailDialog.vue` | 收件人 tags、报表类型、日期/月与发送流程 |
 | `src/components/MonthPicker.vue` | 年/月双 select，可限制为实际存在月份 |
@@ -169,6 +170,7 @@ lastUsedAt DESC → usageCount DESC → 姓名或 Email（zh-CN）
 | Client 行为 | API | 使用状态 |
 |---|---|---|
 | 导入 XLSX | `POST /api/work-orders/import` | 使用中 |
+| 手动新增待排工单 | `POST /api/work-orders` | 使用中 |
 | 读取待排 | `GET /api/work-orders/pending` | 使用中 |
 | 删除待排 | `DELETE /api/work-orders/{id}` | 使用中 |
 | 读取日历 | `GET /api/work-orders/calendar?dateFrom&dateTo` | 使用中 |
@@ -216,6 +218,7 @@ lastUsedAt DESC → usageCount DESC → 姓名或 Email（zh-CN）
 - 待排卡片作为 FullCalendar external event，duration 取 `actualMinutes`，没有时才回退 `estimatedMinutes`。
 - 工时以 15 分钟增减，最低 15 分钟。
 - 删除只允许由卡片按钮触发，删除前确认，并提供 loading、disabled、accessible name。
+- 清单标题左侧显示笔数，右侧「新增待排工单」按钮打开表单；订单编号、金额、期限必填且显示红色 `*`，建立后刷新待排清单。
 - pointer 位移小于 6px 的短按会复制不含 `#` 的订单编号；拖拽不可触发复制。
 - 待排卡片 focus/hover 显示价格、工时、状态、最晚发货、备注 tooltip。
 - 聚焦待排工单时，周视图显示最晚发货红线。
@@ -317,7 +320,7 @@ lastUsedAt DESC → usageCount DESC → 姓名或 Email（zh-CN）
 1. `recipients`：Email 收件者。
 2. `email`：Email 寄件者。
 3. `basic`：基础设置。
-4. `fields`：XLSX 字段设置。
+4. `fields`：XLSX 字段识别设置。
 
 打开 Dialog 时并行读取基础设置、字段设置与收件者。切 tab、取消、提交成功或重新打开时，依各表单规则清除验证。
 
@@ -330,7 +333,7 @@ lastUsedAt DESC → usageCount DESC → 姓名或 Email（zh-CN）
 
 字段设置：
 
-- 系统别名只读；自定义别名可新增、删除，并以完整七字段快照保存。
+- 每个字段以一份「别名」清单显示；只读预设别名在前，可新增/删除的别名接在后方，并以完整七字段快照保存。
 - 同一工作簿对同字段同时命中系统与自定义别名时，自定义别名优先；同类同时命中多个仍由后端拒绝。
 - 备注标签字段可维护完全匹配/包含文字两种加急规则；`红旗` 只作为输入范例，不是默认规则。
 - alias trim、转小写并移除空白、`_`、`-` 后不可跨字段重复，也不可与系统别名冲突。

@@ -745,7 +745,7 @@ function securityLabel(value) {
           :class="{ active: activeTab === 'fields' }"
           @click="activateTab('fields')"
         >
-          字段设置
+          字段识别设置
         </button>
       </div>
 

@@ -22,6 +22,7 @@ import com.qn.calendar.settings.service.AppSettingsService;
 import com.qn.calendar.settings.service.ImportFieldSettingsService;
 import com.qn.calendar.workorder.constant.WorkOrderSource;
 import com.qn.calendar.workorder.constant.WorkOrderStatus;
+import com.qn.calendar.workorder.dto.CreateWorkOrderRequest;
 import com.qn.calendar.workorder.dto.ImportWorkOrderResponse;
 import com.qn.calendar.workorder.entity.WorkOrder;
 import com.qn.calendar.workorder.entity.WorkOrderSegment;
@@ -696,6 +697,65 @@ class WorkOrderImportServiceTests {
         assertThat(response.skippedCount()).isZero();
         assertThat(response.errors()).isEmpty();
         assertThat(repository.findAll().getFirst().isUrgent()).isTrue();
+    }
+
+    @Test
+    void createsManualPendingWorkOrderWithConfiguredUrgentRuleAndDetectedSource() {
+        importFieldSettingsService.updateSettings(new UpdateImportFieldSettingsRequest(
+                java.util.Arrays.stream(ImportFieldKey.values())
+                        .map((fieldKey) -> new UpdateImportFieldSettingsRequest.FieldAliases(
+                                fieldKey.getApiKey(),
+                                List.of()
+                        ))
+                        .toList(),
+                new UpdateImportFieldSettingsRequest.UrgentRules(List.of(
+                        new UpdateImportFieldSettingsRequest.UrgentRule(
+                                "红旗",
+                                ImportUrgentMatchType.EXACT
+                        )
+                ))
+        ));
+
+        WorkOrder workOrder = importService.createPendingWorkOrder(new CreateWorkOrderRequest(
+                " P802335189951019482 ",
+                new BigDecimal("250.00"),
+                LocalDateTime.of(2026, 8, 30, 16, 39, 54),
+                "红旗",
+                "请小心包装",
+                "8/28发",
+                LocalDateTime.of(2026, 8, 17, 9, 30)
+        ));
+
+        assertThat(workOrder.getOrderNo()).isEqualTo("P802335189951019482");
+        assertThat(workOrder.getSource()).isEqualTo(WorkOrderSource.XIAOHONGSHU);
+        assertThat(workOrder.getStatus()).isEqualTo(WorkOrderStatus.PENDING);
+        assertThat(workOrder.getEstimatedMinutes()).isEqualTo(180);
+        assertThat(workOrder.getActualMinutes()).isEqualTo(180);
+        assertThat(workOrder.isUrgent()).isTrue();
+        assertThat(workOrder.getRemark()).isEqualTo("""
+                买家留言：请小心包装
+                商家备注：8/28发""");
+        assertThat(workOrder.getOrderTime()).isEqualTo(LocalDateTime.of(2026, 8, 17, 9, 30));
+        assertThat(repository.findAll()).hasSize(1);
+    }
+
+    @Test
+    void rejectsDuplicateOrderNumberWhenCreatingManualPendingWorkOrder() {
+        CreateWorkOrderRequest request = new CreateWorkOrderRequest(
+                "ORD-MANUAL-DUPLICATE",
+                new BigDecimal("100.00"),
+                LocalDateTime.of(2026, 8, 30, 18, 0),
+                "",
+                "",
+                "",
+                null
+        );
+        importService.createPendingWorkOrder(request);
+
+        assertThatThrownBy(() -> importService.createPendingWorkOrder(request))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("订单编号 ORD-MANUAL-DUPLICATE 已存在");
+        assertThat(repository.findAll()).hasSize(1);
     }
 
     @Test

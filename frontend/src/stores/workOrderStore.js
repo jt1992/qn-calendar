@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import {
+  createWorkOrder as createWorkOrderRequest,
   deleteWorkOrder as deleteWorkOrderRequest,
   deleteWorkOrderSegment,
   getCalendarWorkOrders,
@@ -72,6 +73,20 @@ export const useWorkOrderStore = defineStore('workOrders', {
         throw error
       } finally {
         this.loading = false
+      }
+    },
+
+    async createWorkOrder(payload) {
+      this.clearError()
+
+      try {
+        const workOrder = await createWorkOrderRequest(payload)
+        await this.fetchPendingWorkOrders()
+        this.setNotice(`工单 ${workOrder.orderNo} 已新增`)
+        return workOrder
+      } catch (error) {
+        this.setError(error.message)
+        throw error
       }
     },
 
