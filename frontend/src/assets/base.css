@@ -1661,6 +1661,12 @@ select:disabled {
   min-width: 0;
 }
 
+.import-field-alias-label {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
 .import-field-notice {
   color: var(--primary);
   font-size: 0.78rem;
@@ -1741,6 +1747,22 @@ select:disabled {
 }
 
 .import-chip button:hover:not(:disabled) {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.import-alias-tag-input {
+  min-width: 0;
+}
+
+.import-alias-tag.built-in {
+  border-color: var(--line-strong);
+  background: var(--surface-strong);
+  color: var(--muted);
+}
+
+.import-alias-tag.custom button:hover:not(:disabled),
+.import-alias-tag.custom button:focus-visible {
   background: var(--danger-soft);
   color: var(--danger);
 }

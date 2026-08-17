@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
-import { Plus, Trash2 } from '@lucide/vue'
+import { Plus, Trash2, X } from '@lucide/vue'
 import { useAppSettingsStore } from '../stores/appSettingsStore'
 
 const props = defineProps({
@@ -128,6 +128,25 @@ async function removeAlias(field, index) {
   if (await persistDraft()) {
     setFieldNotice(field.key, `${alias}已删除`, 'danger')
   }
+}
+
+function handleAliasKeydown(event, field) {
+  if (event.key === 'Enter' || event.key === ',') {
+    event.preventDefault()
+    addAlias(field)
+    return
+  }
+
+  if (event.key === 'Backspace'
+      && !aliasInputs[field.key]
+      && field.customAliases.length > 0) {
+    event.preventDefault()
+    removeAlias(field, field.customAliases.length - 1)
+  }
+}
+
+function focusAliasInput(event) {
+  event.currentTarget.querySelector('input')?.focus()
 }
 
 function findAliasOwner(value) {
@@ -351,6 +370,7 @@ function ruleTypeLabel(matchType) {
         <div class="import-field-heading">
           <div class="import-field-title">
             <h3>{{ field.label }}</h3>
+            <span class="import-field-alias-label">别名</span>
             <span
               v-if="fieldNotices[field.key]"
               class="import-field-notice"
@@ -366,56 +386,49 @@ function ruleTypeLabel(matchType) {
         </div>
 
         <div class="import-alias-group">
-          <h4>别名</h4>
-          <div class="import-chip-list">
+          <div
+            class="recipient-tag-input import-alias-tag-input"
+            :class="{ invalid: fieldErrors[field.key] }"
+            @click="focusAliasInput"
+          >
             <span
               v-for="alias in field.builtInAliases"
               :key="`built-in-${alias}`"
-              class="import-chip built-in"
+              class="recipient-tag import-alias-tag built-in"
+              title="预设别名，不可删除"
             >
-              {{ alias }}
+              <span>{{ alias }}</span>
             </span>
             <span
               v-for="(alias, index) in field.customAliases"
               :key="`custom-${alias}-${index}`"
-              class="import-chip custom"
+              class="recipient-tag import-alias-tag custom"
             >
               <span>{{ alias }}</span>
               <button
                 type="button"
                 :aria-label="`删除 ${field.label} 的别名 ${alias}`"
                 :disabled="busy"
-                @click="removeAlias(field, index)"
+                @click.stop="removeAlias(field, index)"
               >
-                <Trash2 :size="13" aria-hidden="true" />
+                <X :size="13" aria-hidden="true" />
               </button>
             </span>
-          </div>
-
-          <div class="import-add-row">
             <label class="visually-hidden" :for="fieldInputId(field.key)">
               新增 {{ field.label }} 的相似字段名
             </label>
             <input
               :id="fieldInputId(field.key)"
               v-model="aliasInputs[field.key]"
+              class="recipient-tag-search"
               type="text"
               maxlength="120"
-              placeholder="输入相似字段名"
+              :placeholder="field.builtInAliases.length || field.customAliases.length ? '继续添加' : '输入相似字段名'"
               :aria-describedby="fieldErrors[field.key] ? fieldErrorId(field.key) : undefined"
               :aria-invalid="Boolean(fieldErrors[field.key])"
               :disabled="busy"
-              @keydown.enter.prevent="addAlias(field)"
+              @keydown="handleAliasKeydown($event, field)"
             />
-            <button
-              class="icon-button"
-              type="button"
-              :disabled="busy"
-              @click="addAlias(field)"
-            >
-              <Plus :size="16" />
-              添加
-            </button>
           </div>
           <small
             v-if="fieldErrors[field.key]"
