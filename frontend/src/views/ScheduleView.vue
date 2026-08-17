@@ -56,7 +56,8 @@ function clearFocusOnBackground(event) {
       </div>
       <div
         v-else-if="store.notice && store.notice !== ORDER_NUMBER_COPY_NOTICE"
-        class="message success-message"
+        class="message"
+        :class="store.noticeTone === 'danger' ? 'danger-message' : 'success-message'"
         role="status"
       >
         {{ store.notice }}

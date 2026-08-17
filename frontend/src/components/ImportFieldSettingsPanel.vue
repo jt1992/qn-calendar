@@ -1,5 +1,5 @@
 <script setup>
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { Plus, Trash2 } from '@lucide/vue'
 import { useAppSettingsStore } from '../stores/appSettingsStore'
 
@@ -18,7 +18,8 @@ const urgentTextInput = ref('')
 const urgentMatchType = ref('EXACT')
 const urgentRuleError = ref('')
 const actionError = ref('')
-const savedMessage = ref('')
+const fieldNotices = reactive({})
+const fieldNoticeTimers = new Map()
 
 const busy = computed(() =>
   settingsStore.importFieldSettingsLoading || settingsStore.importFieldSettingsSaving
@@ -38,6 +39,8 @@ watch(
     }
   }
 )
+
+onBeforeUnmount(clearFieldNotices)
 
 function resetDraft() {
   const settings = settingsStore.importFieldSettings || {}
@@ -64,7 +67,6 @@ function resetDraft() {
   urgentMatchType.value = 'EXACT'
   urgentRuleError.value = ''
   actionError.value = ''
-  savedMessage.value = ''
 }
 
 function clearFeedback() {
@@ -73,7 +75,7 @@ function clearFeedback() {
   })
   urgentRuleError.value = ''
   actionError.value = ''
-  savedMessage.value = ''
+  clearFieldNotices()
 }
 
 async function addAlias(field) {
@@ -102,10 +104,11 @@ async function addAlias(field) {
 
   field.customAliases.push(alias)
   fieldErrors[field.key] = ''
-  const saved = await persistDraft('别名已自动保存')
+  const saved = await persistDraft()
 
   if (saved) {
     aliasInputs[field.key] = ''
+    setFieldNotice(field.key, `${alias}已添加`)
   } else {
     aliasInputs[field.key] = alias
   }
@@ -122,7 +125,9 @@ async function removeAlias(field, index) {
   }
 
   field.customAliases.splice(index, 1)
-  await persistDraft('别名已删除并自动保存')
+  if (await persistDraft()) {
+    setFieldNotice(field.key, `${alias}已删除`, 'danger')
+  }
 }
 
 function findAliasOwner(value) {
@@ -163,10 +168,11 @@ async function addUrgentRule() {
     matchType: urgentMatchType.value
   })
   urgentRuleError.value = ''
-  const saved = await persistDraft('加急文字已自动保存')
+  const saved = await persistDraft()
 
   if (saved) {
     urgentTextInput.value = ''
+    setFieldNotice('urgent', `${text}已添加`)
   } else {
     urgentTextInput.value = text
   }
@@ -183,12 +189,13 @@ async function removeUrgentRule(index) {
   }
 
   draftUrgentRules.value.splice(index, 1)
-  await persistDraft('加急文字已删除并自动保存')
+  if (await persistDraft()) {
+    setFieldNotice('urgent', `${rule.text}已删除`, 'danger')
+  }
 }
 
-async function persistDraft(successMessage) {
+async function persistDraft() {
   actionError.value = ''
-  savedMessage.value = ''
 
   if (!validateDraft()) {
     return false
@@ -196,7 +203,6 @@ async function persistDraft(successMessage) {
 
   try {
     await settingsStore.updateImportFieldSettings(currentPayload())
-    savedMessage.value = successMessage
     return true
   } catch (error) {
     const message = error.message
@@ -204,6 +210,26 @@ async function persistDraft(successMessage) {
     actionError.value = message
     return false
   }
+}
+
+function setFieldNotice(fieldKey, message, tone = 'info') {
+  const previousTimer = fieldNoticeTimers.get(fieldKey)
+
+  if (previousTimer) {
+    window.clearTimeout(previousTimer)
+  }
+
+  fieldNotices[fieldKey] = { message, tone }
+  fieldNoticeTimers.set(fieldKey, window.setTimeout(() => {
+    delete fieldNotices[fieldKey]
+    fieldNoticeTimers.delete(fieldKey)
+  }, 5000))
+}
+
+function clearFieldNotices() {
+  fieldNoticeTimers.forEach((timer) => window.clearTimeout(timer))
+  fieldNoticeTimers.clear()
+  Object.keys(fieldNotices).forEach((key) => delete fieldNotices[key])
 }
 
 function validateDraft() {
@@ -311,10 +337,6 @@ function ruleTypeLabel(matchType) {
       <p>为固定字段添加可识别的相似列名。新增或删除后会自动保存；同一文件同时命中时优先读取后添加的别名。</p>
     </div>
 
-    <p v-if="settingsStore.importFieldSettingsSaving" class="dialog-status" role="status">
-      自动保存中...
-    </p>
-    <p v-else-if="savedMessage" class="dialog-status" role="status">{{ savedMessage }}</p>
     <p v-if="actionError" class="dialog-error" role="alert">{{ actionError }}</p>
 
     <p
@@ -327,7 +349,17 @@ function ruleTypeLabel(matchType) {
     <div v-else class="import-field-list">
       <article v-for="field in draftFields" :key="field.key" class="import-field-item">
         <div class="import-field-heading">
-          <h3>{{ field.label }}</h3>
+          <div class="import-field-title">
+            <h3>{{ field.label }}</h3>
+            <span
+              v-if="fieldNotices[field.key]"
+              class="import-field-notice"
+              :class="{ danger: fieldNotices[field.key].tone === 'danger' }"
+              role="status"
+            >
+              {{ fieldNotices[field.key].message }}
+            </span>
+          </div>
           <span class="field-requirement-badge" :class="{ required: field.required }">
             {{ field.required ? '必填' : '选填' }}
           </span>

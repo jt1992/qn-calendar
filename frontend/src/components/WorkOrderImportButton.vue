@@ -161,6 +161,7 @@ async function handleDrop(event) {
         :style="uploadHelpStyle"
         role="tooltip"
       >
+        <p>档名包含订单来源时以档名的来源为主</p>
         <p>
           <strong>必填：</strong>
           订单编号、买家实付金额、应发货时间

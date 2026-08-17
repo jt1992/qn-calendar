@@ -407,6 +407,12 @@ select:disabled {
   color: var(--primary);
 }
 
+.danger-message {
+  border: 1px solid var(--danger);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
 .copy-success-message {
   position: absolute;
   top: 50%;
@@ -1608,6 +1614,24 @@ select:disabled {
   overflow-wrap: anywhere;
 }
 
+.import-field-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.import-field-notice {
+  color: var(--primary);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.import-field-notice.danger {
+  color: var(--danger);
+}
+
 .field-requirement-badge {
   flex: 0 0 auto;
   border-radius: 999px;
@@ -2073,6 +2097,10 @@ select:disabled {
   white-space: nowrap;
   font-weight: 800;
   color: var(--primary);
+}
+
+.dialog-status.danger {
+  color: var(--danger);
 }
 
 .dialog-error {

@@ -31,6 +31,7 @@ const orderSourceOptionsError = ref('')
 const orderSourceOptionInputElement = ref(null)
 const fieldError = ref('')
 const savedMessage = ref('')
+const savedMessageTone = ref('info')
 const emailEditing = ref(false)
 const smtpAuthCodeVisible = ref(false)
 const recipientDeletingId = ref(null)
@@ -567,7 +568,7 @@ async function removeRecipient(recipient) {
       cancelRecipientEdit()
     }
 
-    showSavedMessage('收件者已删除')
+    showSavedMessage('收件者已删除', 'danger')
   } catch (error) {
     showFieldError(error.message)
   } finally {
@@ -712,8 +713,9 @@ function clearFieldError() {
   }
 }
 
-function showSavedMessage(message) {
+function showSavedMessage(message, tone = 'info') {
   savedMessage.value = message
+  savedMessageTone.value = tone
 
   if (savedMessageTimer) {
     window.clearTimeout(savedMessageTimer)
@@ -721,12 +723,14 @@ function showSavedMessage(message) {
 
   savedMessageTimer = window.setTimeout(() => {
     savedMessage.value = ''
+    savedMessageTone.value = 'info'
     savedMessageTimer = null
   }, 5000)
 }
 
 function clearSavedMessage() {
   savedMessage.value = ''
+  savedMessageTone.value = 'info'
 
   if (savedMessageTimer) {
     window.clearTimeout(savedMessageTimer)
@@ -933,7 +937,12 @@ function securityLabel(value) {
           </div>
 
           <div class="dialog-actions">
-            <span v-if="savedMessage" class="dialog-status" role="status">
+            <span
+              v-if="savedMessage"
+              class="dialog-status"
+              :class="{ danger: savedMessageTone === 'danger' }"
+              role="status"
+            >
               {{ savedMessage }}
             </span>
             <button
@@ -1113,7 +1122,12 @@ function securityLabel(value) {
             <p>成功寄送的新 Email 会自动加入此列表。</p>
           </div>
           <div class="dialog-actions">
-            <span v-if="savedMessage" class="dialog-status" role="status">
+            <span
+              v-if="savedMessage"
+              class="dialog-status"
+              :class="{ danger: savedMessageTone === 'danger' }"
+              role="status"
+            >
               {{ savedMessage }}
             </span>
             <button
@@ -1362,7 +1376,12 @@ function securityLabel(value) {
         v-if="(savedMessage && activeTab === 'email') || canSubmitActiveTab"
         class="dialog-actions"
       >
-        <span v-if="savedMessage && activeTab === 'email'" class="dialog-status" role="status">
+        <span
+          v-if="savedMessage && activeTab === 'email'"
+          class="dialog-status"
+          :class="{ danger: savedMessageTone === 'danger' }"
+          role="status"
+        >
           {{ savedMessage }}
         </span>
         <button

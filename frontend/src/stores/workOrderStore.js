@@ -33,7 +33,8 @@ export const useWorkOrderStore = defineStore('workOrders', {
     activeRange: null,
     loading: false,
     error: '',
-    notice: ''
+    notice: '',
+    noticeTone: 'info'
   }),
 
   actions: {
@@ -185,6 +186,7 @@ export const useWorkOrderStore = defineStore('workOrders', {
     setError(message) {
       this.error = message
       this.notice = ''
+      this.noticeTone = 'info'
 
       if (errorTimer) {
         window.clearTimeout(errorTimer)
@@ -196,8 +198,9 @@ export const useWorkOrderStore = defineStore('workOrders', {
       }, 5000)
     },
 
-    setNotice(message, durationMs = 5000) {
+    setNotice(message, durationMs = 5000, tone = 'info') {
       this.notice = message
+      this.noticeTone = tone
       this.error = ''
 
       if (noticeTimer) {
@@ -206,6 +209,7 @@ export const useWorkOrderStore = defineStore('workOrders', {
 
       noticeTimer = window.setTimeout(() => {
         this.notice = ''
+        this.noticeTone = 'info'
         noticeTimer = null
       }, durationMs)
     },
@@ -222,6 +226,7 @@ export const useWorkOrderStore = defineStore('workOrders', {
     clearMessages() {
       this.error = ''
       this.notice = ''
+      this.noticeTone = 'info'
 
       if (errorTimer) {
         window.clearTimeout(errorTimer)

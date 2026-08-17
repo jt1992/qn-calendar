@@ -137,7 +137,7 @@ async function removeWorkOrder(workOrder) {
 
   try {
     await store.deleteWorkOrder(workOrder.id)
-    store.setNotice(`工单 ${workOrder.orderNo} 已删除`)
+    store.setNotice(`工单 ${workOrder.orderNo} 已删除`, 5000, 'danger')
     emit('work-order-deleted', workOrder.id)
   } catch (error) {
     store.setError(error.message)
