@@ -1,0 +1,36 @@
+name: qn-calendar-dev
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    environment:
+      APP_DESKTOP_ENABLED: "false"
+      APP_TIME_ZONE: ${APP_TIME_ZONE:-Asia/Shanghai}
+      JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8 -Duser.timezone=UTC
+      QN_CALENDAR_DATA_DIR: /data
+      SERVER_PORT: "8080"
+      TZ: UTC
+    ports:
+      - "127.0.0.1:${SERVER_PORT:-8080}:8080"
+    volumes:
+      - ./backend/src:/workspace/backend/src:ro
+      - qn-calendar-dev-data:/data
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    depends_on:
+      - backend
+    environment:
+      API_PROXY_TARGET: http://backend:8080
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-5174}:5174"
+    volumes:
+      - ./frontend/public:/workspace/frontend/public:ro
+      - ./frontend/src:/workspace/frontend/src:ro
+
+volumes:
+  qn-calendar-dev-data:

@@ -26,7 +26,7 @@ XLSX 订单导入与工单排程系统。系统把订单汇入待排清单，支
 - 前端：Vue 3.5.35、Vite 8.0.16、Vue Router 4.6.4、Pinia 3.0.4、Axios 1.17.0、FullCalendar 6.1.20。
 - 后端：Java 21、Spring Boot 3.5.14、Spring Data JPA、SQLite、Apache POI、Thymeleaf、OpenHTMLtoPDF、Spring Mail。
 - 生产：Maven 把 Vue build 打进 Spring Boot jar，由单一服务同时提供 SPA 与 API。
-- 容器：Docker Compose 只有一个 backend service，SQLite 使用 named volume。
+- 容器：production Compose 由单一 backend service 提供 SPA 与 API；开发 Compose 使用独立 Vite frontend 与 Spring Boot backend，SQLite 各自使用隔离的 named volume。
 - 桌面：同一个 jar 可由 jpackage 制作 Windows 与 macOS 安装包。
 
 前端有两个主要路由：
@@ -913,36 +913,58 @@ java \
   -jar target/qn-calendar-backend-0.1.0.jar
 ```
 
-### 14.4 Docker Compose
+### 14.4 开发环境 Docker Compose
 
 ```bash
 cp .env.example .env
-docker compose up --build
+docker compose -f docker-compose.dev.yml up --build
 ```
 
-打开实际 `SERVER_PORT` 对应的网址，默认是 `http://localhost:8080`。
+打开实际 `FRONTEND_PORT` 对应的网址，默认是 `http://localhost:5174`。浏览器请求同源 `/api/**`，由 Vite 代理到 Compose 网络内的 `backend:8080`，因此开发环境不需要 CORS。
 
 `.env`：
 
 ```properties
 SERVER_PORT=8080
+FRONTEND_PORT=5174
 APP_TIME_ZONE=Asia/Shanghai
 ```
 
-Docker：
+开发环境：
 
-- 前后端由同一个 Spring Boot service 提供。
+- frontend 使用 Node 22.12 与 Vite HMR，修改 `frontend/src` 后不重建 Maven 或 backend image。
+- backend 使用 `mvn spring-boot:run`，不会进入 Maven `prepare-package`，因此不会安装 Node、执行 `npm ci` 或构建 Vue。
+- 修改 `backend/src` 后可执行 `docker compose -f docker-compose.dev.yml restart backend`，重新编译并启动 API；修改 `pom.xml` 才需要重建 backend image。
+- backend 的 host port 使用 `SERVER_PORT`，容器内固定为 `8080`；frontend 的 host port 使用 `FRONTEND_PORT`，容器内固定为 `5174`。
+- 开发 Compose 的 project name 固定为 `qn-calendar-dev`，容器、image、network 与 volume 都不会覆盖 production Compose 的同名资源。
 - `APP_DESKTOP_ENABLED=false`。
 - SQLite 位于 `/data/qn-calendar.db`。
-- named volume 是 `qn-calendar-data`。
-- Docker 固定忽略 `.env` 中的 `QN_CALENDAR_DATA_DIR`。
+- named volume 是 `qn-calendar-dev-data`，不会与 production 资料共用。
 - 业务时区默认北京，JVM/TZ 固定 UTC。
 
-Dockerfile 的 Maven package 同样使用 `-DskipTests`；`docker compose up --build` 不能替代先执行 `mvn test`。
+开发 Compose 只绑定到 `127.0.0.1`。若 `5174` 或 `8080` 已被占用，请先停止冲突服务或调整 `.env`，不要同时让开发与 production Compose 使用相同 host port。
+
+不要执行 `docker compose -f docker-compose.dev.yml down -v`，除非明确要删除开发 SQLite volume。
+
+### 14.5 Production Docker Compose
+
+```bash
+docker compose up --build
+```
+
+打开实际 `SERVER_PORT` 对应的网址，默认是 `http://localhost:8080`。
+
+Production：
+
+- 前后端由同一个 Spring Boot service 提供。
+- named volume 是 `qn-calendar-data`。
+- Docker 固定忽略 `.env` 中的 `QN_CALENDAR_DATA_DIR`。
+- Dockerfile 以独立 Node stage 缓存 `npm ci` 与 Vue build，再由 Maven stage 封装单一 executable jar；只修改 Java 时可重用完整前端 build layer。
+- Maven package 使用 `-DskipTests`，容器 build 不能替代先执行 `mvn test`。
 
 不要执行 `docker compose down -v`，除非明确要删除 SQLite volume。
 
-### 14.5 本机资料目录
+### 14.6 本机资料目录
 
 默认：
 
@@ -988,6 +1010,8 @@ java -Duser.timezone=UTC -jar target/qn-calendar-backend-0.1.0.jar
 2. Windows runner 用 jpackage + WiX 产生 `.exe`。
 3. macOS runner 产生 `.dmg` 与 `.pkg`。
 4. GitHub Release 发布安装档；jar 只作为 job 间产物，不会附在 Release。
+
+Ubuntu build job 使用 `setup-node` 的 npm download cache 与 `setup-java` 的 Maven dependency cache。Maven 先准备 backend resources，Vue 再独立构建到 `backend/target/classes/static`，最后由 Maven 跳过 frontend-maven-plugin 的 Node/npm goal 并封装 jar；workflow 会检查 jar 内同时存在 `static/index.html` 与 JavaScript asset，避免产生缺少前端的桌面安装包。
 
 jpackage 必须在目标平台原生执行，不能在单一 runner 跨平台产生 Windows 与 macOS 安装档。
 
@@ -1047,7 +1071,7 @@ Windows/macOS 的数据库都放在使用者家目录，不在安装目录。卸
 
 - `npm run build` 只能证明前端可编译，不等于互动行为已验证。
 - `mvn test` 不会验证真实邮箱与安装器。
-- 需要运行中整合验证时，依项目规则重建整套 Docker Compose，不要分别启动前后端开发服务器。
+- 需要运行中整合验证时，依项目规则使用 `docker-compose.dev.yml` 启动完整开发环境，不要在主机上分别启动前后端开发服务器；正式 JAR／静态资源回归才重建 production Compose。
 
 已知前端标记边界：`frontend/index.html` 目前仍声明 `lang="zh-Hant"`，与现行简体中文文案规则不一致。
 

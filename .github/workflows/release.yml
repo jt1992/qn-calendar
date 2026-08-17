@@ -18,12 +18,36 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
+          cache: maven
+          cache-dependency-path: backend/pom.xml
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22.12.0"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Prepare backend resources
+        run: mvn -B -f backend/pom.xml process-resources
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build -- --outDir ../backend/target/classes/static --emptyOutDir
 
       - name: Build executable jar
         run: |
-          mvn -B -f backend/pom.xml -DskipTests package
+          mvn -B -f backend/pom.xml \
+            -DskipTests \
+            -Dskip.installnodenpm \
+            -Dskip.npm \
+            package
           mkdir -p release-input
           cp backend/target/qn-calendar-backend-*.jar release-input/app.jar
+          jar tf release-input/app.jar > release-input/jar-contents.txt
+          grep -q '^BOOT-INF/classes/static/index.html$' release-input/jar-contents.txt
+          grep -q '^BOOT-INF/classes/static/assets/.*\.js$' release-input/jar-contents.txt
 
       - uses: actions/upload-artifact@v6
         with:
