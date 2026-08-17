@@ -9,7 +9,7 @@
 - Axios 1.17.0；FullCalendar 6.1.20；`@lucide/vue` 1.17.0。
 - `src/main.js` 的启动顺序是 `createApp` → Pinia → Router → `#app`。
 - `src/assets/base.css` 是唯一全局样式入口。
-- `vite.config.js` 的开发端口是 `5174`，`/api` 代理到 `http://localhost:8080`。
+- `vite.config.js` 的开发端口是 `5174`，`/api` 默认代理到 `http://localhost:8080`；开发 Compose 通过 `API_PROXY_TARGET=http://backend:8080` 覆盖容器内目标。
 - Axios 默认同源，也可通过 `VITE_API_BASE_URL` 指定基址；统一 timeout 为 20 秒。
 
 不要静默升级框架或套件主版本。版本变更必须同时核对 `package.json`、`package-lock.json`、Maven 前端构建与生产静态资源打包。
@@ -422,7 +422,7 @@ cd frontend
 npm run build
 ```
 
-需要运行中系统时，不要单独启动 Vite 或 Spring Boot；依根目录规则重建并启动整套 Docker Compose。
+需要运行中系统时，不要在主机上单独启动 Vite 或 Spring Boot；依根目录规则使用 `docker-compose.dev.yml` 启动完整开发环境。正式静态资源与单一 JAR 回归才使用 production Compose。
 
 后端 `SpaResourceConfigurationTests` 只验证生产静态资源 fallback/cache，不覆盖 Vue 互动。高风险日历或表单变更需明确列出人工验证范围；不要把 production build 成功描述成行为测试通过。
 

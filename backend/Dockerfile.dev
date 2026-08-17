@@ -1,0 +1,24 @@
+# syntax=docker/dockerfile:1.7
+
+FROM maven:3.9-eclipse-temurin-21
+WORKDIR /workspace/backend
+
+ENV APP_DESKTOP_ENABLED=false \
+    APP_TIME_ZONE=Asia/Shanghai \
+    QN_CALENDAR_DATA_DIR=/data \
+    TZ=UTC \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends fontconfig fonts-wqy-microhei \
+    && fc-cache -f \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /data
+
+COPY pom.xml pom.xml
+RUN mvn -q -DskipTests dependency:go-offline
+COPY src src
+
+EXPOSE 8080
+CMD ["mvn", "-q", "-Dmaven.test.skip=true", "spring-boot:run"]

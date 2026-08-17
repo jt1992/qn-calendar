@@ -35,7 +35,7 @@ ${qn.calendar.data-dir}/qn-calendar.db
 注意：
 
 - 这个解析发生在 Spring 读取 `.env` 前；把 `QN_CALENDAR_DATA_DIR` 只写进 `.env` 不会生效。
-- Docker Compose 固定设置 `/data`，使用 `qn-calendar-data` named volume。
+- Docker Compose 固定设置 `/data`；production 使用 `qn-calendar-data`，开发环境使用隔离的 `qn-calendar-dev-data` named volume。
 - `application.yml` 的 multipart 单档与请求上限均为 20MB。
 - 正式环境使用 `spring.jpa.hibernate.ddl-auto=update`。
 - 项目没有 Flyway、Liquibase、SQL migration 或固定 schema 文件；数据库升级完全依赖 Hibernate update。
@@ -51,6 +51,8 @@ Maven package 流程：
 ```
 
 Spring Boot 同时提供 `/api/**` 与 Vue production build。
+
+开发 Compose 使用 `mvn spring-boot:run` 启动 API，不进入 `prepare-package`，因此不会安装 Node 或构建 Vue；前端由独立 Vite service 提供。
 
 ## 3. 包结构与模块职责
 
@@ -640,11 +642,14 @@ HTTP 与 Entity 使用无 offset 的 `LocalDateTime`。不要单独把某一层�
 
 Docker：
 
-- 单一 backend service，前端由 jar 提供。
-- Dockerfile 的 package 使用 `-DskipTests`，容器 build 不替代 `mvn test`。
+- production 是单一 backend service，前端由 jar 提供；开发环境是 Vite frontend + Spring Boot backend 两个 service。
+- production Dockerfile 先以独立 Node stage 建立 Vue，再把静态资源交给 Maven stage 封装；前后端 dependency/build layer 分开缓存。
+- Dockerfile 的 Maven package 使用 `-DskipTests` 并跳过已由 Node stage 完成的 frontend-maven-plugin goal；容器 build 不替代 `mvn test`。
+- 开发 backend 以 `mvn spring-boot:run` 启动，source 由 Compose bind mount；修改 Java 后重启 backend service 即会重新编译，不执行 npm。
 - Temurin 21 JRE、UTF-8 locale、文泉驿字体。
 - `QN_CALENDAR_DATA_DIR=/data`。
 - business Clock 默认 `Asia/Shanghai`，JVM/TZ 固定 UTC。
+- production 与开发环境使用不同 SQLite named volume，不可让两个 backend 同时开启同一数据库。
 - 当前没有 healthcheck、restart policy、TLS、认证或自动备份；不要在文档中暗示这些已存在。
 
 ## 20. 验证
@@ -663,7 +668,7 @@ cd backend
 mvn package
 ```
 
-需要运行中整合验证时，依根目录规则使用整套 Docker Compose，不要分别启动 Vite 与 Spring Boot。
+需要运行中整合验证时，依根目录规则使用 `docker-compose.dev.yml` 启动整套开发环境，不要在主机上分别启动 Vite 与 Spring Boot。production JAR／静态资源回归使用根目录 `docker-compose.yml`。
 
 测试职责：
 
