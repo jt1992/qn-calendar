@@ -32,11 +32,12 @@ const calendarRef = ref(null)
 const visibleTitle = ref('')
 const currentView = ref(initialCalendarView)
 const pointerPosition = ref({ x: 0, y: 0 })
-const tooltipPosition = ref({ x: 0, y: 0 })
+const tooltipPosition = ref({ x: 14, y: 14, visible: false })
 const interactionPreview = ref(null)
 const interactionAction = ref('调整排程')
 const activeInteraction = ref(null)
 const eventTooltip = ref(null)
+const eventTooltipElement = ref(null)
 const ignoreNextCalendarClick = ref(false)
 const localFocusedWorkOrder = ref(null)
 const scheduleGranularityMinutes = 15
@@ -44,10 +45,14 @@ const eventClickDragThresholdPixels = 6
 const calendarWheelNavigationThresholdPixels = 40
 const defaultWeekViewStartMinutes = 6 * 60
 const businessTimeZone = 'Asia/Shanghai'
+const eventTooltipGap = 14
+const eventTooltipViewportPadding = 14
+const eventTooltipActionSelector = '.calendar-event-actions, .event-pause-toggle'
 const allowPastScheduling = ref(getInitialAllowPastScheduling())
 let calendarEventPointerInteraction = null
 let calendarWheelDelta = 0
 let calendarWheelResetTimer = null
+let eventTooltipPositionRequest = 0
 
 const effectiveFocusedWorkOrder = computed(() => props.focusedWorkOrder || localFocusedWorkOrder.value)
 const focusedWorkOrderId = computed(() => {
@@ -101,17 +106,11 @@ const interactionPreviewStyle = computed(() => {
   }
 })
 
-const eventTooltipStyle = computed(() => {
-  const width = 340
-  const height = 244
-  const x = Math.min(tooltipPosition.value.x + 14, Math.max(14, window.innerWidth - width - 14))
-  const y = Math.min(tooltipPosition.value.y + 14, Math.max(14, window.innerHeight - height - 14))
-
-  return {
-    left: `${x}px`,
-    top: `${y}px`
-  }
-})
+const eventTooltipStyle = computed(() => ({
+  left: `${tooltipPosition.value.x}px`,
+  top: `${tooltipPosition.value.y}px`,
+  visibility: tooltipPosition.value.visible ? 'visible' : 'hidden'
+}))
 
 const calendarOptions = computed(() => ({
   plugins: [dayGridPlugin, timeGridPlugin, interactionPlugin],
@@ -351,10 +350,12 @@ function eventContent(info) {
   const segmentMinutes = info.event.extendedProps.actualMinutes || diffMinutes(info.event.start, info.event.end)
   const totalMinutes = info.event.extendedProps.totalMinutes || segmentMinutes
   const pausedMinutes = info.event.extendedProps.pausedMinutes || 0
+  const orderNo = info.event.extendedProps.orderNo || info.event.title
+  const orderSource = info.event.extendedProps.source === 'XIAOHONGSHU' ? '书' : '千'
 
   root.className = 'calendar-event-card'
   root.dataset.workOrderId = String(info.event.extendedProps.workOrderId || '')
-  root.dataset.orderNo = info.event.extendedProps.orderNo || info.event.title || ''
+  root.dataset.orderNo = orderNo || ''
   root.dataset.urgent = String(Boolean(info.event.extendedProps.urgent))
   root.dataset.status = info.event.extendedProps.status || ''
   root.dataset.paused = String(isPaused)
@@ -364,7 +365,7 @@ function eventContent(info) {
   root.dataset.remark = info.event.extendedProps.remark || ''
   root.dataset.actualMinutes = String(info.event.extendedProps.totalMinutes || info.event.extendedProps.actualMinutes || '')
   root.dataset.totalMinutes = String(info.event.extendedProps.totalMinutes || '')
-  root.dataset.tooltipTitle = `${info.event.extendedProps.urgent ? '[加急] ' : ''}${info.event.extendedProps.orderNo || info.event.title}`
+  root.dataset.tooltipTitle = `${info.event.extendedProps.urgent ? '[加急] ' : ''}${orderNo}`
   root.dataset.tooltipTimeRange = `${formatDateTime(info.event.start)} - ${formatDateTime(info.event.end)}`
   root.dataset.tooltipDuration = pausedMinutes > 0
     ? `总排程 ${formatDurationText(totalMinutes)}，暂停 ${formatDurationText(pausedMinutes)}`
@@ -374,7 +375,7 @@ function eventContent(info) {
   root.dataset.tooltipPrice = info.event.extendedProps.price ? formatMoney(info.event.extendedProps.price) : ''
   root.dataset.tooltipRemark = formatRemarkText(info.event.extendedProps.remark)
   title.className = 'calendar-event-title'
-  title.textContent = info.event.extendedProps.orderNo || info.event.title
+  title.textContent = `[${orderSource}] ${orderNo}`
   actions.className = 'calendar-event-actions'
 
   if (!isDone) {
@@ -411,6 +412,12 @@ function eventContent(info) {
       event.stopPropagation()
       await toggleEventPause(info.event)
     })
+  }
+
+  for (const actionElement of [actions, pauseButton]) {
+    actionElement.addEventListener('mouseenter', hideEventTooltip)
+    actionElement.addEventListener('pointerenter', hideEventTooltip)
+    actionElement.addEventListener('focusin', hideEventTooltip)
   }
 
   timeRange.className = 'calendar-event-time'
@@ -1346,7 +1353,12 @@ function clearInteractionPreview() {
 }
 
 function showEventTooltip(event, pointerEvent) {
-  moveEventTooltip(pointerEvent)
+  if (isEventTooltipActionEvent(pointerEvent)) {
+    hideEventTooltip()
+    return
+  }
+
+  const tooltipWasHidden = !eventTooltip.value
   const latestShipTime = event.extendedProps.latestShipTime
   const segmentMinutes = event.extendedProps.actualMinutes || diffMinutes(event.start, event.end)
   const totalMinutes = event.extendedProps.totalMinutes || segmentMinutes
@@ -1363,24 +1375,67 @@ function showEventTooltip(event, pointerEvent) {
     priceText: event.extendedProps.price ? formatMoney(event.extendedProps.price) : '',
     remarkText: formatRemarkText(event.extendedProps.remark)
   }
+
+  if (tooltipWasHidden) {
+    tooltipPosition.value = { ...tooltipPosition.value, visible: false }
+  }
+
+  moveEventTooltip(pointerEvent)
 }
 
 function moveEventTooltip(event) {
-  if (!event) {
+  if (!event || !eventTooltip.value) {
     return
   }
 
-  const source = event.clientX === undefined ? event.currentTarget?.getBoundingClientRect() : null
-  tooltipPosition.value = source
-    ? { x: source.right, y: source.top }
-    : { x: event.clientX, y: event.clientY }
+  if (isEventTooltipActionEvent(event)) {
+    hideEventTooltip()
+    return
+  }
+
+  const anchor = resolveEventTooltipAnchor(event)
+
+  if (!anchor) {
+    return
+  }
+
+  const positionRequest = ++eventTooltipPositionRequest
+
+  nextTick(() => {
+    if (positionRequest !== eventTooltipPositionRequest || !eventTooltip.value) {
+      return
+    }
+
+    const tooltipElement = eventTooltipElement.value
+
+    if (!tooltipElement) {
+      return
+    }
+
+    const tooltipRect = tooltipElement.getBoundingClientRect()
+    tooltipPosition.value = resolveEventTooltipPosition(anchor, tooltipRect.width, tooltipRect.height)
+  })
 }
 
 function hideEventTooltip() {
+  if (!eventTooltip.value && !tooltipPosition.value.visible) {
+    return
+  }
+
+  eventTooltipPositionRequest += 1
   eventTooltip.value = null
+
+  if (tooltipPosition.value.visible) {
+    tooltipPosition.value = { ...tooltipPosition.value, visible: false }
+  }
 }
 
 function updateEventTooltipFromPointer(event) {
+  if (isEventTooltipActionEvent(event)) {
+    hideEventTooltip()
+    return
+  }
+
   const eventCard = event.target?.closest?.('.calendar-event-card')
 
   if (!eventCard) {
@@ -1388,7 +1443,6 @@ function updateEventTooltipFromPointer(event) {
     return
   }
 
-  moveEventTooltip(event)
   eventTooltip.value = {
     title: eventCard.dataset.tooltipTitle,
     timeRange: eventCard.dataset.tooltipTimeRange,
@@ -1398,6 +1452,70 @@ function updateEventTooltipFromPointer(event) {
     priceText: eventCard.dataset.tooltipPrice,
     remarkText: eventCard.dataset.tooltipRemark
   }
+  moveEventTooltip(event)
+}
+
+function isEventTooltipActionEvent(event) {
+  if (event?.target?.closest?.(eventTooltipActionSelector)) {
+    return true
+  }
+
+  if (!Number.isFinite(event?.clientX) || !Number.isFinite(event?.clientY)) {
+    return false
+  }
+
+  return Boolean(document.elementFromPoint(event.clientX, event.clientY)?.closest?.(eventTooltipActionSelector))
+}
+
+function resolveEventTooltipAnchor(event) {
+  if (Number.isFinite(event.clientX) && Number.isFinite(event.clientY)) {
+    return {
+      left: event.clientX,
+      right: event.clientX,
+      top: event.clientY,
+      bottom: event.clientY,
+      pointerX: event.clientX,
+      pointerY: event.clientY
+    }
+  }
+
+  const trigger = event.target?.closest?.('.fc-event') || event.currentTarget
+  const triggerRect = trigger?.getBoundingClientRect?.()
+
+  if (!triggerRect) {
+    return null
+  }
+
+  return {
+    left: triggerRect.left,
+    right: triggerRect.right,
+    top: triggerRect.top,
+    bottom: triggerRect.bottom,
+    pointerX: null,
+    pointerY: null
+  }
+}
+
+function resolveEventTooltipPosition(anchor, width, height) {
+  const viewportRight = window.innerWidth - eventTooltipViewportPadding
+  const viewportBottom = window.innerHeight - eventTooltipViewportPadding
+  const right = anchor.right + eventTooltipGap
+  const left = anchor.left - width - eventTooltipGap
+  const below = anchor.bottom + eventTooltipGap
+  const above = anchor.top - height - eventTooltipGap
+  const preferredX = right + width <= viewportRight ? right : left
+  const preferredY = below + height <= viewportBottom ? below : above
+  const maxX = Math.max(eventTooltipViewportPadding, viewportRight - width)
+  const maxY = Math.max(eventTooltipViewportPadding, viewportBottom - height)
+  const x = Math.min(Math.max(preferredX, eventTooltipViewportPadding), maxX)
+  const y = Math.min(Math.max(preferredY, eventTooltipViewportPadding), maxY)
+  const containsPointer = anchor.pointerX !== null
+    && anchor.pointerX >= x
+    && anchor.pointerX <= x + width
+    && anchor.pointerY >= y
+    && anchor.pointerY <= y + height
+
+  return { x, y, visible: !containsPointer }
 }
 
 function isPointerOutsideCalendar(event) {
@@ -1672,6 +1790,7 @@ function weekdayLabel(date) {
 
     <div
       v-if="eventTooltip"
+      ref="eventTooltipElement"
       class="event-tooltip"
       :style="eventTooltipStyle"
       role="tooltip"

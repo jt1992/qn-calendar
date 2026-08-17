@@ -5,6 +5,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.qn.calendar.workorder.constant.WorkOrderSource;
 import com.qn.calendar.workorder.constant.WorkOrderStatus;
 
 import jakarta.persistence.CascadeType;
@@ -34,6 +35,10 @@ public class WorkOrder {
 
     @Column(name = "order_no", nullable = false, unique = true, length = 80)
     private String orderNo;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "source", length = 20)
+    private WorkOrderSource source;
 
     @Column(name = "buyer_nickname", length = 120)
     private String buyerNickname;
@@ -116,7 +121,32 @@ public class WorkOrder {
             LocalDateTime latestShipTime,
             LocalDateTime orderTime
     ) {
+        this(
+                orderNo,
+                buyerNickname,
+                remark,
+                price,
+                estimatedMinutes,
+                urgent,
+                latestShipTime,
+                orderTime,
+                WorkOrderSource.QIANNIU
+        );
+    }
+
+    public WorkOrder(
+            String orderNo,
+            String buyerNickname,
+            String remark,
+            BigDecimal price,
+            int estimatedMinutes,
+            boolean urgent,
+            LocalDateTime latestShipTime,
+            LocalDateTime orderTime,
+            WorkOrderSource source
+    ) {
         this.orderNo = orderNo;
+        this.source = source == null ? WorkOrderSource.QIANNIU : source;
         this.buyerNickname = buyerNickname;
         this.remark = remark;
         this.price = price;
@@ -131,6 +161,7 @@ public class WorkOrder {
     @PrePersist
     void prePersist() {
         LocalDateTime now = LocalDateTime.now();
+        this.source = getSource();
         this.createdAt = now;
         this.updatedAt = now;
     }
@@ -169,7 +200,8 @@ public class WorkOrder {
             int estimatedMinutes,
             boolean urgent,
             LocalDateTime latestShipTime,
-            LocalDateTime orderTime
+            LocalDateTime orderTime,
+            WorkOrderSource source
     ) {
         boolean actualMinutesFollowEstimate = this.status == WorkOrderStatus.PENDING
                 && this.actualMinutes == this.estimatedMinutes;
@@ -180,6 +212,7 @@ public class WorkOrder {
         this.urgent = urgent;
         this.latestShipTime = latestShipTime;
         this.orderTime = orderTime;
+        this.source = source == null ? WorkOrderSource.QIANNIU : source;
 
         if (actualMinutesFollowEstimate) {
             this.actualMinutes = estimatedMinutes;
@@ -210,6 +243,10 @@ public class WorkOrder {
 
     public String getOrderNo() {
         return orderNo;
+    }
+
+    public WorkOrderSource getSource() {
+        return source == null ? WorkOrderSource.QIANNIU : source;
     }
 
     public String getBuyerNickname() {

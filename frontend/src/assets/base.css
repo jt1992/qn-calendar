@@ -474,7 +474,6 @@ select:disabled {
 }
 
 .count-badge,
-.urgent-badge,
 .done-badge {
   display: inline-flex;
   align-items: center;
@@ -494,11 +493,6 @@ select:disabled {
   color: var(--muted);
 }
 
-.urgent-badge {
-  background: var(--danger-soft);
-  color: var(--danger);
-}
-
 .done-badge {
   background: var(--done-bg);
   color: var(--muted);
@@ -515,6 +509,7 @@ select:disabled {
 }
 
 .pending-order-card {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   min-width: 0;
@@ -587,6 +582,7 @@ select:disabled {
 .order-line {
   justify-content: space-between;
   min-width: 0;
+  padding-right: 34px;
 }
 
 .order-detail-line {
@@ -595,10 +591,40 @@ select:disabled {
 }
 
 .order-number {
+  min-width: 0;
+  overflow: hidden;
   color: var(--muted);
   font-size: 0.9rem;
   font-weight: 400;
+  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.order-source-badge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  border: 1px solid currentColor;
+  border-radius: 7px;
+  font-size: 0.78rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.order-source-badge.qianniu {
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.order-source-badge.xiaohongshu {
+  background: var(--danger-soft);
+  color: var(--danger);
 }
 
 .order-summary {
@@ -1304,18 +1330,19 @@ select:disabled {
 }
 
 .settings-tabs {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   align-items: flex-end;
   flex: 0 0 auto;
-  gap: 28px;
+  gap: 12px;
   min-height: 45px;
   border-bottom: 1px solid var(--line);
-  overflow: visible;
+  overflow: hidden;
 }
 
 .settings-tabs button {
   position: relative;
-  flex: 0 0 auto;
+  min-width: 0;
   min-height: 44px;
   border: 0;
   padding: 0;
@@ -1323,6 +1350,8 @@ select:disabled {
   color: var(--muted);
   font-size: 1rem;
   font-weight: 900;
+  line-height: 1.2;
+  white-space: normal;
 }
 
 .settings-tabs button:hover,
@@ -1453,6 +1482,154 @@ select:disabled {
 
 .basic-settings-form .dialog-actions {
   justify-content: flex-end;
+}
+
+.import-field-settings,
+.import-field-list,
+.import-field-item,
+.import-alias-group,
+.urgent-rule-settings {
+  display: grid;
+  gap: 10px;
+}
+
+.import-field-settings-intro h3,
+.import-field-settings-intro p,
+.import-field-heading h3,
+.import-alias-group h4,
+.import-alias-group p,
+.import-field-settings-empty {
+  margin: 0;
+}
+
+.import-field-settings-intro p,
+.import-alias-group p,
+.import-field-settings-empty,
+.import-chip-empty {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.import-field-list {
+  gap: 12px;
+}
+
+.import-field-item {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+  background: var(--surface-soft);
+}
+
+.import-field-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.import-field-heading h3 {
+  min-width: 0;
+  color: var(--text);
+  font-size: 0.96rem;
+  overflow-wrap: anywhere;
+}
+
+.field-requirement-badge {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 2px 8px;
+  background: var(--surface-strong);
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 900;
+}
+
+.field-requirement-badge.required {
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.import-alias-group h4 {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.import-chip-list {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  min-width: 0;
+}
+
+.import-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  border-radius: 999px;
+  padding: 4px 9px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.import-chip.built-in {
+  background: var(--surface-strong);
+  color: var(--muted);
+}
+
+.import-chip.custom {
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.import-chip.custom > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.import-chip button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0;
+  background: transparent;
+  color: currentColor;
+}
+
+.import-chip button:hover:not(:disabled) {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.import-add-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.urgent-rule-settings {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+.urgent-rule-add-row {
+  grid-template-columns: minmax(0, 1fr) minmax(118px, 0.45fr) auto;
+}
+
+.import-field-actions {
+  position: sticky;
+  bottom: -4px;
+  padding-top: 8px;
+  background: var(--surface);
 }
 
 .form-field-label,
@@ -2025,6 +2202,23 @@ select:disabled {
 
   .basic-settings-grid {
     grid-template-columns: 1fr;
+  }
+
+  .settings-tabs {
+    gap: 6px;
+  }
+
+  .settings-tabs button {
+    min-height: 50px;
+    font-size: 0.86rem;
+  }
+
+  .urgent-rule-add-row {
+    grid-template-columns: 1fr;
+  }
+
+  .urgent-rule-add-row .icon-button {
+    width: 100%;
   }
 
   .schedule-layout {

@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { Check, Eye, EyeOff, Pencil, Plus, Save, Trash2, X } from '@lucide/vue'
 import HelpTooltip from './HelpTooltip.vue'
+import ImportFieldSettingsPanel from './ImportFieldSettingsPanel.vue'
 import { useAppSettingsStore } from '../stores/appSettingsStore'
 
 const STORED_SMTP_AUTH_CODE = '••••••••'
@@ -74,6 +75,8 @@ const emailSender = computed(() => settingsStore.settings.emailSender || {})
 const settingsBusy = computed(() =>
   settingsStore.loading ||
   settingsStore.saving ||
+  settingsStore.importFieldSettingsLoading ||
+  settingsStore.importFieldSettingsSaving ||
   settingsStore.recipientsLoading ||
   settingsStore.recipientSaving
 )
@@ -134,16 +137,23 @@ watch(
     cancelRecipientCreate()
     cancelRecipientEdit()
 
-    try {
-      await Promise.all([
-        settingsStore.fetchSettings(),
-        settingsStore.fetchEmailRecipients()
-      ])
+    const [settingsResult, importFieldsResult, recipientsResult] = await Promise.allSettled([
+      settingsStore.fetchSettings(),
+      settingsStore.fetchImportFieldSettings(),
+      settingsStore.fetchEmailRecipients()
+    ])
+
+    if (settingsResult.status === 'fulfilled') {
       resetBasicSettingsForm()
       resetEmailForm()
       emailEditing.value = !emailSender.value.configured
-    } catch (error) {
-      showFieldError(error.message)
+    }
+
+    const failedResult = [settingsResult, importFieldsResult, recipientsResult]
+      .find((result) => result.status === 'rejected')
+
+    if (failedResult) {
+      showFieldError(failedResult.reason?.message || '读取设置失败')
     }
   },
   { immediate: true }
@@ -657,7 +667,7 @@ function normalizeTab(tab) {
     return 'basic'
   }
 
-  return ['email', 'recipients'].includes(tab) ? tab : 'basic'
+  return ['email', 'fields', 'recipients'].includes(tab) ? tab : 'basic'
 }
 
 function recipientMeta(recipient) {
@@ -728,9 +738,18 @@ function securityLabel(value) {
         >
           基础设置
         </button>
+        <button
+          type="button"
+          role="tab"
+          :aria-selected="activeTab === 'fields'"
+          :class="{ active: activeTab === 'fields' }"
+          @click="activateTab('fields')"
+        >
+          字段设置
+        </button>
       </div>
 
-      <section v-if="activeTab === 'basic'" class="settings-panel" role="tabpanel">
+      <section v-show="activeTab === 'basic'" class="settings-panel" role="tabpanel">
         <div class="basic-settings-form">
           <div class="basic-settings-grid">
             <label>
@@ -799,7 +818,7 @@ function securityLabel(value) {
         </div>
       </section>
 
-      <section v-else-if="activeTab === 'email'" class="settings-panel" role="tabpanel">
+      <section v-show="activeTab === 'email'" class="settings-panel" role="tabpanel">
         <div v-if="emailSender.configured && !emailEditing" class="email-sender-summary">
           <div class="email-sender-details">
             <strong>{{ emailSender.senderEmailMasked || '已配置' }}</strong>
@@ -952,7 +971,11 @@ function securityLabel(value) {
         </div>
       </section>
 
-      <section v-else class="settings-panel recipient-settings-panel" role="tabpanel">
+      <section v-show="activeTab === 'fields'" class="settings-panel field-settings-panel" role="tabpanel">
+        <ImportFieldSettingsPanel :active="activeTab === 'fields'" />
+      </section>
+
+      <section v-show="activeTab === 'recipients'" class="settings-panel recipient-settings-panel" role="tabpanel">
         <div class="recipient-list-heading">
           <div>
             <h3>常用与寄送过的收件者</h3>

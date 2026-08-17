@@ -15,6 +15,16 @@ export async function updateEmailSenderSettings(payload) {
   return data
 }
 
+export async function getImportFieldSettings() {
+  const { data } = await http.get('/api/settings/import-fields')
+  return data
+}
+
+export async function updateImportFieldSettings(payload) {
+  const { data } = await http.put('/api/settings/import-fields', payload)
+  return data
+}
+
 export async function getEmailRecipients() {
   const { data } = await http.get('/api/email-recipients')
   return data

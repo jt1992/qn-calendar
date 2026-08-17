@@ -10,17 +10,21 @@ import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import com.qn.calendar.settings.model.ImportFieldKey;
+import com.qn.calendar.settings.model.ImportFieldSettingsSnapshot;
 import com.qn.calendar.settings.service.AppSettingsService;
+import com.qn.calendar.settings.service.ImportFieldSettingsService;
+import com.qn.calendar.workorder.constant.WorkOrderSource;
 import com.qn.calendar.workorder.dto.ImportRowError;
 import com.qn.calendar.workorder.dto.ImportWorkOrderResponse;
 import com.qn.calendar.workorder.entity.WorkOrder;
@@ -72,19 +76,27 @@ public class WorkOrderImportService {
     private static final Pattern REMARK_DAY_ONLY_AFTER_KEYWORD_PATTERN = Pattern.compile(
             "(?:发|發)[^\\n，,。；;]{0,8}(\\d{1,2})号"
     );
+    private static final Pattern XIAOHONGSHU_ORDER_NO_PATTERN = Pattern.compile("^P\\d+$");
+    private static final String XIAOHONGSHU_CODE_HEADER = ImportFieldSettingsService.normalizeHeader("小红书编码");
+    private static final String XIAOHONGSHU_ORDER_NO_HEADER = ImportFieldSettingsService.normalizeHeader("订单号");
+    private static final String ORDER_STATUS_HEADER = ImportFieldSettingsService.normalizeHeader("订单状态");
+    private static final String XIAOHONGSHU_PENDING_STATUS = "待配货";
 
     private final WorkOrderRepository repository;
     private final AppSettingsService appSettingsService;
+    private final ImportFieldSettingsService importFieldSettingsService;
     private final Clock clock;
     private final DataFormatter formatter = new DataFormatter(Locale.CHINA);
 
     public WorkOrderImportService(
             WorkOrderRepository repository,
             AppSettingsService appSettingsService,
+            ImportFieldSettingsService importFieldSettingsService,
             Clock clock
     ) {
         this.repository = repository;
         this.appSettingsService = appSettingsService;
+        this.importFieldSettingsService = importFieldSettingsService;
         this.clock = clock;
     }
 
@@ -102,12 +114,15 @@ public class WorkOrderImportService {
             }
 
             FormulaEvaluator evaluator = workbook.getCreationHelper().createFormulaEvaluator();
-            Map<String, Integer> headers = readHeaders(sheet, evaluator);
-            validateRequiredHeaders(headers);
+            ImportFieldSettingsSnapshot importSettings = importFieldSettingsService.getImportSnapshot();
+            HeaderMapping headerMapping = readHeaders(sheet, evaluator, importSettings);
+            validateRequiredHeaders(headerMapping.canonicalHeaders());
+            validateXiaohongshuHeaders(headerMapping);
 
             BigDecimal estimatedHourlyBaseAmount = appSettingsService.getEstimatedHourlyBaseAmount();
             List<ImportRowError> errors = new ArrayList<>();
             Map<String, ParsedWorkOrder> parsedWorkOrders = new LinkedHashMap<>();
+            int skippedCount = 0;
 
             for (int rowIndex = 1; rowIndex <= sheet.getLastRowNum(); rowIndex++) {
                 Row row = sheet.getRow(rowIndex);
@@ -119,11 +134,43 @@ public class WorkOrderImportService {
                 int rowNumber = rowIndex + 1;
 
                 try {
+                    String orderNo = readString(
+                            row,
+                            headerMapping.canonicalHeaders().get(ImportFieldKey.ORDER_NO),
+                            evaluator
+                    );
+
+                    if (orderNo.isBlank()) {
+                        throw new IllegalArgumentException("订单编号不可为空");
+                    }
+
+                    WorkOrderSource source = detectSource(headerMapping, orderNo);
+
+                    if (source == WorkOrderSource.XIAOHONGSHU) {
+                        String orderStatus = readStringIfPresent(
+                                row,
+                                headerMapping.rawHeaders().get(ORDER_STATUS_HEADER),
+                                evaluator
+                        );
+
+                        if (orderStatus.isBlank()) {
+                            throw new IllegalArgumentException("小红书订单状态不可为空");
+                        }
+
+                        if (!XIAOHONGSHU_PENDING_STATUS.equals(orderStatus)) {
+                            skippedCount++;
+                            continue;
+                        }
+                    }
+
                     ParsedWorkOrder parsedWorkOrder = parseWorkOrder(
                             row,
-                            headers,
+                            headerMapping.canonicalHeaders(),
                             evaluator,
-                            estimatedHourlyBaseAmount
+                            estimatedHourlyBaseAmount,
+                            importSettings,
+                            orderNo,
+                            source
                     );
                     parsedWorkOrders.put(parsedWorkOrder.orderNo(), parsedWorkOrder);
                 } catch (RuntimeException exception) {
@@ -138,13 +185,20 @@ public class WorkOrderImportService {
                 Optional<WorkOrder> existingWorkOrder = repository.findByOrderNo(parsedWorkOrder.orderNo());
 
                 if (existingWorkOrder.isPresent()) {
+                    if (existingWorkOrder.get().getSource() != parsedWorkOrder.source()) {
+                        throw new IllegalArgumentException(
+                                "订单编号 " + parsedWorkOrder.orderNo() + " 已属于其他订单来源"
+                        );
+                    }
+
                     existingWorkOrder.get().updateImportedDetails(
                             parsedWorkOrder.remark(),
                             parsedWorkOrder.price(),
                             parsedWorkOrder.estimatedMinutes(),
                             parsedWorkOrder.urgent(),
                             parsedWorkOrder.latestShipTime(),
-                            parsedWorkOrder.orderTime()
+                            parsedWorkOrder.orderTime(),
+                            parsedWorkOrder.source()
                     );
                     updatedCount++;
                     continue;
@@ -158,12 +212,13 @@ public class WorkOrderImportService {
                         parsedWorkOrder.estimatedMinutes(),
                         parsedWorkOrder.urgent(),
                         parsedWorkOrder.latestShipTime(),
-                        parsedWorkOrder.orderTime()
+                        parsedWorkOrder.orderTime(),
+                        parsedWorkOrder.source()
                 ));
                 createdCount++;
             }
 
-            return new ImportWorkOrderResponse(createdCount, updatedCount, errors);
+            return new ImportWorkOrderResponse(createdCount, updatedCount, skippedCount, errors);
         } catch (IOException exception) {
             throw new IllegalArgumentException("无法读取 XLSX 文件");
         }
@@ -171,21 +226,18 @@ public class WorkOrderImportService {
 
     private ParsedWorkOrder parseWorkOrder(
             Row row,
-            Map<String, Integer> headers,
+            Map<ImportFieldKey, Integer> headers,
             FormulaEvaluator evaluator,
-            BigDecimal estimatedHourlyBaseAmount
+            BigDecimal estimatedHourlyBaseAmount,
+            ImportFieldSettingsSnapshot importSettings,
+            String orderNo,
+            WorkOrderSource source
     ) {
-        String orderNo = readString(row, headers.get("orderNo"), evaluator);
-
-        if (orderNo.isBlank()) {
-            throw new IllegalArgumentException("订单编号不可为空");
-        }
-
-        BigDecimal price = readPrice(row, headers.get("price"), evaluator);
-        boolean urgent = headers.containsKey("urgent")
-                && readUrgent(row, headers.get("urgent"), evaluator);
-        String buyerMessage = readStringIfPresent(row, headers.get("buyerMessage"), evaluator);
-        String merchantRemark = readStringIfPresent(row, headers.get("merchantRemark"), evaluator);
+        BigDecimal price = readPrice(row, headers.get(ImportFieldKey.PRICE), evaluator);
+        boolean urgent = headers.containsKey(ImportFieldKey.URGENT)
+                && readUrgent(row, headers.get(ImportFieldKey.URGENT), evaluator, importSettings);
+        String buyerMessage = readStringIfPresent(row, headers.get(ImportFieldKey.BUYER_MESSAGE), evaluator);
+        String merchantRemark = readStringIfPresent(row, headers.get(ImportFieldKey.MERCHANT_REMARK), evaluator);
         String remark = buildRemark(buyerMessage, merchantRemark);
         LocalDateTime orderTime = readOrderTime(row, headers, evaluator);
         LocalDateTime latestShipTime = readLatestShipTime(row, headers, evaluator, orderTime);
@@ -198,63 +250,125 @@ public class WorkOrderImportService {
                 estimatedMinutes,
                 urgent,
                 latestShipTime,
-                orderTime
+                orderTime,
+                source
         );
     }
 
-    private Map<String, Integer> readHeaders(Sheet sheet, FormulaEvaluator evaluator) {
+    private HeaderMapping readHeaders(
+            Sheet sheet,
+            FormulaEvaluator evaluator,
+            ImportFieldSettingsSnapshot importSettings
+    ) {
         Row headerRow = sheet.getRow(0);
 
         if (headerRow == null) {
             throw new IllegalArgumentException("XLSX 第一列必须是表头");
         }
 
-        Map<String, Integer> headers = new HashMap<>();
+        Map<ImportFieldKey, List<HeaderMatch>> builtInMatches = new EnumMap<>(ImportFieldKey.class);
+        Map<ImportFieldKey, List<HeaderMatch>> customMatches = new EnumMap<>(ImportFieldKey.class);
+        Map<String, Integer> rawHeaders = new HashMap<>();
 
         for (Cell cell : headerRow) {
-            String header = canonicalHeader(formatter.formatCellValue(cell, evaluator));
+            String originalHeader = formatter.formatCellValue(cell, evaluator).trim();
+            String normalizedHeader = ImportFieldSettingsService.normalizeHeader(originalHeader);
 
-            if (!header.isBlank()) {
-                headers.put(header, cell.getColumnIndex());
+            if (normalizedHeader.isBlank()) {
+                continue;
+            }
+
+            rawHeaders.putIfAbsent(normalizedHeader, cell.getColumnIndex());
+            ImportFieldKey fieldKey = importSettings.headerAliases().get(normalizedHeader);
+
+            if (fieldKey == null) {
+                continue;
+            }
+
+            HeaderMatch match = new HeaderMatch(cell.getColumnIndex(), originalHeader, normalizedHeader);
+            Map<ImportFieldKey, List<HeaderMatch>> target = importSettings.customHeaderAliases()
+                    .contains(normalizedHeader)
+                    ? customMatches
+                    : builtInMatches;
+            target.computeIfAbsent(fieldKey, ignored -> new ArrayList<>()).add(match);
+        }
+
+        Map<ImportFieldKey, Integer> canonicalHeaders = new EnumMap<>(ImportFieldKey.class);
+        Map<ImportFieldKey, String> selectedNormalizedHeaders = new EnumMap<>(ImportFieldKey.class);
+        for (ImportFieldKey fieldKey : ImportFieldKey.values()) {
+            List<HeaderMatch> fieldBuiltInMatches = builtInMatches.getOrDefault(fieldKey, List.of());
+            List<HeaderMatch> fieldCustomMatches = customMatches.getOrDefault(fieldKey, List.of());
+            validateSingleHeaderMatch(fieldKey, fieldBuiltInMatches);
+            validateSingleHeaderMatch(fieldKey, fieldCustomMatches);
+
+            HeaderMatch selectedMatch = !fieldCustomMatches.isEmpty()
+                    ? fieldCustomMatches.getFirst()
+                    : fieldBuiltInMatches.isEmpty() ? null : fieldBuiltInMatches.getFirst();
+            if (selectedMatch != null) {
+                canonicalHeaders.put(fieldKey, selectedMatch.columnIndex());
+                selectedNormalizedHeaders.put(fieldKey, selectedMatch.normalizedName());
             }
         }
 
-        return headers;
+        return new HeaderMapping(canonicalHeaders, rawHeaders, selectedNormalizedHeaders);
     }
 
-    private void validateRequiredHeaders(Map<String, Integer> headers) {
-        if (!headers.containsKey("orderNo")) {
+    private void validateSingleHeaderMatch(ImportFieldKey fieldKey, List<HeaderMatch> matches) {
+        if (matches.size() < 2) {
+            return;
+        }
+
+        throw new IllegalArgumentException(
+                "XLSX 字段「" + matches.get(0).originalName() + "」与「" + matches.get(1).originalName()
+                        + "」同时映射到" + fieldLabel(fieldKey)
+        );
+    }
+
+    private void validateRequiredHeaders(Map<ImportFieldKey, Integer> headers) {
+        if (!headers.containsKey(ImportFieldKey.ORDER_NO)) {
             throw new IllegalArgumentException("XLSX 缺少订单编号字段");
         }
 
-        if (!headers.containsKey("price")) {
+        if (!headers.containsKey(ImportFieldKey.PRICE)) {
             throw new IllegalArgumentException("XLSX 缺少订单价格字段");
         }
 
-        if (!headers.containsKey("latestShipTime")) {
+        if (!headers.containsKey(ImportFieldKey.LATEST_SHIP_TIME)) {
             throw new IllegalArgumentException("XLSX 缺少最晚发货日期字段");
         }
     }
 
-    private String canonicalHeader(String header) {
-        String normalized = header == null
-                ? ""
-                : header.trim().toLowerCase(Locale.ROOT).replaceAll("[\\s_-]", "");
+    private void validateXiaohongshuHeaders(HeaderMapping headerMapping) {
+        if (headerMapping.rawHeaders().containsKey(XIAOHONGSHU_CODE_HEADER)
+                && !headerMapping.rawHeaders().containsKey(ORDER_STATUS_HEADER)) {
+            throw new IllegalArgumentException("小红书 XLSX 缺少订单状态字段");
+        }
+    }
 
-        return switch (normalized) {
-            case "orderno", "訂單編號", "订单编号" -> "orderNo";
-            case "price", "orderprice", "amount", "buyerpaidamount", "訂單價格", "订单价格",
-                    "買家實付金額", "买家实付金额", "價格", "价格", "金額", "金额" -> "price";
-            case "urgent", "isurgent", "加急", "急件", "備註標籤", "备注标签" -> "urgent";
-            case "buyermessage", "buyerremark", "買家留言", "买家留言" -> "buyerMessage";
-            case "merchantremark", "sellerremark", "商家備註", "商家备注" -> "merchantRemark";
-            case "paidat", "paymenttime", "orderpaidtime", "ordertime", "ordercreatedtime",
-                    "訂單付款時間", "订单付款时间", "訂單時間", "订单时间", "下單時間", "下单时间",
-                    "下單日期", "下单日期", "付款時間", "付款时间", "支付時間", "支付时间" -> "paidAt";
-            case "latestshipdate", "latestshiptime", "latestshippingtime", "deadline",
-                    "應發貨時間", "应发货时间", "最晚發貨日期", "最晚发货日期",
-                    "最晚發貨時間", "最晚发货时间" -> "latestShipTime";
-            default -> "";
+    private WorkOrderSource detectSource(HeaderMapping headerMapping, String orderNo) {
+        if (headerMapping.rawHeaders().containsKey(XIAOHONGSHU_CODE_HEADER)) {
+            return WorkOrderSource.XIAOHONGSHU;
+        }
+
+        if (XIAOHONGSHU_ORDER_NO_HEADER.equals(
+                headerMapping.selectedNormalizedHeaders().get(ImportFieldKey.ORDER_NO)
+        )
+                && XIAOHONGSHU_ORDER_NO_PATTERN.matcher(orderNo).matches()) {
+            return WorkOrderSource.XIAOHONGSHU;
+        }
+
+        return WorkOrderSource.QIANNIU;
+    }
+
+    private String fieldLabel(ImportFieldKey fieldKey) {
+        return switch (fieldKey) {
+            case ORDER_NO -> "订单编号";
+            case PRICE -> "订单价格";
+            case LATEST_SHIP_TIME -> "最晚发货日期";
+            case URGENT -> "备注标签";
+            case BUYER_MESSAGE -> "买家留言";
+            case MERCHANT_REMARK -> "商家备注";
+            case PAID_AT -> "订单付款时间";
         };
     }
 
@@ -316,11 +430,15 @@ public class WorkOrderImportService {
         }
     }
 
-    private boolean readUrgent(Row row, int index, FormulaEvaluator evaluator) {
-        String value = readString(row, index, evaluator).toLowerCase(Locale.ROOT);
-        return Set.of("true", "yes", "y", "1", "是", "加急", "急件").contains(value)
-                || value.contains("加急")
-                || value.contains("急件");
+    private boolean readUrgent(
+            Row row,
+            int index,
+            FormulaEvaluator evaluator,
+            ImportFieldSettingsSnapshot importSettings
+    ) {
+        String value = ImportFieldSettingsService.normalizeUrgentValue(readString(row, index, evaluator));
+        return importSettings.urgentExactValues().contains(value)
+                || importSettings.urgentContainsValues().stream().anyMatch(value::contains);
     }
 
     private String buildRemark(String buyerMessage, String merchantRemark) {
@@ -337,33 +455,37 @@ public class WorkOrderImportService {
         return parts.isEmpty() ? "无任何备注" : String.join("\n", parts);
     }
 
-    private LocalDateTime readOrderTime(Row row, Map<String, Integer> headers, FormulaEvaluator evaluator) {
-        return headers.containsKey("paidAt")
-                ? readOptionalDateTime(row, headers.get("paidAt"), evaluator)
+    private LocalDateTime readOrderTime(
+            Row row,
+            Map<ImportFieldKey, Integer> headers,
+            FormulaEvaluator evaluator
+    ) {
+        return headers.containsKey(ImportFieldKey.PAID_AT)
+                ? readOptionalDateTime(row, headers.get(ImportFieldKey.PAID_AT), evaluator)
                 : null;
     }
 
     private LocalDateTime readLatestShipTime(
             Row row,
-            Map<String, Integer> headers,
+            Map<ImportFieldKey, Integer> headers,
             FormulaEvaluator evaluator,
             LocalDateTime orderTime
     ) {
-        String merchantRemark = readStringIfPresent(row, headers.get("merchantRemark"), evaluator);
+        String merchantRemark = readStringIfPresent(row, headers.get(ImportFieldKey.MERCHANT_REMARK), evaluator);
         Optional<LocalDate> merchantShipDate = parseRemarkShipDate(merchantRemark, orderTime);
 
         if (merchantShipDate.isPresent()) {
             return merchantShipDate.get().atTime(END_OF_DAY);
         }
 
-        String buyerMessage = readStringIfPresent(row, headers.get("buyerMessage"), evaluator);
+        String buyerMessage = readStringIfPresent(row, headers.get(ImportFieldKey.BUYER_MESSAGE), evaluator);
         Optional<LocalDate> buyerShipDate = parseRemarkShipDate(buyerMessage, orderTime);
 
         if (buyerShipDate.isPresent()) {
             return buyerShipDate.get().atTime(END_OF_DAY);
         }
 
-        return readLatestShipTimeFallback(row, headers.get("latestShipTime"), evaluator);
+        return readLatestShipTimeFallback(row, headers.get(ImportFieldKey.LATEST_SHIP_TIME), evaluator);
     }
 
     private LocalDateTime readLatestShipTimeFallback(Row row, int index, FormulaEvaluator evaluator) {
@@ -519,7 +641,22 @@ public class WorkOrderImportService {
             int estimatedMinutes,
             boolean urgent,
             LocalDateTime latestShipTime,
-            LocalDateTime orderTime
+            LocalDateTime orderTime,
+            WorkOrderSource source
+    ) {
+    }
+
+    private record HeaderMapping(
+            Map<ImportFieldKey, Integer> canonicalHeaders,
+            Map<String, Integer> rawHeaders,
+            Map<ImportFieldKey, String> selectedNormalizedHeaders
+    ) {
+    }
+
+    private record HeaderMatch(
+            int columnIndex,
+            String originalName,
+            String normalizedName
     ) {
     }
 }

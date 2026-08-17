@@ -4,9 +4,11 @@ import {
   deleteEmailRecipient as deleteEmailRecipientRequest,
   getAppSettings,
   getEmailRecipients,
+  getImportFieldSettings,
   updateAppSettings,
   updateEmailRecipient as updateEmailRecipientRequest,
-  updateEmailSenderSettings
+  updateEmailSenderSettings,
+  updateImportFieldSettings as updateImportFieldSettingsRequest
 } from '../api/settings'
 
 let errorTimer = null
@@ -25,10 +27,19 @@ export const useAppSettingsStore = defineStore('appSettings', {
         smtpSecurity: 'SSL'
       }
     },
+    importFieldSettings: {
+      fields: [],
+      urgentRules: {
+        builtIn: [],
+        custom: []
+      }
+    },
     emailRecipients: [],
     settingsLoaded: false,
     loading: false,
     saving: false,
+    importFieldSettingsLoading: false,
+    importFieldSettingsSaving: false,
     recipientsLoading: false,
     recipientSaving: false,
     error: ''
@@ -88,6 +99,36 @@ export const useAppSettingsStore = defineStore('appSettings', {
         throw error
       } finally {
         this.saving = false
+      }
+    },
+
+    async fetchImportFieldSettings() {
+      this.importFieldSettingsLoading = true
+      this.clearError()
+
+      try {
+        this.importFieldSettings = await getImportFieldSettings()
+        return this.importFieldSettings
+      } catch (error) {
+        this.setError(error.message)
+        throw error
+      } finally {
+        this.importFieldSettingsLoading = false
+      }
+    },
+
+    async updateImportFieldSettings(settings) {
+      this.importFieldSettingsSaving = true
+      this.clearError()
+
+      try {
+        this.importFieldSettings = await updateImportFieldSettingsRequest(settings)
+        return this.importFieldSettings
+      } catch (error) {
+        this.setError(error.message)
+        throw error
+      } finally {
+        this.importFieldSettingsSaving = false
       }
     },
 

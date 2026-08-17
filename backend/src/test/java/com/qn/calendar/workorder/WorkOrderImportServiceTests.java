@@ -1,6 +1,7 @@
 package com.qn.calendar.workorder;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
@@ -10,9 +11,16 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import com.qn.calendar.settings.constant.ImportUrgentMatchType;
 import com.qn.calendar.settings.dto.UpdateAppSettingsRequest;
+import com.qn.calendar.settings.dto.UpdateImportFieldSettingsRequest;
+import com.qn.calendar.settings.model.ImportFieldKey;
 import com.qn.calendar.settings.repository.AppSettingRepository;
+import com.qn.calendar.settings.repository.ImportFieldAliasRepository;
+import com.qn.calendar.settings.repository.ImportUrgentMatchRuleRepository;
 import com.qn.calendar.settings.service.AppSettingsService;
+import com.qn.calendar.settings.service.ImportFieldSettingsService;
+import com.qn.calendar.workorder.constant.WorkOrderSource;
 import com.qn.calendar.workorder.constant.WorkOrderStatus;
 import com.qn.calendar.workorder.dto.ImportWorkOrderResponse;
 import com.qn.calendar.workorder.entity.WorkOrder;
@@ -57,6 +65,15 @@ class WorkOrderImportServiceTests {
     private AppSettingsService appSettingsService;
 
     @Autowired
+    private ImportFieldSettingsService importFieldSettingsService;
+
+    @Autowired
+    private ImportFieldAliasRepository importFieldAliasRepository;
+
+    @Autowired
+    private ImportUrgentMatchRuleRepository importUrgentMatchRuleRepository;
+
+    @Autowired
     private Clock clock;
 
     @BeforeEach
@@ -65,6 +82,8 @@ class WorkOrderImportServiceTests {
         segmentRepository.deleteAll();
         repository.deleteAll();
         appSettingRepository.deleteAll();
+        importFieldAliasRepository.deleteAll();
+        importUrgentMatchRuleRepository.deleteAll();
     }
 
     @Test
@@ -76,8 +95,10 @@ class WorkOrderImportServiceTests {
         WorkOrder workOrder = repository.findAll().getFirst();
         assertThat(response.createdCount()).as(response.errors().toString()).isEqualTo(1);
         assertThat(response.updatedCount()).isZero();
+        assertThat(response.skippedCount()).isZero();
         assertThat(response.errors()).isEmpty();
         assertThat(workOrder.getOrderNo()).isEqualTo("ORD-001");
+        assertThat(workOrder.getSource()).isEqualTo(WorkOrderSource.QIANNIU);
         assertThat(workOrder.getEstimatedMinutes()).isEqualTo(180);
         assertThat(workOrder.getActualMinutes()).isEqualTo(180);
         assertThat(workOrder.getLatestShipTime()).isEqualTo(LocalDateTime.of(2026, 6, 9, 23, 59, 59));
@@ -590,6 +611,270 @@ class WorkOrderImportServiceTests {
         assertThat(response.errors()).isEmpty();
         assertThat(repository.findAll().getFirst().getLatestShipTime())
                 .isEqualTo(LocalDateTime.of(2026, 6, 10, 9, 0));
+    }
+
+    @Test
+    void importsOnlyPendingXiaohongshuOrdersAndReportsSkippedRows() throws Exception {
+        MockMultipartFile file = xlsxWithRows(
+                List.of(
+                        "订单号",
+                        "订单状态",
+                        "小红书编码",
+                        "用户应付金额(元)",
+                        "支付时间",
+                        "承诺发货时间",
+                        "用户备注",
+                        "包裹备注标记",
+                        "包裹备注信息"
+                ),
+                List.of(
+                        List.of(
+                                "P100000000000000001", "已完成", "XHS-SKU", "700.00",
+                                "2026-03-14 14:43:14", "2026-03-29 14:43:14", "", "红旗", "已完成订单"
+                        ),
+                        List.of(
+                                "P100000000000000002", "配货中", "XHS-SKU", "500.00",
+                                "2026-04-02 14:36:05", "2026-04-17 14:36:05", "", "", "配货中订单"
+                        ),
+                        List.of(
+                                "P802335189951019482", "待配货", "XHS-SKU", "324.99",
+                                "2026-08-15 16:39:54", "2026-08-30 16:39:54", "", "红旗", "待排备注"
+                        ),
+                        List.of(
+                                "P100000000000000004", "已取消", "XHS-SKU", "", "", "", "", "", ""
+                        )
+                )
+        );
+
+        ImportWorkOrderResponse response = importService.importXlsx(file);
+
+        assertThat(response.createdCount()).isEqualTo(1);
+        assertThat(response.updatedCount()).isZero();
+        assertThat(response.skippedCount()).isEqualTo(3);
+        assertThat(response.errors()).isEmpty();
+        assertThat(repository.findAll()).singleElement().satisfies((workOrder) -> {
+            assertThat(workOrder.getOrderNo()).isEqualTo("P802335189951019482");
+            assertThat(workOrder.getSource()).isEqualTo(WorkOrderSource.XIAOHONGSHU);
+            assertThat(workOrder.getPrice()).isEqualByComparingTo("324.99");
+            assertThat(workOrder.getOrderTime()).isEqualTo(LocalDateTime.of(2026, 8, 15, 16, 39, 54));
+            assertThat(workOrder.getLatestShipTime()).isEqualTo(LocalDateTime.of(2026, 8, 30, 16, 39, 54));
+            assertThat(workOrder.getRemark()).isEqualTo("商家备注：待排备注");
+            assertThat(workOrder.isUrgent()).isFalse();
+        });
+    }
+
+    @Test
+    void appliesConfiguredUrgentTextWhenImportingXiaohongshuOrders() throws Exception {
+        importFieldSettingsService.updateSettings(new UpdateImportFieldSettingsRequest(
+                java.util.Arrays.stream(ImportFieldKey.values())
+                        .map((fieldKey) -> new UpdateImportFieldSettingsRequest.FieldAliases(
+                                fieldKey.getApiKey(),
+                                List.of()
+                        ))
+                        .toList(),
+                new UpdateImportFieldSettingsRequest.UrgentRules(List.of(
+                        new UpdateImportFieldSettingsRequest.UrgentRule(
+                                "红旗",
+                                ImportUrgentMatchType.EXACT
+                        )
+                ))
+        ));
+        MockMultipartFile file = xlsxWithRows(
+                List.of(
+                        "订单号", "订单状态", "小红书编码", "用户应付金额(元)",
+                        "承诺发货时间", "包裹备注标记"
+                ),
+                List.of(List.of(
+                        "P802335189951019482", "待配货", "XHS-SKU", "324.99",
+                        "2026-08-30 16:39:54", "红旗"
+                ))
+        );
+
+        ImportWorkOrderResponse response = importService.importXlsx(file);
+
+        assertThat(response.createdCount()).isEqualTo(1);
+        assertThat(response.skippedCount()).isZero();
+        assertThat(response.errors()).isEmpty();
+        assertThat(repository.findAll().getFirst().isUrgent()).isTrue();
+    }
+
+    @Test
+    void prefersConfiguredAliasWhenWorkbookAlsoContainsBuiltInAliasForSameField() throws Exception {
+        importFieldSettingsService.updateSettings(new UpdateImportFieldSettingsRequest(
+                java.util.Arrays.stream(ImportFieldKey.values())
+                        .map((fieldKey) -> new UpdateImportFieldSettingsRequest.FieldAliases(
+                                fieldKey.getApiKey(),
+                                fieldKey == ImportFieldKey.PRICE
+                                        ? List.of("商家应收金额(元)（支付金额）")
+                                        : List.of()
+                        ))
+                        .toList(),
+                new UpdateImportFieldSettingsRequest.UrgentRules(List.of())
+        ));
+        MockMultipartFile file = xlsxWithRows(
+                List.of(
+                        "订单号", "订单状态", "小红书编码", "用户应付金额(元)",
+                        "商家应收金额(元)（支付金额）", "承诺发货时间"
+                ),
+                List.of(List.of(
+                        "P802335189951019482", "待配货", "XHS-SKU", "324.99",
+                        "400.00", "2026-08-30 16:39:54"
+                ))
+        );
+
+        ImportWorkOrderResponse response = importService.importXlsx(file);
+
+        assertThat(response.createdCount()).isEqualTo(1);
+        assertThat(response.errors()).isEmpty();
+        assertThat(repository.findAll().getFirst().getPrice()).isEqualByComparingTo("400.00");
+    }
+
+    @Test
+    void rejectsMultipleBuiltInAliasesEvenWhenConfiguredAliasAppearsFirst() throws Exception {
+        importFieldSettingsService.updateSettings(new UpdateImportFieldSettingsRequest(
+                java.util.Arrays.stream(ImportFieldKey.values())
+                        .map((fieldKey) -> new UpdateImportFieldSettingsRequest.FieldAliases(
+                                fieldKey.getApiKey(),
+                                fieldKey == ImportFieldKey.PRICE ? List.of("结算金额") : List.of()
+                        ))
+                        .toList(),
+                new UpdateImportFieldSettingsRequest.UrgentRules(List.of())
+        ));
+        MockMultipartFile file = xlsxWithRows(
+                List.of("订单编号", "结算金额", "用户应付金额(元)", "买家实付金额", "应发货时间"),
+                List.of(List.of("ORD-1", "300.00", "200.00", "100.00", "2026-08-30 16:39:54"))
+        );
+
+        assertThatThrownBy(() -> importService.importXlsx(file))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("XLSX 字段「用户应付金额(元)」与「买家实付金额」同时映射到订单价格");
+        assertThat(repository.findAll()).isEmpty();
+    }
+
+    @Test
+    void usesSelectedOrderNumberHeaderWhenDetectingSource() throws Exception {
+        importFieldSettingsService.updateSettings(new UpdateImportFieldSettingsRequest(
+                java.util.Arrays.stream(ImportFieldKey.values())
+                        .map((fieldKey) -> new UpdateImportFieldSettingsRequest.FieldAliases(
+                                fieldKey.getApiKey(),
+                                fieldKey == ImportFieldKey.ORDER_NO ? List.of("主订单号") : List.of()
+                        ))
+                        .toList(),
+                new UpdateImportFieldSettingsRequest.UrgentRules(List.of())
+        ));
+        MockMultipartFile file = xlsxWithRows(
+                List.of("主订单号", "订单号", "买家实付金额", "应发货时间"),
+                List.of(List.of("P802335189951019482", "TB-IGNORED", "100.00", "2026-08-30 16:39:54"))
+        );
+
+        ImportWorkOrderResponse response = importService.importXlsx(file);
+
+        assertThat(response.createdCount()).isEqualTo(1);
+        assertThat(response.errors()).isEmpty();
+        assertThat(repository.findAll()).singleElement().satisfies((workOrder) -> {
+            assertThat(workOrder.getOrderNo()).isEqualTo("P802335189951019482");
+            assertThat(workOrder.getSource()).isEqualTo(WorkOrderSource.QIANNIU);
+        });
+    }
+
+    @Test
+    void detectsXiaohongshuFromSelectedOrderNumberHeaderAndPNumber() throws Exception {
+        MockMultipartFile file = xlsxWithRows(
+                List.of("订单号", "订单状态", "用户应付金额(元)", "承诺发货时间"),
+                List.of(List.of(
+                        "P802335189951019482", "待配货", "324.99", "2026-08-30 16:39:54"
+                ))
+        );
+
+        ImportWorkOrderResponse response = importService.importXlsx(file);
+
+        assertThat(response.createdCount()).isEqualTo(1);
+        assertThat(response.errors()).isEmpty();
+        assertThat(repository.findAll().getFirst().getSource()).isEqualTo(WorkOrderSource.XIAOHONGSHU);
+    }
+
+    @Test
+    void rejectsXiaohongshuWorkbookWithoutOrderStatusHeader() throws Exception {
+        MockMultipartFile file = xlsxWithRows(
+                List.of("订单号", "小红书编码", "用户应付金额(元)", "承诺发货时间"),
+                List.of(List.of(
+                        "P802335189951019482", "XHS-SKU", "324.99", "2026-08-30 16:39:54"
+                ))
+        );
+
+        assertThatThrownBy(() -> importService.importXlsx(file))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("小红书 XLSX 缺少订单状态字段");
+    }
+
+    @Test
+    void reportsBlankXiaohongshuOrderStatusAsRowError() throws Exception {
+        MockMultipartFile file = xlsxWithRows(
+                List.of(
+                        "订单号", "订单状态", "小红书编码", "用户应付金额(元)", "承诺发货时间"
+                ),
+                List.of(List.of(
+                        "P802335189951019482", "", "XHS-SKU", "324.99", "2026-08-30 16:39:54"
+                ))
+        );
+
+        ImportWorkOrderResponse response = importService.importXlsx(file);
+
+        assertThat(response.createdCount()).isZero();
+        assertThat(response.skippedCount()).isZero();
+        assertThat(response.errors()).singleElement().satisfies((error) -> {
+            assertThat(error.row()).isEqualTo(2);
+            assertThat(error.message()).isEqualTo("小红书订单状态不可为空");
+        });
+    }
+
+    @Test
+    void rollsBackEarlierRowsWhenExistingOrderBelongsToAnotherSource() throws Exception {
+        repository.save(new WorkOrder(
+                "P999999999999999999",
+                null,
+                "existing",
+                new BigDecimal("100.00"),
+                60,
+                false,
+                LocalDateTime.of(2026, 9, 1, 18, 0),
+                null
+        ));
+        MockMultipartFile file = xlsxWithRows(
+                List.of(
+                        "订单号", "订单状态", "小红书编码", "用户应付金额(元)", "承诺发货时间"
+                ),
+                List.of(
+                        List.of(
+                                "P111111111111111111", "待配货", "XHS-SKU", "200.00",
+                                "2026-08-30 16:39:54"
+                        ),
+                        List.of(
+                                "P999999999999999999", "待配货", "XHS-SKU", "300.00",
+                                "2026-08-30 16:39:54"
+                        )
+                )
+        );
+
+        assertThatThrownBy(() -> importService.importXlsx(file))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("订单编号 P999999999999999999 已属于其他订单来源");
+        assertThat(repository.findAll())
+                .extracting(WorkOrder::getOrderNo)
+                .containsExactly("P999999999999999999");
+    }
+
+    @Test
+    void rejectsWorkbookWhenMultipleHeadersMapToTheSameField() throws Exception {
+        MockMultipartFile file = xlsxWithRows(
+                List.of("订单编号", "订单号", "买家实付金额", "应发货时间"),
+                List.of(List.of("ORD-1", "ORD-2", "100.00", "2026-08-30 16:39:54"))
+        );
+
+        assertThatThrownBy(() -> importService.importXlsx(file))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("XLSX 字段「订单编号」与「订单号」同时映射到订单编号");
+        assertThat(repository.findAll()).isEmpty();
     }
 
     private MockMultipartFile xlsxWithOneOrder(String orderNo, BigDecimal price, LocalDateTime latestShipDate) throws Exception {

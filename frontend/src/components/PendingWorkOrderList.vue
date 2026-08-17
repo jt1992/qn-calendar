@@ -61,6 +61,7 @@ function toExternalEvent(workOrder) {
     extendedProps: {
       workOrderId: workOrder.id,
       orderNo: workOrder.orderNo,
+      source: workOrder.source,
       urgent: workOrder.urgent,
       status: workOrder.status,
       latestShipTime: workOrder.latestShipTime,
@@ -188,6 +189,14 @@ function statusLabel(status) {
   return status === 'DONE' ? '已完成' : status === 'SCHEDULED' ? '已排入' : '待排'
 }
 
+function sourceLabel(source) {
+  return source === 'XIAOHONGSHU' ? '书' : '千'
+}
+
+function sourceLabelText(source) {
+  return source === 'XIAOHONGSHU' ? '小红书订单' : '千牛订单'
+}
+
 function formatRemarkText(value) {
   return value && value.trim() ? value : '无任何备注'
 }
@@ -196,7 +205,6 @@ function showOrderTooltip(workOrder, event) {
   moveOrderTooltip(event)
   orderTooltip.value = {
     title: `${workOrder.urgent ? '[加急] ' : ''}${workOrder.orderNo}`,
-    timeRange: '未排程',
     durationText: `总排程 ${formatDurationText(durationMinutes(workOrder))}`,
     statusText: statusLabel(workOrder.status),
     latestText: formatShipTime(workOrder.latestShipTime),
@@ -312,8 +320,14 @@ function hideOrderTooltip() {
             <div class="order-summary">
               <span class="order-number">#{{ workOrder.orderNo }}</span>
             </div>
-            <span v-if="workOrder.urgent" class="urgent-badge">急</span>
           </div>
+          <span
+            class="order-source-badge"
+            :class="workOrder.source === 'XIAOHONGSHU' ? 'xiaohongshu' : 'qianniu'"
+            :aria-label="sourceLabelText(workOrder.source)"
+          >
+            {{ sourceLabel(workOrder.source) }}
+          </span>
           <div class="order-detail-line">
             <span class="order-price">{{ formatMoney(workOrder.price) }}</span>
             <div
@@ -392,7 +406,6 @@ function hideOrderTooltip() {
       role="tooltip"
     >
       <strong>{{ orderTooltip.title }}</strong>
-      <span>{{ orderTooltip.timeRange }}</span>
       <span>{{ orderTooltip.durationText }}</span>
       <span>{{ orderTooltip.statusText }} · 最晚 {{ orderTooltip.latestText }}</span>
       <span v-if="orderTooltip.priceText">订单价格 {{ orderTooltip.priceText }}</span>

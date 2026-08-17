@@ -1,9 +1,12 @@
 package com.qn.calendar.settings.controller;
 
 import com.qn.calendar.settings.dto.AppSettingsResponse;
+import com.qn.calendar.settings.dto.ImportFieldSettingsResponse;
+import com.qn.calendar.settings.dto.UpdateImportFieldSettingsRequest;
 import com.qn.calendar.settings.dto.UpdateEmailSenderSettingsRequest;
 import com.qn.calendar.settings.dto.UpdateAppSettingsRequest;
 import com.qn.calendar.settings.service.AppSettingsService;
+import com.qn.calendar.settings.service.ImportFieldSettingsService;
 
 import jakarta.validation.Valid;
 
@@ -18,9 +21,14 @@ import org.springframework.web.bind.annotation.RestController;
 public class AppSettingsController {
 
     private final AppSettingsService service;
+    private final ImportFieldSettingsService importFieldSettingsService;
 
-    public AppSettingsController(AppSettingsService service) {
+    public AppSettingsController(
+            AppSettingsService service,
+            ImportFieldSettingsService importFieldSettingsService
+    ) {
         this.service = service;
+        this.importFieldSettingsService = importFieldSettingsService;
     }
 
     @GetMapping
@@ -38,5 +46,17 @@ public class AppSettingsController {
             @Valid @RequestBody UpdateEmailSenderSettingsRequest request
     ) {
         return service.updateEmailSenderSettings(request);
+    }
+
+    @GetMapping("/import-fields")
+    public ImportFieldSettingsResponse getImportFieldSettings() {
+        return importFieldSettingsService.getSettings();
+    }
+
+    @PutMapping("/import-fields")
+    public ImportFieldSettingsResponse updateImportFieldSettings(
+            @Valid @RequestBody UpdateImportFieldSettingsRequest request
+    ) {
+        return importFieldSettingsService.updateSettings(request);
     }
 }

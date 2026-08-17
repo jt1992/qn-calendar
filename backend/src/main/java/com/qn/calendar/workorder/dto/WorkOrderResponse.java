@@ -3,12 +3,14 @@ package com.qn.calendar.workorder.dto;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
+import com.qn.calendar.workorder.constant.WorkOrderSource;
 import com.qn.calendar.workorder.entity.WorkOrder;
 import com.qn.calendar.workorder.constant.WorkOrderStatus;
 
 public record WorkOrderResponse(
         Long id,
         String orderNo,
+        WorkOrderSource source,
         String buyerNickname,
         String remark,
         BigDecimal price,
@@ -26,6 +28,7 @@ public record WorkOrderResponse(
         return new WorkOrderResponse(
                 workOrder.getId(),
                 workOrder.getOrderNo(),
+                workOrder.getSource(),
                 workOrder.getBuyerNickname(),
                 workOrder.getRemark(),
                 workOrder.getPrice(),

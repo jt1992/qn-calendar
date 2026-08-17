@@ -57,7 +57,12 @@ export const useWorkOrderStore = defineStore('workOrders', {
 
       try {
         this.importResult = await importWorkOrders(file)
-        this.setNotice(`新增 ${this.importResult.createdCount} 笔，更新 ${this.importResult.updatedCount} 笔`)
+        const skippedNotice = this.importResult.skippedCount > 0
+          ? `，跳过 ${this.importResult.skippedCount} 笔非待配货订单`
+          : ''
+        this.setNotice(
+          `新增 ${this.importResult.createdCount} 笔，更新 ${this.importResult.updatedCount} 笔${skippedNotice}`
+        )
         await Promise.all([
           this.fetchPendingWorkOrders(),
           this.refreshCalendarEvents()
@@ -228,6 +233,7 @@ function toCalendarEvent(segment) {
       segmentId: segment.segmentId || segment.id,
       workOrderId: segment.workOrderId,
       orderNo: segment.orderNo,
+      source: segment.source,
       urgent: segment.urgent,
       status: segment.status,
       latestShipTime: segment.latestShipTime,

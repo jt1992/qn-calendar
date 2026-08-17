@@ -50,7 +50,8 @@
 | `src/components/PendingWorkOrderList.vue` | 待排卡片、工时调整、删除、复制、外部拖拽 |
 | `src/components/WorkOrderCalendar.vue` | FullCalendar 配置与全部排程交互编排 |
 | `src/components/CompletedStatsTable.vue` | 完工统计表呈现与月份筛选 UI |
-| `src/components/AppSettingsDialog.vue` | 收件者、SMTP 寄件者、基础设置三个 tab |
+| `src/components/AppSettingsDialog.vue` | 收件者、SMTP 寄件者、基础设置、字段设置四个 tab |
+| `src/components/ImportFieldSettingsPanel.vue` | XLSX 自定义字段别名与加急文字规则 |
 | `src/components/ScheduleEmailDialog.vue` | 收件人 tags、报表类型、日期/月与发送流程 |
 | `src/components/MonthPicker.vue` | 年/月双 select，可限制为实际存在月份 |
 | `src/components/HelpTooltip.vue` | 可复用、支持 hover/focus/Escape 的说明 tooltip |
@@ -80,7 +81,7 @@
 - 深色/浅色主题切换。
 - 接收日历 `range-change`，作为 Email Dialog 的默认日期范围。
 - 在内存中保存完工统计月份，跨路由返回时仍保留；它不会写入 localStorage。
-- 用 query `settingsModal=1&tab=recipients|email|basic` 保存设置 Dialog 与 tab。
+- 用 query `settingsModal=1&tab=recipients|email|basic|fields` 保存设置 Dialog 与 tab。
 - 默认设置 tab 为 `recipients`。
 
 生产使用 HTML5 history。Spring Boot 的 SPA fallback 必须继续支持无扩展名的前端路由，且不得把缺失的 `/api/**` 资源回退到 `index.html`。
@@ -127,6 +128,7 @@ API 日期时间以浏览器本机时间格式化为无 offset 的 `yyyy-MM-ddTH
 管理：
 
 - `settings`：基础设置与 `emailSender` 摘要。
+- `importFieldSettings`：七个 canonical 字段的系统/自定义别名与加急文字规则。
 - `emailRecipients`。
 - `settingsLoaded`。
 - settings/recipient 的 loading、saving、error。
@@ -156,7 +158,7 @@ lastUsedAt DESC → usageCount DESC → 姓名或 Email（zh-CN）
 | `qn-calendar-date` | 日历当前基准日 `yyyy-MM-dd` |
 | `qn-calendar-allow-past-scheduling` | 测试用「允许过去」开关 |
 | `settingsModal=1` | 打开全局设置 |
-| `tab=recipients|email|basic` | 设置当前 tab |
+| `tab=recipients|email|basic|fields` | 设置当前 tab |
 
 周视图是连续 7 天；首次无保存日期时从今天开始。恢复 `qn-calendar-date` 后，不保证第一栏仍是今天。
 
@@ -191,6 +193,7 @@ lastUsedAt DESC → usageCount DESC → 姓名或 Email（zh-CN）
 |---|---|
 | 读取/保存基础设置 | `GET /api/settings`、`PUT /api/settings` |
 | 保存 SMTP 寄件者 | `PUT /api/settings/email-sender` |
+| 读取/保存 XLSX 字段设置 | `GET /api/settings/import-fields`、`PUT /api/settings/import-fields` |
 | 读取/新增收件者 | `GET /api/email-recipients`、`POST /api/email-recipients` |
 | 编辑/删除收件者 | `PUT /api/email-recipients/{id}`、`DELETE /api/email-recipients/{id}` |
 
@@ -208,7 +211,7 @@ lastUsedAt DESC → usageCount DESC → 姓名或 Email（zh-CN）
 
 - 上传同时支持点击选档和 drag/drop。
 - 前端只验证文件名以 `.xlsx` 结尾；后端由 POI 尝试解析工作簿，并验证表头与每个资料行内容。
-- 导入结果显示新增数、更新数与持续显示的逐行错误。
+- 导入结果显示新增数、更新数、小红书非待配货跳过数与持续显示的逐行错误。
 - `store.loading` 会涵盖导入过程，但目前上传按钮不会据此 disabled 或显示 loading。
 - 待排卡片作为 FullCalendar external event，duration 取 `actualMinutes`，没有时才回退 `estimatedMinutes`。
 - 工时以 15 分钟增减，最低 15 分钟。
@@ -219,11 +222,11 @@ lastUsedAt DESC → usageCount DESC → 姓名或 Email（zh-CN）
 
 待排卡固定三列信息：
 
-1. `#订单编号` 与 `急`。
+1. `#订单编号`；右上角来源标记为蓝色「千」或红色「书」。
 2. `¥价格` 与工时控制。
 3. 红色时钟最晚发货时间与删除按钮。
 
-不显示「待排」状态标签，不重复显示「订单价格」文字。
+不显示「待排」状态标签，不重复显示「订单价格」文字。加急不显示「急」字，仍以红框及 tooltip `[加急]` 表示。
 
 ## 9. FullCalendar 交互约束
 
@@ -268,8 +271,9 @@ lastUsedAt DESC → usageCount DESC → 姓名或 Email（zh-CN）
 
 ### 9.4 片段、完成与计时
 
-- 事件卡显示订单编号、`HH:mm~HH:mm`、整单总排程工时、最晚发货日期与秒级时间。
+- 事件卡以 `[千]` / `[书]` 前缀显示订单编号，再显示 `HH:mm~HH:mm`、整单总排程工时、最晚发货日期与秒级时间。
 - hover/focus tooltip 额外显示暂停时长、状态、价格与备注。
+- tooltip 使用实际渲染尺寸在鼠标右下定位，空间不足时向左/上翻转并限制于 viewport；指针或焦点进入完成、拆分、暂停/继续操作区时必须隐藏，不能视觉遮挡按钮。
 - 聚焦任一片段时，同工单全部可见片段加选中外框；周视图显示期限红线。
 - 所有非 DONE 卡都会显示拆分按钮；片段不足 30 分钟时点击会显示错误，达到 30 分钟才会按最近 15 分钟边界的中点拆分。
 - DONE 卡不显示完成、拆分、暂停按钮；现行 UI 不提供取消完成。
@@ -308,13 +312,14 @@ lastUsedAt DESC → usageCount DESC → 姓名或 Email（zh-CN）
 
 ## 11. 全局设置
 
-三个 tab：
+四个 tab：
 
 1. `recipients`：Email 收件者。
 2. `email`：Email 寄件者。
 3. `basic`：基础设置。
+4. `fields`：XLSX 字段设置。
 
-打开 Dialog 时并行读取设置与收件者。切 tab、取消、提交成功或重新打开时，依各表单规则清除验证。
+打开 Dialog 时并行读取基础设置、字段设置与收件者。切 tab、取消、提交成功或重新打开时，依各表单规则清除验证。
 
 基础设置：
 
@@ -322,6 +327,14 @@ lastUsedAt DESC → usageCount DESC → 姓名或 Email（zh-CN）
 - 周表默认开始时间只接受 `HH:00` 或 `HH:30`。
 - 两个字段一起通过 `PUT /api/settings` 保存。
 - 值相对原设置发生变化时启用提交；点击提交后才验证金额与时间格式。
+
+字段设置：
+
+- 系统别名只读；自定义别名可新增、删除，并以完整七字段快照保存。
+- 同一工作簿对同字段同时命中系统与自定义别名时，自定义别名优先；同类同时命中多个仍由后端拒绝。
+- 备注标签字段可维护完全匹配/包含文字两种加急规则；`红旗` 只作为输入范例，不是默认规则。
+- alias trim、转小写并移除空白、`_`、`-` 后不可跨字段重复，也不可与系统别名冲突。
+- 自定义字段名与加急文字最长 120 字；字段错误就近显示，未修改时保存按钮停用。
 
 SMTP：
 
