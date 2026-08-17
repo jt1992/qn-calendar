@@ -1,13 +1,20 @@
 package com.qn.calendar.settings.controller;
 
 import com.qn.calendar.settings.dto.AppSettingsResponse;
+import com.qn.calendar.settings.dto.DeleteOrderSourceResponse;
+import com.qn.calendar.settings.dto.ImportFieldSettingsResponse;
+import com.qn.calendar.settings.dto.OrderSourceDeletionImpactResponse;
+import com.qn.calendar.settings.dto.UpdateImportFieldSettingsRequest;
 import com.qn.calendar.settings.dto.UpdateEmailSenderSettingsRequest;
 import com.qn.calendar.settings.dto.UpdateAppSettingsRequest;
 import com.qn.calendar.settings.service.AppSettingsService;
+import com.qn.calendar.settings.service.ImportFieldSettingsService;
 
 import jakarta.validation.Valid;
 
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -18,9 +25,14 @@ import org.springframework.web.bind.annotation.RestController;
 public class AppSettingsController {
 
     private final AppSettingsService service;
+    private final ImportFieldSettingsService importFieldSettingsService;
 
-    public AppSettingsController(AppSettingsService service) {
+    public AppSettingsController(
+            AppSettingsService service,
+            ImportFieldSettingsService importFieldSettingsService
+    ) {
         this.service = service;
+        this.importFieldSettingsService = importFieldSettingsService;
     }
 
     @GetMapping
@@ -33,10 +45,34 @@ public class AppSettingsController {
         return service.updateSettings(request);
     }
 
+    @GetMapping("/order-sources/{identifier}/deletion-impact")
+    public OrderSourceDeletionImpactResponse getOrderSourceDeletionImpact(
+            @PathVariable String identifier
+    ) {
+        return service.getOrderSourceDeletionImpact(identifier);
+    }
+
+    @DeleteMapping("/order-sources/{identifier}")
+    public DeleteOrderSourceResponse deleteOrderSource(@PathVariable String identifier) {
+        return service.deleteOrderSource(identifier);
+    }
+
     @PutMapping("/email-sender")
     public AppSettingsResponse updateEmailSenderSettings(
             @Valid @RequestBody UpdateEmailSenderSettingsRequest request
     ) {
         return service.updateEmailSenderSettings(request);
+    }
+
+    @GetMapping("/import-fields")
+    public ImportFieldSettingsResponse getImportFieldSettings() {
+        return importFieldSettingsService.getSettings();
+    }
+
+    @PutMapping("/import-fields")
+    public ImportFieldSettingsResponse updateImportFieldSettings(
+            @Valid @RequestBody UpdateImportFieldSettingsRequest request
+    ) {
+        return importFieldSettingsService.updateSettings(request);
     }
 }

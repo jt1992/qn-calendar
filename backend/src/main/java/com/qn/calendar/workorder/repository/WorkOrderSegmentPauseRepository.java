@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Optional;
 
 import com.qn.calendar.workorder.entity.WorkOrderSegmentPause;
+import com.qn.calendar.workorder.constant.WorkOrderSource;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
@@ -48,4 +49,23 @@ public interface WorkOrderSegmentPauseRepository extends JpaRepository<WorkOrder
             )
             """)
     void deleteByWorkOrderId(@Param("workOrderId") Long workOrderId);
+
+    @Modifying
+    @Query("""
+            delete from WorkOrderSegmentPause pause
+            where pause.segment.id in (
+                select segment.id
+                from WorkOrderSegment segment
+                where segment.workOrder.id in (
+                    select workOrder.id
+                    from WorkOrder workOrder
+                    where upper(workOrder.sourceCode) = :sourceCode
+                       or workOrder.source = :legacySource
+                )
+            )
+            """)
+    void deleteBySourceIdentifier(
+            @Param("sourceCode") String sourceCode,
+            @Param("legacySource") WorkOrderSource legacySource
+    );
 }

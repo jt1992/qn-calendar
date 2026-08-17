@@ -127,7 +127,7 @@ function normalizeSettingsTab(tab) {
     return 'basic'
   }
 
-  return ['basic', 'email', 'recipients'].includes(tab) ? tab : 'recipients'
+  return ['basic', 'email', 'fields', 'recipients'].includes(tab) ? tab : 'recipients'
 }
 </script>
 

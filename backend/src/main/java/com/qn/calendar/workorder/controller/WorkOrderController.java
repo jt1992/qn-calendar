@@ -4,6 +4,7 @@ import java.time.LocalDate;
 import java.util.List;
 
 import com.qn.calendar.workorder.dto.CompletedWorkOrderStatsResponse;
+import com.qn.calendar.workorder.dto.CreateWorkOrderRequest;
 import com.qn.calendar.workorder.dto.ImportWorkOrderResponse;
 import com.qn.calendar.workorder.dto.ScheduleEmailRequest;
 import com.qn.calendar.workorder.dto.ScheduleWorkOrderRequest;
@@ -61,6 +62,12 @@ public class WorkOrderController {
     @PostMapping("/import")
     public ImportWorkOrderResponse importWorkOrders(@RequestParam("file") MultipartFile file) {
         return importService.importXlsx(file);
+    }
+
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    public WorkOrderResponse createPendingWorkOrder(@Valid @RequestBody CreateWorkOrderRequest request) {
+        return WorkOrderResponse.from(importService.createPendingWorkOrder(request));
     }
 
     @GetMapping("/pending")

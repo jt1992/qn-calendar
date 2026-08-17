@@ -36,6 +36,7 @@
 - 单一 Dialog、tooltip、drag preview、表单 draft 等短期 UI 状态留在组件内。
 - 后端是业务规则最终权威；前端预检只用于即时反馈，API 失败仍必须恢复 UI。
 - 当前没有 `composables/` 层。不要为了单次使用新增抽象；只有逻辑确实被多个组件共享时再提取。
+- 删除资料、别名、规则等破坏性操作必须先向使用者确认；确认文案要明确写出删除类型、所属对象与具体目标，取消后不得改变本地状态或发送写入请求。
 
 ## 3. 目录与模块职责
 
@@ -44,13 +45,15 @@
 | `src/main.js` | 挂载 Vue、Pinia、Router 与全局 CSS |
 | `src/router/index.js` | `/schedule`、`/completed-stats` 与根路径重定向 |
 | `src/App.vue` | 应用壳层、顶栏、路由出口、主题、Email Dialog、设置 Dialog |
-| `src/views/ScheduleView.vue` | 组合 XLSX 上传、待排清单、日历；管理当前聚焦工单 |
+| `src/views/ScheduleView.vue` | 组合 XLSX 上传、手动新增、待排清单、日历；管理当前聚焦工单 |
 | `src/views/CompletedStatsView.vue` | 拉取完工统计并按订单月份筛选 |
 | `src/components/WorkOrderImportButton.vue` | 点击/拖拽选择 XLSX 与副档名预检 |
-| `src/components/PendingWorkOrderList.vue` | 待排卡片、工时调整、删除、复制、外部拖拽 |
+| `src/components/ManualWorkOrderDialog.vue` | 订单来源与七个 canonical 字段的手动新增表单及前端校验 |
+| `src/components/PendingWorkOrderList.vue` | 待排笔数/新增入口、卡片、工时调整、删除、复制、外部拖拽 |
 | `src/components/WorkOrderCalendar.vue` | FullCalendar 配置与全部排程交互编排 |
 | `src/components/CompletedStatsTable.vue` | 完工统计表呈现与月份筛选 UI |
-| `src/components/AppSettingsDialog.vue` | 收件者、SMTP 寄件者、基础设置三个 tab |
+| `src/components/AppSettingsDialog.vue` | 收件者、SMTP 寄件者、基础设置、字段识别设置四个 tab |
+| `src/components/ImportFieldSettingsPanel.vue` | XLSX 自定义字段别名与加急文字规则 |
 | `src/components/ScheduleEmailDialog.vue` | 收件人 tags、报表类型、日期/月与发送流程 |
 | `src/components/MonthPicker.vue` | 年/月双 select，可限制为实际存在月份 |
 | `src/components/HelpTooltip.vue` | 可复用、支持 hover/focus/Escape 的说明 tooltip |
@@ -80,7 +83,7 @@
 - 深色/浅色主题切换。
 - 接收日历 `range-change`，作为 Email Dialog 的默认日期范围。
 - 在内存中保存完工统计月份，跨路由返回时仍保留；它不会写入 localStorage。
-- 用 query `settingsModal=1&tab=recipients|email|basic` 保存设置 Dialog 与 tab。
+- 用 query `settingsModal=1&tab=recipients|email|basic|fields` 保存设置 Dialog 与 tab。
 - 默认设置 tab 为 `recipients`。
 
 生产使用 HTML5 history。Spring Boot 的 SPA fallback 必须继续支持无扩展名的前端路由，且不得把缺失的 `/api/**` 资源回退到 `index.html`。
@@ -127,6 +130,7 @@ API 日期时间以浏览器本机时间格式化为无 offset 的 `yyyy-MM-ddTH
 管理：
 
 - `settings`：基础设置与 `emailSender` 摘要。
+- `importFieldSettings`：七个 canonical 字段的系统/自定义别名与加急文字规则。
 - `emailRecipients`。
 - `settingsLoaded`。
 - settings/recipient 的 loading、saving、error。
@@ -144,6 +148,7 @@ lastUsedAt DESC → usageCount DESC → 姓名或 Email（zh-CN）
 - work-order store 的全局成功、错误与状态提示：5 秒。
 - 复制订单编号成功：3 秒。
 - 同类提示重复触发时重置计时器。
+- 删除结果与检核/操作错误提示统一使用红色；其余一般成功或状态提示使用主题蓝色。
 - 字段验证与 XLSX 逐行错误不是临时提示，不可自动消失。
 - 组件不得直接绕过 store/helper 修改全局提示状态。
 
@@ -156,7 +161,7 @@ lastUsedAt DESC → usageCount DESC → 姓名或 Email（zh-CN）
 | `qn-calendar-date` | 日历当前基准日 `yyyy-MM-dd` |
 | `qn-calendar-allow-past-scheduling` | 测试用「允许过去」开关 |
 | `settingsModal=1` | 打开全局设置 |
-| `tab=recipients|email|basic` | 设置当前 tab |
+| `tab=recipients|email|basic|fields` | 设置当前 tab |
 
 周视图是连续 7 天；首次无保存日期时从今天开始。恢复 `qn-calendar-date` 后，不保证第一栏仍是今天。
 
@@ -167,6 +172,7 @@ lastUsedAt DESC → usageCount DESC → 姓名或 Email（zh-CN）
 | Client 行为 | API | 使用状态 |
 |---|---|---|
 | 导入 XLSX | `POST /api/work-orders/import` | 使用中 |
+| 手动新增待排工单 | `POST /api/work-orders` | 使用中 |
 | 读取待排 | `GET /api/work-orders/pending` | 使用中 |
 | 删除待排 | `DELETE /api/work-orders/{id}` | 使用中 |
 | 读取日历 | `GET /api/work-orders/calendar?dateFrom&dateTo` | 使用中 |
@@ -190,7 +196,9 @@ lastUsedAt DESC → usageCount DESC → 姓名或 Email（zh-CN）
 | 行为 | API |
 |---|---|
 | 读取/保存基础设置 | `GET /api/settings`、`PUT /api/settings` |
+| 读取来源删除影响/删除来源 | `GET /api/settings/order-sources/{identifier}/deletion-impact`、`DELETE /api/settings/order-sources/{identifier}` |
 | 保存 SMTP 寄件者 | `PUT /api/settings/email-sender` |
+| 读取/保存 XLSX 字段设置 | `GET /api/settings/import-fields`、`PUT /api/settings/import-fields` |
 | 读取/新增收件者 | `GET /api/email-recipients`、`POST /api/email-recipients` |
 | 编辑/删除收件者 | `PUT /api/email-recipients/{id}`、`DELETE /api/email-recipients/{id}` |
 
@@ -208,22 +216,25 @@ lastUsedAt DESC → usageCount DESC → 姓名或 Email（zh-CN）
 
 - 上传同时支持点击选档和 drag/drop。
 - 前端只验证文件名以 `.xlsx` 结尾；后端由 POI 尝试解析工作簿，并验证表头与每个资料行内容。
-- 导入结果显示新增数、更新数与持续显示的逐行错误。
+- 上传说明明确提示：文件名包含基础设置中的来源名称或单字标签时，以文件名辨识的来源为准。
+- 导入结果显示新增数、更新数、小红书非待配货跳过数与持续显示的逐行错误。
 - `store.loading` 会涵盖导入过程，但目前上传按钮不会据此 disabled 或显示 loading。
 - 待排卡片作为 FullCalendar external event，duration 取 `actualMinutes`，没有时才回退 `estimatedMinutes`。
 - 工时以 15 分钟增减，最低 15 分钟。
 - 删除只允许由卡片按钮触发，删除前确认，并提供 loading、disabled、accessible name。
+- 清单标题左侧显示笔数，右侧「新增待排工单」按钮打开表单；订单来源、订单编号、金额、期限必填且显示红色 `*`，建立后刷新待排清单。
+- 手动新增的订单来源选项读取自基础设置；待排与日历使用后端回传的来源单字标签，待排标签颜色也使用来源设置值。
 - pointer 位移小于 6px 的短按会复制不含 `#` 的订单编号；拖拽不可触发复制。
 - 待排卡片 focus/hover 显示价格、工时、状态、最晚发货、备注 tooltip。
 - 聚焦待排工单时，周视图显示最晚发货红线。
 
 待排卡固定三列信息：
 
-1. `#订单编号` 与 `急`。
+1. `#订单编号`；右上角来源标记为蓝色「千」或红色「书」。
 2. `¥价格` 与工时控制。
 3. 红色时钟最晚发货时间与删除按钮。
 
-不显示「待排」状态标签，不重复显示「订单价格」文字。
+不显示「待排」状态标签，不重复显示「订单价格」文字。加急不显示「急」字，仍以红框及 tooltip `[加急]` 表示。
 
 ## 9. FullCalendar 交互约束
 
@@ -268,8 +279,9 @@ lastUsedAt DESC → usageCount DESC → 姓名或 Email（zh-CN）
 
 ### 9.4 片段、完成与计时
 
-- 事件卡显示订单编号、`HH:mm~HH:mm`、整单总排程工时、最晚发货日期与秒级时间。
+- 事件卡以 `[千]` / `[书]` 前缀显示订单编号，再显示 `HH:mm~HH:mm`、整单总排程工时、最晚发货日期与秒级时间。
 - hover/focus tooltip 额外显示暂停时长、状态、价格与备注。
+- tooltip 使用实际渲染尺寸在鼠标右下定位，空间不足时向左/上翻转并限制于 viewport；指针或焦点进入完成、拆分、暂停/继续操作区时必须隐藏，不能视觉遮挡按钮。
 - 聚焦任一片段时，同工单全部可见片段加选中外框；周视图显示期限红线。
 - 所有非 DONE 卡都会显示拆分按钮；片段不足 30 分钟时点击会显示错误，达到 30 分钟才会按最近 15 分钟边界的中点拆分。
 - DONE 卡不显示完成、拆分、暂停按钮；现行 UI 不提供取消完成。
@@ -308,20 +320,36 @@ lastUsedAt DESC → usageCount DESC → 姓名或 Email（zh-CN）
 
 ## 11. 全局设置
 
-三个 tab：
+四个 tab：
 
 1. `recipients`：Email 收件者。
 2. `email`：Email 寄件者。
 3. `basic`：基础设置。
+4. `fields`：XLSX 字段识别设置。
 
-打开 Dialog 时并行读取设置与收件者。切 tab、取消、提交成功或重新打开时，依各表单规则清除验证。
+打开 Dialog 时并行读取基础设置、字段设置与收件者。切 tab、取消、提交成功或重新打开时，依各表单规则清除验证。
 
 基础设置：
 
 - 预估工时基础金额必填、大于 0、最多两位小数。
 - 周表默认开始时间只接受 `HH:00` 或 `HH:30`。
-- 两个字段一起通过 `PUT /api/settings` 保存。
-- 值相对原设置发生变化时启用提交；点击提交后才验证金额与时间格式。
+- 基础金额与周表开始时间各自在 `change` 时通过 `PUT /api/settings` 自动保存；成功提示显示在对应字段标题右侧并于 5 秒后消失，不提供基础设置总保存按钮。
+- 订单来源选项使用横跨两栏的 InputTag，默认千牛、小红书；名称、identifier、标签色码与单字标签都必须显示红色 `*` 并通过既有校验。新增后自动聚焦 identifier；未填写 identifier 就重新聚焦添加输入框时，须确认是否放弃，确认后移除未保存标签，取消则重新聚焦 identifier。点击既有标签可编辑并使用编辑器内的保存按钮提交。支持 1–20 个名称/identifier 不重复的选项。
+- 删除已保存来源前通过后端读取受影响工单数；有工单时确认文案必须明确说明工单与排程会永久删除。确认后调用来源删除 API，并刷新待排、日历与完工统计；红色删除提示显示在订单来源字段标题右侧 5 秒。
+- 来源编辑保存成功后刷新待排清单、目前日历区间与完工统计，使来源名称、标签文字与颜色立即生效。
+- 设置 Dialog 宽度为 860px 上限；标题、四个 tab 与关闭按钮同一横排，tab 不换行，宽度不足时允许水平滚动并只在滚动期间显示滚动条。
+
+字段设置：
+
+- 每个字段以一份 InputTag「别名」清单显示；「别名」位于标准字段名右侧，预设别名在前且不可删除，自定义别名接在后方并提供删除按钮；输入后按 Enter 或逗号新增，自动保存成功后清空并继续聚焦同一输入框；输入为空时按 Backspace 可从最后一个自定义别名开始删除，但仍须经过删除确认。
+- 同一工作簿对同字段同时命中系统与自定义别名时，自定义别名优先；同类同时命中多个仍由后端拒绝。
+- 备注标签字段可维护完全匹配/包含文字两种加急规则；`红旗` 只作为输入范例，不是默认规则。
+- alias trim、转小写并移除空白、`_`、`-` 后不可跨字段重复，也不可与系统别名冲突。
+- 订单付款时间不得显示或新增订单时间、下单时间、下单日期的繁简别名。
+- 新增或确认删除别名、加急文字后立即以完整七字段快照自动保存；失败时回滚 draft 并显示错误，不提供额外保存按钮。
+- 自动保存成功提示显示在对应「别名」文字右侧，内容为具体项目已添加或已删除，并在 5 秒后消失。
+- 删除别名的确认文案必须指出字段与别名；删除加急文字也必须指出文字内容。
+- 自定义字段名与加急文字最长 120 字；字段错误就近显示。
 
 SMTP：
 
@@ -382,7 +410,7 @@ SMTP：
 - 顶栏主要操作保持同一列；窄视口不得因换行把动作拆散。
 - 980px 以下排程区改为上下堆叠；有足够宽度时待排卡可多栏，每卡约需 420px。
 - 620px 以下双栏表单改为单栏。
-- tab/tablist 必须完整显示，不得因容器尺寸产生滚动条。
+- 设置 Dialog 的 tablist 在宽度足够时完整显示；宽度不足时使用单行水平滚动，不可换行或截断按钮文字。
 - 文本不得溢出按钮、卡片、侧栏、表格或日历事件容器。
 
 ## 14. 验证与当前边界

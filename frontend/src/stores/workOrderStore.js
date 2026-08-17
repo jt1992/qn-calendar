@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import {
+  createWorkOrder as createWorkOrderRequest,
   deleteWorkOrder as deleteWorkOrderRequest,
   deleteWorkOrderSegment,
   getCalendarWorkOrders,
@@ -32,7 +33,8 @@ export const useWorkOrderStore = defineStore('workOrders', {
     activeRange: null,
     loading: false,
     error: '',
-    notice: ''
+    notice: '',
+    noticeTone: 'info'
   }),
 
   actions: {
@@ -57,7 +59,12 @@ export const useWorkOrderStore = defineStore('workOrders', {
 
       try {
         this.importResult = await importWorkOrders(file)
-        this.setNotice(`新增 ${this.importResult.createdCount} 笔，更新 ${this.importResult.updatedCount} 笔`)
+        const skippedNotice = this.importResult.skippedCount > 0
+          ? `，跳过 ${this.importResult.skippedCount} 笔非待配货订单`
+          : ''
+        this.setNotice(
+          `新增 ${this.importResult.createdCount} 笔，更新 ${this.importResult.updatedCount} 笔${skippedNotice}`
+        )
         await Promise.all([
           this.fetchPendingWorkOrders(),
           this.refreshCalendarEvents()
@@ -67,6 +74,20 @@ export const useWorkOrderStore = defineStore('workOrders', {
         throw error
       } finally {
         this.loading = false
+      }
+    },
+
+    async createWorkOrder(payload) {
+      this.clearError()
+
+      try {
+        const workOrder = await createWorkOrderRequest(payload)
+        await this.fetchPendingWorkOrders()
+        this.setNotice(`工单 ${workOrder.orderNo} 已新增`)
+        return workOrder
+      } catch (error) {
+        this.setError(error.message)
+        throw error
       }
     },
 
@@ -165,6 +186,7 @@ export const useWorkOrderStore = defineStore('workOrders', {
     setError(message) {
       this.error = message
       this.notice = ''
+      this.noticeTone = 'info'
 
       if (errorTimer) {
         window.clearTimeout(errorTimer)
@@ -176,8 +198,9 @@ export const useWorkOrderStore = defineStore('workOrders', {
       }, 5000)
     },
 
-    setNotice(message, durationMs = 5000) {
+    setNotice(message, durationMs = 5000, tone = 'info') {
       this.notice = message
+      this.noticeTone = tone
       this.error = ''
 
       if (noticeTimer) {
@@ -186,6 +209,7 @@ export const useWorkOrderStore = defineStore('workOrders', {
 
       noticeTimer = window.setTimeout(() => {
         this.notice = ''
+        this.noticeTone = 'info'
         noticeTimer = null
       }, durationMs)
     },
@@ -202,6 +226,7 @@ export const useWorkOrderStore = defineStore('workOrders', {
     clearMessages() {
       this.error = ''
       this.notice = ''
+      this.noticeTone = 'info'
 
       if (errorTimer) {
         window.clearTimeout(errorTimer)
@@ -228,6 +253,11 @@ function toCalendarEvent(segment) {
       segmentId: segment.segmentId || segment.id,
       workOrderId: segment.workOrderId,
       orderNo: segment.orderNo,
+      source: segment.source,
+      sourceCode: segment.sourceCode,
+      sourceName: segment.sourceName,
+      sourceBadgeColor: segment.sourceBadgeColor,
+      sourceBadgeText: segment.sourceBadgeText,
       urgent: segment.urgent,
       status: segment.status,
       latestShipTime: segment.latestShipTime,

@@ -11,7 +11,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['focus-order', 'work-order-deleted'])
+const emit = defineEmits(['add-work-order', 'focus-order', 'work-order-deleted'])
 const store = useWorkOrderStore()
 const listRef = ref(null)
 const updatingDurations = ref(new Set())
@@ -61,6 +61,11 @@ function toExternalEvent(workOrder) {
     extendedProps: {
       workOrderId: workOrder.id,
       orderNo: workOrder.orderNo,
+      source: workOrder.source,
+      sourceCode: workOrder.sourceCode,
+      sourceName: workOrder.sourceName,
+      sourceBadgeColor: workOrder.sourceBadgeColor,
+      sourceBadgeText: workOrder.sourceBadgeText,
       urgent: workOrder.urgent,
       status: workOrder.status,
       latestShipTime: workOrder.latestShipTime,
@@ -135,7 +140,7 @@ async function removeWorkOrder(workOrder) {
 
   try {
     await store.deleteWorkOrder(workOrder.id)
-    store.setNotice(`工单 ${workOrder.orderNo} 已删除`)
+    store.setNotice(`工单 ${workOrder.orderNo} 已删除`, 5000, 'danger')
     emit('work-order-deleted', workOrder.id)
   } catch (error) {
     store.setError(error.message)
@@ -188,6 +193,24 @@ function statusLabel(status) {
   return status === 'DONE' ? '已完成' : status === 'SCHEDULED' ? '已排入' : '待排'
 }
 
+function sourceLabel(workOrder) {
+  return workOrder.sourceBadgeText || workOrder.sourceName?.trim().slice(0, 1) || '其'
+}
+
+function sourceLabelText(workOrder) {
+  return `${workOrder.sourceName || '其他'}订单`
+}
+
+function sourceClass(source) {
+  return source === 'XIAOHONGSHU' ? 'xiaohongshu' : source === 'QIANNIU' ? 'qianniu' : 'custom'
+}
+
+function sourceBadgeStyle(workOrder) {
+  return workOrder.sourceBadgeColor
+    ? { '--source-badge-color': workOrder.sourceBadgeColor }
+    : undefined
+}
+
 function formatRemarkText(value) {
   return value && value.trim() ? value : '无任何备注'
 }
@@ -196,7 +219,6 @@ function showOrderTooltip(workOrder, event) {
   moveOrderTooltip(event)
   orderTooltip.value = {
     title: `${workOrder.urgent ? '[加急] ' : ''}${workOrder.orderNo}`,
-    timeRange: '未排程',
     durationText: `总排程 ${formatDurationText(durationMinutes(workOrder))}`,
     statusText: statusLabel(workOrder.status),
     latestText: formatShipTime(workOrder.latestShipTime),
@@ -282,6 +304,15 @@ function hideOrderTooltip() {
         <span class="count-badge">{{ workOrders.length }}</span>
         笔
       </span>
+      <button
+        type="button"
+        class="icon-only-button pending-add-button"
+        aria-label="新增待排工单"
+        @pointerdown.stop
+        @click="emit('add-work-order')"
+      >
+        <Plus :size="18" aria-hidden="true" />
+      </button>
     </div>
 
     <div ref="listRef" class="pending-list">
@@ -312,8 +343,16 @@ function hideOrderTooltip() {
             <div class="order-summary">
               <span class="order-number">#{{ workOrder.orderNo }}</span>
             </div>
-            <span v-if="workOrder.urgent" class="urgent-badge">急</span>
           </div>
+          <span
+            class="order-source-badge"
+            :class="sourceClass(workOrder.source)"
+            :style="sourceBadgeStyle(workOrder)"
+            :aria-label="sourceLabelText(workOrder)"
+            :title="sourceLabelText(workOrder)"
+          >
+            {{ sourceLabel(workOrder) }}
+          </span>
           <div class="order-detail-line">
             <span class="order-price">{{ formatMoney(workOrder.price) }}</span>
             <div
@@ -392,7 +431,6 @@ function hideOrderTooltip() {
       role="tooltip"
     >
       <strong>{{ orderTooltip.title }}</strong>
-      <span>{{ orderTooltip.timeRange }}</span>
       <span>{{ orderTooltip.durationText }}</span>
       <span>{{ orderTooltip.statusText }} · 最晚 {{ orderTooltip.latestText }}</span>
       <span v-if="orderTooltip.priceText">订单价格 {{ orderTooltip.priceText }}</span>

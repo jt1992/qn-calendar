@@ -25,6 +25,7 @@ import com.qn.calendar.settings.model.EmailSenderSettings;
 import com.qn.calendar.settings.service.AppSettingsService;
 import com.qn.calendar.settings.service.EmailRecipientService;
 import com.qn.calendar.workorder.constant.ScheduleEmailViewType;
+import com.qn.calendar.workorder.constant.WorkOrderSource;
 import com.qn.calendar.workorder.constant.WorkOrderStatus;
 import com.qn.calendar.workorder.dto.CompletedWorkOrderStatsResponse;
 import com.qn.calendar.workorder.dto.ScheduleEmailRequest;
@@ -547,6 +548,11 @@ class WorkOrderEmailServiceTests {
                 1L,
                 1L,
                 orderNo,
+                WorkOrderSource.QIANNIU,
+                "QIANNIU",
+                "千牛",
+                "#218BFF",
+                "千",
                 null,
                 "买家留言：测试备注",
                 BigDecimal.valueOf(300),

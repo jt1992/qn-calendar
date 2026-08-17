@@ -3,14 +3,21 @@ package com.qn.calendar.settings.entity;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.util.ArrayList;
+import java.util.List;
 
 import com.qn.calendar.settings.constant.SmtpSecurity;
 
 import jakarta.persistence.Column;
+import jakarta.persistence.CollectionTable;
+import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.OrderColumn;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
@@ -27,6 +34,14 @@ public class AppSetting {
 
     @Column(name = "week_view_default_start_time")
     private LocalTime weekViewDefaultStartTime;
+
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(
+            name = "app_setting_order_source_option",
+            joinColumns = @JoinColumn(name = "app_setting_id")
+    )
+    @OrderColumn(name = "sort_order")
+    private List<OrderSourceOption> orderSourceOptions = new ArrayList<>();
 
     @Column(name = "email_sender", length = 320)
     private String emailSender;
@@ -68,10 +83,13 @@ public class AppSetting {
 
     public void updateBasicSettings(
             BigDecimal estimatedHourlyBaseAmount,
-            LocalTime weekViewDefaultStartTime
+            LocalTime weekViewDefaultStartTime,
+            List<OrderSourceOption> orderSourceOptions
     ) {
         this.estimatedHourlyBaseAmount = estimatedHourlyBaseAmount;
         this.weekViewDefaultStartTime = weekViewDefaultStartTime;
+        this.orderSourceOptions.clear();
+        this.orderSourceOptions.addAll(orderSourceOptions);
     }
 
     public void updateEmailSenderSettings(
@@ -102,6 +120,10 @@ public class AppSetting {
 
     public LocalTime getWeekViewDefaultStartTime() {
         return weekViewDefaultStartTime;
+    }
+
+    public List<OrderSourceOption> getOrderSourceOptions() {
+        return List.copyOf(orderSourceOptions);
     }
 
     public String getEmailSender() {

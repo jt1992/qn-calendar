@@ -13,6 +13,11 @@ export async function importWorkOrders(file) {
   return data
 }
 
+export async function createWorkOrder(payload) {
+  const { data } = await http.post('/api/work-orders', payload)
+  return data
+}
+
 export async function getPendingWorkOrders() {
   const { data } = await http.get('/api/work-orders/pending')
   return data

@@ -8,6 +8,7 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
+import com.qn.calendar.workorder.constant.WorkOrderSource;
 import com.qn.calendar.workorder.constant.WorkOrderStatus;
 import com.qn.calendar.workorder.dto.ScheduleWorkOrderRequest;
 import com.qn.calendar.workorder.entity.WorkOrder;
@@ -70,6 +71,36 @@ class WorkOrderServiceTests {
                         "ORD-SAME-TIME-NORMAL",
                         "ORD-LATER-URGENT"
                 );
+    }
+
+    @Test
+    void calendarSegmentsIncludeXiaohongshuSource() {
+        WorkOrder workOrder = repository.save(new WorkOrder(
+                "P802335189951019482",
+                null,
+                null,
+                BigDecimal.valueOf(300),
+                180,
+                false,
+                LocalDateTime.of(2026, 8, 30, 18, 0),
+                null,
+                WorkOrderSource.XIAOHONGSHU
+        ));
+        scheduleService.schedule(
+                workOrder.getId(),
+                new ScheduleWorkOrderRequest(
+                        LocalDateTime.of(2026, 8, 20, 9, 0),
+                        LocalDateTime.of(2026, 8, 20, 12, 0)
+                )
+        );
+
+        assertThat(service.getCalendarWorkOrders(
+                LocalDate.of(2026, 8, 20),
+                LocalDate.of(2026, 8, 20)
+        )).singleElement().satisfies((segment) -> {
+            assertThat(segment.orderNo()).isEqualTo("P802335189951019482");
+            assertThat(segment.source()).isEqualTo(WorkOrderSource.XIAOHONGSHU);
+        });
     }
 
     @Test

@@ -14,7 +14,7 @@
 - Spring Mail / JavaMailSender，用于 SMTP。
 - Maven 在 `prepare-package` 阶段使用 Node 22.12.0 执行前端 `npm ci` 与 `npm run build`。
 
-当前不是「一般关系数据库可替换」架构，也不是单表 MVP。实现依赖 SQLite 的运行、锁与持久化特性，实际有五张业务表。
+当前不是「一般关系数据库可替换」架构，也不是单表 MVP。实现依赖 SQLite 的运行、锁与持久化特性，实际有八张业务/设置表。
 
 ## 2. 启动与运行架构
 
@@ -72,12 +72,13 @@ Spring Boot 同时提供 `/api/**` 与 Vue production build。
 
 服务边界：
 
-- `WorkOrderImportService`：XLSX 表头/资料行解析、逐行错误、去重、upsert、预估工时。
+- `WorkOrderImportService`：XLSX 表头/资料行解析、逐行错误、去重、upsert，以及手动建立待排工单与预估工时。
 - `WorkOrderService`：待排查询、日历查询、完工统计、待排工时、整单删除/清空、保留的整单完成/reopen。
 - `WorkOrderScheduleService`：仅把建立排程委派给 `WorkOrderSegmentService`，不拥有验证规则。
 - `WorkOrderSegmentService`：片段建立/移动/删除/拆分/融合、重叠验证、暂停/继续/完成、自动顺延。
 - `WorkOrderEmailService`：读取报表资料、建立 view model、Thymeleaf、PDF、SMTP。
-- `AppSettingsService`：singleton 基础设置与 SMTP。
+- `AppSettingsService`：singleton 基础设置与 SMTP；保存来源设置时依 identifier 同步既有工单的来源名称、标签颜色与文字；删除来源时在同一交易清除该来源的暂停、片段与全部工单。
+- `ImportFieldSettingsService`：固定字段别名、自定义别名与加急文字规则的读取、验证和导入快照。
 - `EmailRecipientService`：常用收件者 CRUD 与寄送成功后的使用纪录。
 
 不要把片段规则移回 controller，也不要把所有 work-order 逻辑合并成单一 service。
@@ -90,6 +91,10 @@ Spring Boot 同时提供 `/api/**` 与 Vue production build。
 |---|---|
 | `id` | 主键 |
 | `order_no` | 唯一订单编号，最长 80 |
+| `source` | 旧版内建来源相容栏位，只保存 `QIANNIU` / `XIAOHONGSHU`；自定义来源为 null |
+| `source_code` | 来源设置中的稳定识别文字，例如 `QIANNIU`、`XIAOHONGSHU`、`DOUYIN` |
+| `source_name` | 建立工单时保存的来源名称快照 |
+| `source_badge_color` / `source_badge_text` | 建立工单时保存的来源标签颜色与单字标签快照 |
 | `buyer_nickname` | 买家昵称；当前导入不会写入，API 也没有更新入口 |
 | `remark` | 合并后的买家留言/商家备注，最长 1000 |
 | `price` | 订单价格，`decimal(14,2)` |
@@ -123,6 +128,7 @@ Spring Boot 同时提供 `/api/**` 与 Vue production build。
 
 - 固定 singleton ID `1`。
 - 保存预估工时基础金额、周表默认开始时间。
+- `app_setting_order_source_option` 按顺序保存来源名称、唯一识别文字、标签颜色与单字标签。
 - 保存寄件 Email、SMTP host/port/security/auth code。
 - SMTP auth code 当前以明文保存在 SQLite；API 不回传它。
 
@@ -132,6 +138,18 @@ Spring Boot 同时提供 `/api/**` 与 Vue production build。
 - 姓名可空；手动 CRUD 时 service 要求姓名，寄信成功自动建立时可空。
 - 保存 `usage_count`、`last_used_at` 与建立/更新时间。
 - Service 会 trim、lowercase，并以忽略大小写方式防重。
+
+### 4.6 `import_field_alias`
+
+- 只保存使用者自定义别名；系统别名固定在 `ImportFieldKey`，不重复写入数据库。
+- 保存 `field_key`、原始 `alias` 与 `normalized_alias`。
+- `normalized_alias` 全局唯一，避免一个表头同时属于两个 canonical 字段。
+
+### 4.7 `import_urgent_match_rule`
+
+- 只保存使用者自定义加急文字；系统规则固定在 service。
+- 保存原始 `text`、全局唯一的 `normalized_text` 与 `EXACT` / `CONTAINS`。
+- `红旗` 不是系统规则；使用者可从字段设置自行加入。
 
 ## 5. 状态与摘要
 
@@ -159,6 +177,7 @@ Spring Boot 同时提供 `/api/**` 与 Vue production build。
 | Method | Path | 行为 |
 |---|---|---|
 | `POST` | `/api/work-orders/import` | multipart XLSX 导入 |
+| `POST` | `/api/work-orders` | 手动新增 PENDING，成功 201；重复订单编号返回 409 |
 | `GET` | `/api/work-orders/pending` | 待排清单 |
 | `GET` | `/api/work-orders/calendar?dateFrom&dateTo` | 区间内 SCHEDULED/DONE 片段 |
 | `GET` | `/api/work-orders/statistics/completed` | 全部完工统计 |
@@ -186,7 +205,11 @@ Spring Boot 同时提供 `/api/**` 与 Vue production build。
 |---|---|---|
 | `GET` | `/api/settings` | 读取或建立默认 singleton |
 | `PUT` | `/api/settings` | 保存基础金额与周表开始时间 |
+| `GET` | `/api/settings/order-sources/{identifier}/deletion-impact` | 返回来源名称与受影响工单数 |
+| `DELETE` | `/api/settings/order-sources/{identifier}` | 删除来源及该来源全部暂停、片段与工单 |
 | `PUT` | `/api/settings/email-sender` | 保存 SMTP |
+| `GET` | `/api/settings/import-fields` | 读取系统/自定义字段别名与加急文字规则 |
+| `PUT` | `/api/settings/import-fields` | 以完整快照替换自定义字段别名与加急文字规则 |
 | `GET` | `/api/email-recipients` | 常用收件者 |
 | `POST` | `/api/email-recipients` | 手动新增，成功 201 |
 | `PUT` | `/api/email-recipients/{id}` | 手动编辑 |
@@ -206,26 +229,35 @@ Spring Boot 同时提供 `/api/**` 与 Vue production build。
 
 | Canonical | 支持名称 |
 |---|---|
-| `orderNo` | `orderno`、订单编号（繁/简） |
-| `price` | `price`、`orderprice`、`amount`、`buyerpaidamount`、订单价格、买家实付金额、价格、金额（繁/简） |
-| `urgent` | `urgent`、`isurgent`、加急、急件、备注标签（繁/简） |
-| `buyerMessage` | `buyermessage`、`buyerremark`、买家留言（繁/简） |
-| `merchantRemark` | `merchantremark`、`sellerremark`、商家备注（繁/简） |
-| `paidAt` | 付款/支付/订单/下单时间与日期的中英文、繁简别名 |
-| `latestShipTime` | latest ship/deadline、应发货时间、最晚发货日期/时间（繁/简） |
+| `orderNo` | 订单编号（繁/简）、`订单号` |
+| `price` | 订单价格、买家实付金额、价格、金额（繁/简）、`用户应付金额(元)` |
+| `urgent` | 加急、急件、备注标签（繁/简）、`包裹备注标记` |
+| `buyerMessage` | 买家留言（繁/简）、`用户备注` |
+| `merchantRemark` | 商家备注（繁/简）、`包裹备注信息` |
+| `paidAt` | 订单付款时间、付款时间、支付时间的繁简别名；不得把订单/下单时间或日期映射到此字段 |
+| `latestShipTime` | 应发货时间、最晚发货日期/时间（繁/简）、`承诺发货时间` |
 
-新增别名前先补测试，不能破坏现有繁体兼容。
+系统别名由 `ImportFieldKey` 提供，自定义别名由 `ImportFieldSettingsService#getImportSnapshot()` 合并。新增系统别名前先补测试，不能破坏现有繁体兼容。同字段同时命中一个系统别名和一个自定义别名时，自定义别名优先；同时命中两个系统别名或两个自定义别名时必须拒绝整份文件。
+
+订单来源与小红书：
+
+- 先以 `MultipartFile#getOriginalFilename()` 比对基础设置的所有订单来源名称与单字标签；包含任一项即命中，忽略英文字母大小写，且将 `小紅書` 正规化为 `小红书`。命中时保存该选项的 identifier、名称、标签颜色与文字。
+- 文件名同时命中多个设置来源时整份拒绝；没有命中时逐行以订单编号 fallback，`^P\d+$` 为 `XIAOHONGSHU`，其余为 `QIANNIU`。表头不再参与来源判断。
+- 小红书只处理 `订单状态 = 待配货`；其他状态在解析金额/期限前略过并累计 `skippedCount`。
+- 文件名已辨识为小红书且缺少 `订单状态` 时整份拒绝；小红书资料行的状态空白时记录逐行错误。
+- 已存在订单的 `sourceCode` 或 `sourceName` 与新导入不一致时，整次导入回滚。
 
 ### 7.2 资料行解析
 
 - 订单编号不可空。
 - 价格去除逗号、`NT$`、`¥`、`￥`、`$`；允许 0，不允许负数。
-- 加急接受 `true/yes/y/1/是/加急/急件`，或文字包含「加急」「急件」。
+- 加急系统规则接受 `true/yes/y/1/是` 完全匹配，及包含「加急」「急件」；导入时另合并字段设置中的自定义完全/包含规则。
+- `paidAt` 不接受订单时间、下单时间或下单日期的繁简别名；读取字段设置或导入快照时会删除数据库中遗留于 `PAID_AT` 的这些自定义别名，保存设置时也拒绝重新加入。
 - 备注按顺序组合：
   - `买家留言：...`
   - `商家备注：...`
   - 都空时为 `无任何备注`
-- 订单时间可空；有值但格式错误时整列失败。
+- 订单付款时间可空；有值但格式错误时整列失败。
 
 预估工时：
 
@@ -246,7 +278,7 @@ estimated_minutes = ceil(price / estimatedHourlyBaseAmount) × 60
 备注解析：
 
 - `M/D`、`M.D`、`M月D日` 等月日使用 application Clock 当前年。
-- 只有「D号」时，使用订单时间的月份；没有订单月份则继续 fallback。
+- 只有「D号」时，使用订单付款时间的月份；没有付款月份则继续 fallback。
 - 无效月日不抛出，继续下一来源。
 
 fallback 字段支持：
@@ -269,7 +301,7 @@ fallback 字段支持：
 
 更新既有工单时：
 
-- 更新 remark、price、estimated、urgent、deadline、orderTime。
+- 更新 source、remark、price、estimated、urgent、deadline、orderTime。
 - 保留 ID、orderNo、状态、片段、暂停、完成时间、排程摘要。
 - SCHEDULED/DONE 保留 `actualMinutes`。
 - PENDING 只有在 `actualMinutes == 旧 estimatedMinutes` 时跟随新 estimate；已人工调整则保留。
@@ -295,7 +327,7 @@ latest_ship_time ASC, urgent DESC, created_at ASC
 - `dateFrom`、`dateTo` 都是 inclusive 业务日期。
 - `dateTo < dateFrom` 为 400。
 - 只查 SCHEDULED、DONE。
-- 每个片段 response 包含整单 `totalMinutes`、整单 `pausedMinutes`、当前 `paused`、`overdue`、`scheduleStartLocked`、`latestPausedAt`。
+- 每个片段 response 包含订单 `source`、整单 `totalMinutes`、整单 `pausedMinutes`、当前 `paused`、`overdue`、`scheduleStartLocked`、`latestPausedAt`。
 - `overdue = segment.scheduledEnd > workOrder.latestShipTime`。
 
 ## 9. 手动排程与重叠
@@ -451,10 +483,13 @@ hourlyRate = price × 60 / actualTotalMinutes
 ```text
 estimatedHourlyBaseAmount = 100
 weekViewDefaultStartTime = 06:00
+orderSourceOptions = [{千牛, QIANNIU, #218BFF, 千}, {小红书, XIAOHONGSHU, #FF5C5C, 书}]
 ```
 
 - 基础金额必须大于 0、整数部分最多 12 位且小数最多两位。
 - 周表开始时间必须为 `HH:mm` 的 30 分钟边界。
+- 订单来源选项为 1–20 个；名称 trim 后忽略大小写不可重复；identifier 为唯一的大写英数/下划线代码；颜色为六位十六进制；标签恰为一个 Unicode 字符。既有名称资料会自动补入这些 metadata。
+- 删除来源前可读取受影响工单数；实际删除必须至少保留一个来源，并依暂停、片段、工单、来源设置顺序在同一交易完成，涵盖 PENDING/SCHEDULED/DONE。
 - 初次读取若 singleton 不存在会写入默认值。
 - 旧资料的周表开始时间为空时会补 `06:00`。
 
@@ -580,7 +615,7 @@ HTTP 与 Entity 使用无 offset 的 `LocalDateTime`。不要单独把某一层�
 交易：
 
 - XLSX 整次导入：单一写交易。
-- 工单、片段、设置、收件者 CRUD：service transaction。
+- 工单、片段、设置、字段设置、收件者 CRUD：service transaction。
 - Email：无外层长交易；成功记录收件者使用独立新交易。
 
 不要把资料查询、PDF 生成、SMTP 与收件者写入包进同一个长交易。
@@ -632,12 +667,12 @@ mvn package
 
 测试职责：
 
-- `WorkOrderImportServiceTests`：表头、解析、去重、重导状态保留。
+- `WorkOrderImportServiceTests`：表头、可配置规则、小红书待配货过滤/来源、解析、去重、重导状态保留、手动建立待排工单。
 - `WorkOrderSegmentServiceTests`：片段、融合、重叠、拆分、暂停、顺延、完成、删除。
 - `WorkOrderServiceTests`：待排、duration、整单清空/删除、统计。
 - `WorkOrderEmailServiceTests`：周/月/统计 view model、模板、PDF、MIME。
 - `WorkOrderEmailTransactionTests`：SMTP 成功后记录收件者。
-- `AppSettingsServiceTests`、`EmailRecipientServiceTests`：设置与收件者。
+- `AppSettingsServiceTests`、`ImportFieldSettingsServiceTests`、`EmailRecipientServiceTests`：基础/字段设置与收件者。
 - `SpaResourceConfigurationTests`：fallback/cache。
 - `QnCalendarApplicationTests`：context 与 business/persistence timezone 分离。
 - `desktop/*Tests`：URL、nonce、单一实例。

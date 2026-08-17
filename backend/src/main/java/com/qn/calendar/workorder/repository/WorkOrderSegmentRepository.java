@@ -5,6 +5,7 @@ import java.util.Collection;
 import java.util.List;
 
 import com.qn.calendar.workorder.constant.WorkOrderStatus;
+import com.qn.calendar.workorder.constant.WorkOrderSource;
 import com.qn.calendar.workorder.entity.WorkOrderSegment;
 
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -66,4 +67,19 @@ public interface WorkOrderSegmentRepository extends JpaRepository<WorkOrderSegme
 
     @Modifying
     void deleteByWorkOrderId(Long workOrderId);
+
+    @Modifying
+    @Query("""
+            delete from WorkOrderSegment segment
+            where segment.workOrder.id in (
+                select workOrder.id
+                from WorkOrder workOrder
+                where upper(workOrder.sourceCode) = :sourceCode
+                   or workOrder.source = :legacySource
+            )
+            """)
+    void deleteBySourceIdentifier(
+            @Param("sourceCode") String sourceCode,
+            @Param("legacySource") WorkOrderSource legacySource
+    );
 }
