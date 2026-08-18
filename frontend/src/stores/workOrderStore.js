@@ -244,7 +244,7 @@ export const useWorkOrderStore = defineStore('workOrders', {
 function toCalendarEvent(segment) {
   return {
     id: String(segment.segmentId || segment.id),
-    title: `${segment.urgent ? '加急 ' : ''}${segment.orderNo}`,
+    title: segment.orderNo,
     start: segment.scheduledStart,
     end: segment.scheduledEnd,
     startEditable: true,
@@ -259,6 +259,7 @@ function toCalendarEvent(segment) {
       sourceBadgeColor: segment.sourceBadgeColor,
       sourceBadgeText: segment.sourceBadgeText,
       urgent: segment.urgent,
+      remarkTags: segment.remarkTags || [],
       status: segment.status,
       latestShipTime: segment.latestShipTime,
       price: segment.price,

@@ -56,7 +56,7 @@ onBeforeUnmount(() => {
 
 function toExternalEvent(workOrder) {
   return {
-    title: `${workOrder.urgent ? '加急 ' : ''}${workOrder.orderNo}`,
+    title: workOrder.orderNo,
     duration: minutesToDuration(workOrder.actualMinutes || workOrder.estimatedMinutes),
     extendedProps: {
       workOrderId: workOrder.id,
@@ -67,6 +67,7 @@ function toExternalEvent(workOrder) {
       sourceBadgeColor: workOrder.sourceBadgeColor,
       sourceBadgeText: workOrder.sourceBadgeText,
       urgent: workOrder.urgent,
+      remarkTags: workOrder.remarkTags || [],
       status: workOrder.status,
       latestShipTime: workOrder.latestShipTime,
       price: workOrder.price,
@@ -211,6 +212,31 @@ function sourceBadgeStyle(workOrder) {
     : undefined
 }
 
+function remarkTags(workOrder) {
+  return Array.isArray(workOrder.remarkTags) ? workOrder.remarkTags : []
+}
+
+function remarkTagStyle(workOrder) {
+  const color = remarkTags(workOrder)[0]?.color
+  return /^#[0-9A-F]{6}$/i.test(String(color || ''))
+    ? { '--remark-tag-color': color }
+    : undefined
+}
+
+function remarkTagTitle(workOrder) {
+  const labels = remarkTags(workOrder)
+    .map((tag) => String(tag.name || '').trim())
+    .filter(Boolean)
+    .map((name) => `[${name}]`)
+    .join('')
+
+  if (labels) {
+    return `${labels} ${workOrder.orderNo}`
+  }
+
+  return `${workOrder.urgent ? '[加急] ' : ''}${workOrder.orderNo}`
+}
+
 function formatRemarkText(value) {
   return value && value.trim() ? value : '无任何备注'
 }
@@ -218,7 +244,7 @@ function formatRemarkText(value) {
 function showOrderTooltip(workOrder, event) {
   moveOrderTooltip(event)
   orderTooltip.value = {
-    title: `${workOrder.urgent ? '[加急] ' : ''}${workOrder.orderNo}`,
+    title: remarkTagTitle(workOrder),
     durationText: `总排程 ${formatDurationText(durationMinutes(workOrder))}`,
     statusText: statusLabel(workOrder.status),
     latestText: formatShipTime(workOrder.latestShipTime),
@@ -322,8 +348,10 @@ function hideOrderTooltip() {
         class="pending-order-card"
         :class="{
           urgent: workOrder.urgent,
+          'has-remark-tag': remarkTags(workOrder).length > 0,
           deleting: isWorkOrderDeleting(workOrder.id)
         }"
+        :style="remarkTagStyle(workOrder)"
         :data-event="isWorkOrderDeleting(workOrder.id)
           ? undefined
           : JSON.stringify(toExternalEvent(workOrder))"

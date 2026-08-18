@@ -31,13 +31,11 @@ const orderSourceOptions = ref([])
 const orderSourceOptionInput = ref('')
 const orderSourceOptionsError = ref('')
 const orderSourceOptionInputElement = ref(null)
-const orderSourceIdentifierInputElement = ref(null)
 const selectedOrderSourceIndex = ref(-1)
 const settingsTabsScrolling = ref(false)
 const orderSourceDeletingIdentifier = ref('')
 const orderSourceEditorErrors = reactive({
   name: '',
-  identifier: '',
   badgeColor: '',
   badgeText: ''
 })
@@ -300,6 +298,17 @@ async function saveOrderSourceOptions() {
   }
 }
 
+async function refreshWorkOrdersAfterRemarkTagSave() {
+  try {
+    await Promise.all([
+      workOrderStore.fetchPendingWorkOrders(),
+      workOrderStore.refreshCalendarEvents()
+    ])
+  } catch (error) {
+    showFieldError(`备注标签已保存，但工单列表刷新失败：${error.message}`)
+  }
+}
+
 async function submitEmailSender() {
   if (settingsBusy.value || !emailSenderChanged.value) {
     return
@@ -387,8 +396,8 @@ function validateWeekStartTime() {
 function validateOrderSourceOptions() {
   const options = orderSourceOptions.value.map((option) => ({
     name: normalizedText(option.name),
-    identifier: normalizedText(option.identifier).toUpperCase(),
-    badgeColor: normalizedText(option.badgeColor).toUpperCase(),
+    identifier: normalizedText(option.identifier) || null,
+    badgeColor: normalizeHexColor(option.badgeColor),
     badgeText: normalizedText(option.badgeText)
   }))
   let error = ''
@@ -403,30 +412,20 @@ function validateOrderSourceOptions() {
   } else if ((invalidIndex = options.findIndex((option) => option.name.length > 80)) >= 0) {
     error = '每个选项最长为 80 个字符。'
   } else if (new Set(options.map((option) => option.name.toLocaleLowerCase('zh-CN'))).size !== options.length) {
-    error = '选项不可重复。'
+    error = '来源名称不可重复。'
     invalidIndex = options.findIndex((option, index) =>
       options.findIndex(
         (current) => current.name.toLocaleLowerCase('zh-CN') === option.name.toLocaleLowerCase('zh-CN')
       ) !== index
     )
-  } else if (new Set(options.map((option) => option.identifier)).size !== options.length) {
-    error = '识别文字不可重复。'
-    invalidIndex = options.findIndex((option, index) =>
-      options.findIndex((current) => current.identifier === option.identifier) !== index
-    )
   } else {
-    invalidIndex = options.findIndex((option) => !/^[A-Z][A-Z0-9_]{0,39}$/.test(option.identifier))
+    invalidIndex = options.findIndex((option) => !/^#[0-9A-F]{6}$/.test(option.badgeColor))
     if (invalidIndex >= 0) {
-      error = '识别文字须以英文字母开头，且仅能使用大写英文字母、数字或下划线。'
+      error = '标签颜色须填写六位十六进制色码。'
     } else {
-      invalidIndex = options.findIndex((option) => !/^#[0-9A-F]{6}$/.test(option.badgeColor))
+      invalidIndex = options.findIndex((option) => !/^(?:\p{Script=Han}|[A-Za-z])$/u.test(option.badgeText))
       if (invalidIndex >= 0) {
-        error = '标签颜色须为六位十六进制色码。'
-      } else {
-        invalidIndex = options.findIndex((option) => Array.from(option.badgeText).length !== 1)
-        if (invalidIndex >= 0) {
-          error = '标签文字须为单一文字。'
-        }
+        error = '标签单一文字只能输入一个中文字符或英文字母。'
       }
     }
   }
@@ -441,9 +440,6 @@ function validateOrderSourceOptions() {
             options[invalidIndex].name.toLocaleLowerCase('zh-CN')
         ).length > 1) {
       orderSourceEditorErrors.name = error
-    } else if (!/^[A-Z][A-Z0-9_]{0,39}$/.test(options[invalidIndex].identifier)
-        || options.filter((option) => option.identifier === options[invalidIndex].identifier).length > 1) {
-      orderSourceEditorErrors.identifier = error
     } else if (!/^#[0-9A-F]{6}$/.test(options[invalidIndex].badgeColor)) {
       orderSourceEditorErrors.badgeColor = error
     } else {
@@ -469,21 +465,20 @@ function addOrderSourceOption() {
     return false
   }
   if (orderSourceOptions.value.some((current) => current.name.toLocaleLowerCase('zh-CN') === option.toLocaleLowerCase('zh-CN'))) {
-    orderSourceOptionsError.value = '选项不可重复。'
+    orderSourceOptionsError.value = '来源名称不可重复。'
     return false
   }
 
   orderSourceOptions.value.push({
     name: option,
-    identifier: '',
+    identifier: null,
     badgeColor: '#3B82F6',
-    badgeText: Array.from(option)[0] || '其'
+    badgeText: Array.from(option).find((character) => /^(?:\p{Script=Han}|[A-Za-z])$/u.test(character)) || ''
   })
   selectedOrderSourceIndex.value = orderSourceOptions.value.length - 1
   orderSourceOptionInput.value = ''
   orderSourceOptionsError.value = ''
   clearOrderSourceEditorErrors()
-  nextTick(() => orderSourceIdentifierInputElement.value?.focus())
   return true
 }
 
@@ -569,21 +564,6 @@ function selectOrderSourceOption(index) {
 }
 
 function handleOrderSourceOptionInputFocus() {
-  const option = selectedOrderSourceOption.value
-
-  if (option && !option._persistedIdentifier && !normalizedText(option.identifier)) {
-    const abandon = window.confirm(
-      `订单来源「${option.name}」尚未填写识别文字，这笔资料不会保存。是否放弃这次新增？`
-    )
-
-    if (abandon) {
-      removeLocalOrderSourceOption(selectedOrderSourceIndex.value)
-    } else {
-      nextTick(() => orderSourceIdentifierInputElement.value?.focus())
-    }
-    return
-  }
-
   selectedOrderSourceIndex.value = -1
   clearOrderSourceEditorErrors()
 }
@@ -599,25 +579,41 @@ function handleSettingsTabsScroll() {
   }, 700)
 }
 
-function normalizeSelectedSourceIdentifier() {
+function normalizeSelectedSourceColor() {
   if (selectedOrderSourceOption.value) {
-    selectedOrderSourceOption.value.identifier = normalizedText(
-      selectedOrderSourceOption.value.identifier
-    ).toUpperCase()
+    selectedOrderSourceOption.value.badgeColor = normalizeHexColor(
+      selectedOrderSourceOption.value.badgeColor
+    )
   }
 }
 
-function normalizeSelectedSourceColor() {
+function updateSelectedSourceColor(event) {
   if (selectedOrderSourceOption.value) {
-    selectedOrderSourceOption.value.badgeColor = normalizedText(
-      selectedOrderSourceOption.value.badgeColor
-    ).toUpperCase()
+    const digits = sanitizeHexDigits(event.target.value)
+    event.target.value = digits
+    selectedOrderSourceOption.value.badgeColor = `#${digits}`
   }
+}
+
+function updateSelectedSourceColorFromPicker(event) {
+  if (selectedOrderSourceOption.value) {
+    selectedOrderSourceOption.value.badgeColor = event.target.value.toUpperCase()
+  }
+}
+
+function updateSelectedSourceBadgeText(event) {
+  if (!selectedOrderSourceOption.value) {
+    return
+  }
+
+  const badgeText = Array.from(event.target.value)
+    .find((character) => /^(?:\p{Script=Han}|[A-Za-z])$/u.test(character)) || ''
+  event.target.value = badgeText
+  selectedOrderSourceOption.value.badgeText = badgeText
 }
 
 function clearOrderSourceEditorErrors() {
   orderSourceEditorErrors.name = ''
-  orderSourceEditorErrors.identifier = ''
   orderSourceEditorErrors.badgeColor = ''
   orderSourceEditorErrors.badgeText = ''
 }
@@ -924,6 +920,27 @@ function recipientHasChanges(recipient) {
 
 function normalizedText(value) {
   return String(value ?? '').trim()
+}
+
+function sanitizeHexDigits(value) {
+  return String(value || '')
+    .replace(/^#/, '')
+    .toUpperCase()
+    .replace(/[^0-9A-F]/g, '')
+    .slice(0, 6)
+}
+
+function normalizeHexColor(value) {
+  return `#${sanitizeHexDigits(value)}`
+}
+
+function hexColorDigits(value) {
+  return sanitizeHexDigits(value)
+}
+
+function pickerColor(value) {
+  const color = normalizeHexColor(value)
+  return /^#[0-9A-F]{6}$/.test(color) ? color : '#000000'
 }
 
 function resetRecipientForm() {
@@ -1251,6 +1268,7 @@ function securityLabel(value) {
                   :key="option._persistedIdentifier || option.identifier || `${option.name}-${index}`"
                   class="recipient-tag order-source-option-tag"
                   :class="{ active: selectedOrderSourceIndex === index }"
+                  :style="{ '--order-source-color': pickerColor(option.badgeColor) }"
                   role="button"
                   tabindex="0"
                   :aria-label="`编辑订单来源 ${option.name}`"
@@ -1310,30 +1328,28 @@ function securityLabel(value) {
                 </label>
                 <label>
                   <span class="form-field-label">
-                    识别文字
+                    标签单一文字
                     <span class="required-marker" aria-hidden="true">*</span>
                     <small
-                      v-if="orderSourceEditorErrors.identifier"
+                      v-if="orderSourceEditorErrors.badgeText"
                       class="form-field-error"
                       role="alert"
                     >
-                      {{ orderSourceEditorErrors.identifier }}
+                      {{ orderSourceEditorErrors.badgeText }}
                     </small>
                   </span>
                   <input
-                    ref="orderSourceIdentifierInputElement"
-                    v-model="selectedOrderSourceOption.identifier"
+                    :value="selectedOrderSourceOption.badgeText"
                     type="text"
-                    maxlength="40"
-                    placeholder="例如 DOUYIN"
-                    autocomplete="off"
+                    maxlength="2"
+                    placeholder="例如 抖"
                     required
-                    :aria-invalid="Boolean(orderSourceEditorErrors.identifier)"
+                    :aria-invalid="Boolean(orderSourceEditorErrors.badgeText)"
                     :disabled="settingsBusy"
-                    @blur="normalizeSelectedSourceIdentifier"
+                    @input="updateSelectedSourceBadgeText"
                   />
                 </label>
-                <label>
+                <div class="order-source-color-editor-field">
                   <span class="form-field-label">
                     标签颜色
                     <span class="required-marker" aria-hidden="true">*</span>
@@ -1347,45 +1363,30 @@ function securityLabel(value) {
                   </span>
                   <span class="order-source-color-field">
                     <input
-                      v-model="selectedOrderSourceOption.badgeColor"
+                      :value="pickerColor(selectedOrderSourceOption.badgeColor)"
                       type="color"
                       :disabled="settingsBusy"
                       aria-label="选择订单来源标签颜色"
+                      @input="updateSelectedSourceColorFromPicker"
                     />
-                    <input
-                      v-model="selectedOrderSourceOption.badgeColor"
-                      type="text"
-                      maxlength="7"
-                      placeholder="#3B82F6"
-                      :aria-invalid="Boolean(orderSourceEditorErrors.badgeColor)"
-                      :disabled="settingsBusy"
-                      required
-                      @blur="normalizeSelectedSourceColor"
-                    />
+                    <span class="hex-color-input">
+                      <span aria-hidden="true">#</span>
+                      <input
+                        :value="hexColorDigits(selectedOrderSourceOption.badgeColor)"
+                        type="text"
+                        inputmode="text"
+                        maxlength="6"
+                        placeholder="3B82F6"
+                        aria-label="订单来源标签颜色十六进制值"
+                        :aria-invalid="Boolean(orderSourceEditorErrors.badgeColor)"
+                        :disabled="settingsBusy"
+                        required
+                        @input="updateSelectedSourceColor"
+                        @blur="normalizeSelectedSourceColor"
+                      />
+                    </span>
                   </span>
-                </label>
-                <label>
-                  <span class="form-field-label">
-                    标签单一文字
-                    <span class="required-marker" aria-hidden="true">*</span>
-                    <small
-                      v-if="orderSourceEditorErrors.badgeText"
-                      class="form-field-error"
-                      role="alert"
-                    >
-                      {{ orderSourceEditorErrors.badgeText }}
-                    </small>
-                  </span>
-                  <input
-                    v-model="selectedOrderSourceOption.badgeText"
-                    type="text"
-                    maxlength="8"
-                    placeholder="例如 抖"
-                    required
-                    :aria-invalid="Boolean(orderSourceEditorErrors.badgeText)"
-                    :disabled="settingsBusy"
-                  />
-                </label>
+                </div>
                 <div class="order-source-option-editor-actions">
                   <button
                     class="icon-button primary-action"
@@ -1558,7 +1559,10 @@ function securityLabel(value) {
       </section>
 
       <section v-show="activeTab === 'fields'" class="settings-panel field-settings-panel" role="tabpanel">
-        <ImportFieldSettingsPanel :active="activeTab === 'fields'" />
+        <ImportFieldSettingsPanel
+          :active="activeTab === 'fields'"
+          @saved="refreshWorkOrdersAfterRemarkTagSave"
+        />
       </section>
 
       <section v-show="activeTab === 'recipients'" class="settings-panel recipient-settings-panel" role="tabpanel">

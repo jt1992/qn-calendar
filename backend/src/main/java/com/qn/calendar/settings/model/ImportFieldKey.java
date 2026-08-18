@@ -34,7 +34,7 @@ public enum ImportFieldKey {
             "urgent",
             "备注标签",
             false,
-            List.of("加急", "急件", "備註標籤", "备注标签", "包裹备注标记")
+            List.of("備註標籤", "备注标签", "包裹备注标记")
     ),
     BUYER_MESSAGE(
             "buyerMessage",

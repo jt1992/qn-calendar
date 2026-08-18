@@ -14,7 +14,7 @@
 - Spring Mail / JavaMailSender，用于 SMTP。
 - Maven 在 `prepare-package` 阶段使用 Node 22.12.0 执行前端 `npm ci` 与 `npm run build`。
 
-当前不是「一般关系数据库可替换」架构，也不是单表 MVP。实现依赖 SQLite 的运行、锁与持久化特性，实际有八张业务/设置表。
+当前不是「一般关系数据库可替换」架构，也不是单表 MVP。实现依赖 SQLite 的运行、锁与持久化特性，实际有十一张业务/设置表（包含升级后保留的旧加急规则空表）。
 
 ## 2. 启动与运行架构
 
@@ -79,8 +79,8 @@ Spring Boot 同时提供 `/api/**` 与 Vue production build。
 - `WorkOrderScheduleService`：仅把建立排程委派给 `WorkOrderSegmentService`，不拥有验证规则。
 - `WorkOrderSegmentService`：片段建立/移动/删除/拆分/融合、重叠验证、暂停/继续/完成、自动顺延。
 - `WorkOrderEmailService`：读取报表资料、建立 view model、Thymeleaf、PDF、SMTP。
-- `AppSettingsService`：singleton 基础设置与 SMTP；保存来源设置时依 identifier 同步既有工单的来源名称、标签颜色与文字；删除来源时在同一交易清除该来源的暂停、片段与全部工单。
-- `ImportFieldSettingsService`：固定字段别名、自定义别名与加急文字规则的读取、验证和导入快照。
+- `AppSettingsService`：singleton 基础设置与 SMTP；新来源由后端产生稳定 `SRC_<UID>`，保存时依隐藏 identifier 同步既有工单的来源名称、标签颜色与文字；删除来源时在同一交易清除该来源的暂停、片段与全部工单。
+- `ImportFieldSettingsService`：固定/自定义字段别名、备注标签定义与多标签匹配规则的读取、验证、升级和导入快照。
 - `EmailRecipientService`：常用收件者 CRUD 与寄送成功后的使用纪录。
 
 不要把片段规则移回 controller，也不要把所有 work-order 逻辑合并成单一 service。
@@ -94,7 +94,7 @@ Spring Boot 同时提供 `/api/**` 与 Vue production build。
 | `id` | 主键 |
 | `order_no` | 唯一订单编号，最长 80 |
 | `source` | 旧版内建来源相容栏位，只保存 `QIANNIU` / `XIAOHONGSHU`；自定义来源为 null |
-| `source_code` | 来源设置中的稳定识别文字，例如 `QIANNIU`、`XIAOHONGSHU`、`DOUYIN` |
+| `source_code` | 来源设置中的内部稳定 ID；旧值可为 `QIANNIU`、`XIAOHONGSHU`、`DOUYIN`，新值为后端生成的 `SRC_<UID>` |
 | `source_name` | 建立工单时保存的来源名称快照 |
 | `source_badge_color` / `source_badge_text` | 建立工单时保存的来源标签颜色与单字标签快照 |
 | `buyer_nickname` | 买家昵称；当前导入不会写入，API 也没有更新入口 |
@@ -102,7 +102,7 @@ Spring Boot 同时提供 `/api/**` 与 Vue production build。
 | `price` | 订单价格，`decimal(14,2)` |
 | `estimated_minutes` | 由导入价格计算的预估分钟 |
 | `actual_minutes` | 待排人工值，或已排所有片段分钟总和 |
-| `urgent` | 加急 |
+| `urgent` | 是否关联 systemKey `URGENT` 的标签；保留作为排序、PDF 与旧 API 相容栏位 |
 | `latest_ship_time` | 最晚发货 |
 | `order_time` | 订单月份与完工统计筛选依据 |
 | `status` | `PENDING` / `SCHEDULED` / `DONE` |
@@ -130,7 +130,7 @@ Spring Boot 同时提供 `/api/**` 与 Vue production build。
 
 - 固定 singleton ID `1`。
 - 保存预估工时基础金额、周表默认开始时间。
-- `app_setting_order_source_option` 按顺序保存来源名称、唯一识别文字、标签颜色与单字标签。
+- `app_setting_order_source_option` 按顺序保存来源名称、内部稳定 identifier、标签颜色与单字标签。identifier 不在前端编辑；新来源由后端生成，名称改动不改变 identifier。
 - 保存寄件 Email、SMTP host/port/security/auth code。
 - SMTP auth code 当前以明文保存在 SQLite；API 不回传它。
 
@@ -147,11 +147,13 @@ Spring Boot 同时提供 `/api/**` 与 Vue production build。
 - 保存 `field_key`、原始 `alias` 与 `normalized_alias`。
 - `normalized_alias` 全局唯一，避免一个表头同时属于两个 canonical 字段。
 
-### 4.7 `import_urgent_match_rule`
+### 4.7 备注标签设置与关联
 
-- 只保存使用者自定义加急文字；系统规则固定在 service。
-- 保存原始 `text`、全局唯一的 `normalized_text` 与 `EXACT` / `CONTAINS`。
-- `红旗` 不是系统规则；使用者可从字段设置自行加入。
+- `remark_tag_definition` 保存稳定 ID、唯一 `system_key`（目前只有 `URGENT`）、标准化后唯一名称、六位色码与显示顺序。
+- `remark_tag_match_rule` 保存各标签的自定义原始 `text` 与全局唯一 `normalized_text`。现行业务只使用包含匹配；旧 `match_type` 栏保留供 SQLite 升级兼容并统一正规化为 `CONTAINS`。
+- `work_order_remark_tag` 保存工单与多个标签的多对多关系，组合键不可重复；API 依标签显示顺序回传。
+- `import_urgent_match_rule` 为旧版表。启动升级会把旧规则搬到系统加急标签后清空旧资料，但保留表与 `work_order.urgent` 供相容。
+- 启动升级也会为既有 `urgent=true` 工单补上系统加急关联；流程必须可重复执行且不可改变工单、片段、暂停或完成状态。
 
 ## 5. 状态与摘要
 
@@ -210,8 +212,8 @@ Spring Boot 同时提供 `/api/**` 与 Vue production build。
 | `GET` | `/api/settings/order-sources/{identifier}/deletion-impact` | 返回来源名称与受影响工单数 |
 | `DELETE` | `/api/settings/order-sources/{identifier}` | 删除来源及该来源全部暂停、片段与工单 |
 | `PUT` | `/api/settings/email-sender` | 保存 SMTP |
-| `GET` | `/api/settings/import-fields` | 读取系统/自定义字段别名与加急文字规则 |
-| `PUT` | `/api/settings/import-fields` | 以完整快照替换自定义字段别名与加急文字规则 |
+| `GET` | `/api/settings/import-fields` | 读取系统/自定义字段别名与备注标签定义/规则 |
+| `PUT` | `/api/settings/import-fields` | 以完整快照更新自定义字段、标签与匹配规则 |
 | `GET` | `/api/email-recipients` | 常用收件者 |
 | `POST` | `/api/email-recipients` | 手动新增，成功 201 |
 | `PUT` | `/api/email-recipients/{id}` | 手动编辑 |
@@ -233,7 +235,7 @@ Spring Boot 同时提供 `/api/**` 与 Vue production build。
 |---|---|
 | `orderNo` | 订单编号（繁/简）、`订单号` |
 | `price` | 订单价格、买家实付金额、价格、金额（繁/简）、`用户应付金额(元)` |
-| `urgent` | 加急、急件、备注标签（繁/简）、`包裹备注标记` |
+| `urgent` | 备注标签（繁/简）、`包裹备注标记` |
 | `buyerMessage` | 买家留言（繁/简）、`用户备注` |
 | `merchantRemark` | 商家备注（繁/简）、`包裹备注信息` |
 | `paidAt` | 订单付款时间、付款时间、支付时间的繁简别名；不得把订单/下单时间或日期映射到此字段 |
@@ -243,7 +245,7 @@ Spring Boot 同时提供 `/api/**` 与 Vue production build。
 
 订单来源与小红书：
 
-- 先以 `MultipartFile#getOriginalFilename()` 比对基础设置的所有订单来源名称与单字标签；包含任一项即命中，忽略英文字母大小写，且将 `小紅書` 正规化为 `小红书`。命中时保存该选项的 identifier、名称、标签颜色与文字。
+- 先以 `MultipartFile#getOriginalFilename()` 比对基础设置的所有订单来源名称与单字标签；包含任一项即命中，忽略英文字母大小写，且将 `小紅書` 正规化为 `小红书`。命中时保存该选项的内部 identifier、名称、标签颜色与文字。
 - 文件名同时命中多个设置来源时整份拒绝；没有命中时逐行以订单编号 fallback，`^P\d+$` 为 `XIAOHONGSHU`，其余为 `QIANNIU`。表头不再参与来源判断。
 - 小红书只处理 `订单状态 = 待配货`；其他状态在解析金额/期限前略过并累计 `skippedCount`。
 - 文件名已辨识为小红书且缺少 `订单状态` 时整份拒绝；小红书资料行的状态空白时记录逐行错误。
@@ -253,7 +255,8 @@ Spring Boot 同时提供 `/api/**` 与 Vue production build。
 
 - 订单编号不可空。
 - 价格去除逗号、`NT$`、`¥`、`￥`、`$`；允许 0，不允许负数。
-- 加急系统规则接受 `true/yes/y/1/是` 完全匹配，及包含「加急」「急件」；导入时另合并字段设置中的自定义完全/包含规则。
+- 备注标签匹配按 definition 的显示顺序执行；每个标签以自身名称及自定义「包含文字」进行忽略英文字母大小写的包含匹配，同一值可命中多个标签并去重，未知值回空标签清单。
+- 系统不再预置 `true/yes/y/1/是/急件` 等旧文字，也不再支持完全匹配；`urgent` boolean 必须由是否命中 systemKey `URGENT` 的标签推导。
 - `paidAt` 不接受订单时间、下单时间或下单日期的繁简别名；读取字段设置或导入快照时会删除数据库中遗留于 `PAID_AT` 的这些自定义别名，保存设置时也拒绝重新加入。
 - 备注按顺序组合：
   - `买家留言：...`
@@ -276,6 +279,8 @@ estimated_minutes = ceil(price / estimatedHourlyBaseAmount) × 60
 1. 商家备注中的发货/收到日期。
 2. 买家留言中的发货/收到日期。
 3. 最晚发货/应发货字段。
+
+XLSX 与手动新增必须共用上述优先级；手动表单的应发货时间仍必填并作为 fallback。
 
 备注解析：
 
@@ -490,7 +495,8 @@ orderSourceOptions = [{千牛, QIANNIU, #218BFF, 千}, {小红书, XIAOHONGSHU, 
 
 - 基础金额必须大于 0、整数部分最多 12 位且小数最多两位。
 - 周表开始时间必须为 `HH:mm` 的 30 分钟边界。
-- 订单来源选项为 1–20 个；名称 trim 后忽略大小写不可重复；identifier 为唯一的大写英数/下划线代码；颜色为六位十六进制；标签恰为一个 Unicode 字符。既有名称资料会自动补入这些 metadata。
+- 订单来源选项为 1–20 个；名称 trim 后忽略大小写不可重复。identifier 是隐藏的稳定内部 ID：既有合法值保留，新选项的空值由后端产生 `SRC_` 加 32 位大写十六进制 UID，客户端不可自行替换既有 ID。
+- 来源颜色保存为大写 `#RRGGBB`；标签单一文字只接受一个 Han 中文字或一个英文字母，不能使用数字、emoji 或多个字。读取既有无效 metadata 时会从来源名称取得第一个合法文字，名称中也没有时回退为「其」，使正规化后的 response 可原样再次保存。
 - 删除来源前可读取受影响工单数；实际删除必须至少保留一个来源，并依暂停、片段、工单、来源设置顺序在同一交易完成，涵盖 PENDING/SCHEDULED/DONE。
 - 初次读取若 singleton 不存在会写入默认值。
 - 旧资料的周表开始时间为空时会补 `06:00`。

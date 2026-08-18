@@ -29,8 +29,7 @@ public record UpdateAppSettingsRequest(
             @NotBlank(message = "订单来源名称不可为空")
             @Size(max = 80, message = "订单来源名称最长为 80 个字符")
             String name,
-            @NotBlank(message = "订单来源识别文字不可为空")
-            @Size(max = 40, message = "订单来源识别文字最长为 40 个字符")
+            @Size(max = 40, message = "订单来源内部编号最长为 40 个字符")
             String identifier,
             @NotBlank(message = "订单来源标签颜色不可为空")
             String badgeColor,

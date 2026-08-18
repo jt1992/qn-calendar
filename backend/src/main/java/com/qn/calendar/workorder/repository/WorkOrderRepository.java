@@ -30,13 +30,36 @@ public interface WorkOrderRepository extends JpaRepository<WorkOrder, Long> {
             @Param("legacySource") WorkOrderSource legacySource
     );
 
+    default int deleteBySourceIdentifier(String sourceCode, WorkOrderSource legacySource) {
+        deleteRemarkTagAssignmentsBySourceIdentifier(sourceCode, legacySource.name());
+        return deleteWorkOrdersBySourceIdentifier(sourceCode, legacySource);
+    }
+
+    @Modifying
+    @Query(
+            value = """
+                    delete from work_order_remark_tag
+                    where work_order_id in (
+                        select id
+                        from work_order
+                        where upper(source_code) = :sourceCode
+                           or source = :legacySource
+                    )
+                    """,
+            nativeQuery = true
+    )
+    int deleteRemarkTagAssignmentsBySourceIdentifier(
+            @Param("sourceCode") String sourceCode,
+            @Param("legacySource") String legacySource
+    );
+
     @Modifying
     @Query("""
             delete from WorkOrder workOrder
             where upper(workOrder.sourceCode) = :sourceCode
                or workOrder.source = :legacySource
             """)
-    int deleteBySourceIdentifier(
+    int deleteWorkOrdersBySourceIdentifier(
             @Param("sourceCode") String sourceCode,
             @Param("legacySource") WorkOrderSource legacySource
     );

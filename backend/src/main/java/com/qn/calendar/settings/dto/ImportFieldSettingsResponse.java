@@ -2,11 +2,9 @@ package com.qn.calendar.settings.dto;
 
 import java.util.List;
 
-import com.qn.calendar.settings.constant.ImportUrgentMatchType;
-
 public record ImportFieldSettingsResponse(
         List<FieldSettings> fields,
-        UrgentRules urgentRules
+        List<RemarkTagSettings> remarkTags
 ) {
 
     public record FieldSettings(
@@ -18,15 +16,12 @@ public record ImportFieldSettingsResponse(
     ) {
     }
 
-    public record UrgentRules(
-            List<UrgentRule> builtIn,
-            List<UrgentRule> custom
-    ) {
-    }
-
-    public record UrgentRule(
-            String text,
-            ImportUrgentMatchType matchType
+    public record RemarkTagSettings(
+            Long id,
+            String systemKey,
+            String name,
+            String color,
+            List<String> containsTexts
     ) {
     }
 }

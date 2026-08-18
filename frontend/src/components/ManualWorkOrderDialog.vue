@@ -351,7 +351,7 @@ function handleDateTimeKeydown(event) {
             v-model="form.urgentText"
             type="text"
             maxlength="120"
-            placeholder="按字段识别设置判断是否加急"
+            placeholder="包含标签名称或设置文字时自动匹配"
             :aria-describedby="errors.urgentText ? 'manual-urgent-text-error' : undefined"
             :aria-invalid="Boolean(errors.urgentText)"
             :disabled="submitting"

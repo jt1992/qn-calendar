@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
-import { Plus, Trash2, X } from '@lucide/vue'
+import { Save, X } from '@lucide/vue'
 import { useAppSettingsStore } from '../stores/appSettingsStore'
 
 const props = defineProps({
@@ -9,14 +9,22 @@ const props = defineProps({
     default: false
   }
 })
+
+const emit = defineEmits(['saved'])
 const settingsStore = useAppSettingsStore()
 const draftFields = ref([])
-const draftUrgentRules = ref([])
+const draftRemarkTags = ref([])
+const selectedRemarkTagIndex = ref(-1)
+const remarkTagInput = ref('')
+const remarkContainsTextInput = ref('')
 const aliasInputs = reactive({})
 const fieldErrors = reactive({})
-const urgentTextInput = ref('')
-const urgentMatchType = ref('EXACT')
-const urgentRuleError = ref('')
+const remarkTagOptionsError = ref('')
+const remarkTagEditorErrors = reactive({
+  name: '',
+  color: '',
+  containsText: ''
+})
 const actionError = ref('')
 const fieldNotices = reactive({})
 const fieldNoticeTimers = new Map()
@@ -24,6 +32,36 @@ const fieldNoticeTimers = new Map()
 const busy = computed(() =>
   settingsStore.importFieldSettingsLoading || settingsStore.importFieldSettingsSaving
 )
+const selectedRemarkTag = computed(() =>
+  draftRemarkTags.value[selectedRemarkTagIndex.value] || null
+)
+const selectedRemarkTagChanged = computed(() => {
+  const tag = selectedRemarkTag.value
+
+  if (!tag) {
+    return false
+  }
+
+  const savedTag = findSavedRemarkTag(tag)
+  if (!savedTag) {
+    return true
+  }
+
+  return trimmedRemarkTagName(tag.name) !== trimmedRemarkTagName(savedTag.name)
+    || normalizeHexColor(tag.color) !== normalizeHexColor(savedTag.color)
+    || !sameTextList(tag.containsTexts, savedTag.containsTexts)
+})
+const dirtyRemarkTagIndexes = computed(() => draftRemarkTags.value
+  .map((tag, index) => ({ tag, index }))
+  .filter(({ tag }) => {
+    const savedTag = findSavedRemarkTag(tag)
+
+    return !savedTag
+      || trimmedRemarkTagName(tag.name) !== trimmedRemarkTagName(savedTag.name)
+      || normalizeHexColor(tag.color) !== normalizeHexColor(savedTag.color)
+      || !sameTextList(tag.containsTexts, savedTag.containsTexts)
+  })
+  .map(({ index }) => index))
 
 watch(
   () => settingsStore.importFieldSettings,
@@ -44,6 +82,9 @@ onBeforeUnmount(clearFieldNotices)
 
 function resetDraft() {
   const settings = settingsStore.importFieldSettings || {}
+  const previouslySelectedTag = selectedRemarkTag.value
+    ? { ...selectedRemarkTag.value }
+    : null
 
   draftFields.value = (settings.fields || []).map((field) => ({
     ...field,
@@ -52,10 +93,17 @@ function resetDraft() {
     ),
     customAliases: [...(field.customAliases || [])]
   }))
-  draftUrgentRules.value = (settings.urgentRules?.custom || []).map((rule) => ({
-    text: rule.text,
-    matchType: rule.matchType
+  draftRemarkTags.value = (settings.remarkTags || []).map((tag) => ({
+    id: tag.id ?? null,
+    systemKey: tag.systemKey || null,
+    name: tag.name || '',
+    color: normalizeHexColor(tag.color || (tag.systemKey === 'URGENT' ? '#FF6F61' : '#3B82F6')),
+    containsTexts: cloneTextList(tag.containsTexts)
   }))
+
+  selectedRemarkTagIndex.value = previouslySelectedTag
+    ? draftRemarkTags.value.findIndex((tag) => sameRemarkTag(tag, previouslySelectedTag))
+    : -1
 
   Object.keys(aliasInputs).forEach((key) => delete aliasInputs[key])
   Object.keys(fieldErrors).forEach((key) => delete fieldErrors[key])
@@ -63,9 +111,9 @@ function resetDraft() {
     aliasInputs[field.key] = ''
     fieldErrors[field.key] = ''
   })
-  urgentTextInput.value = ''
-  urgentMatchType.value = 'EXACT'
-  urgentRuleError.value = ''
+  remarkTagInput.value = ''
+  remarkContainsTextInput.value = ''
+  clearRemarkTagErrors()
   actionError.value = ''
 }
 
@@ -73,13 +121,17 @@ function clearFeedback() {
   Object.keys(fieldErrors).forEach((key) => {
     fieldErrors[key] = ''
   })
-  urgentRuleError.value = ''
+  clearRemarkTagErrors()
   actionError.value = ''
   clearFieldNotices()
 }
 
 async function addAlias(field) {
   if (busy.value) {
+    return
+  }
+
+  if (!ensureRemarkTagDefinitionsSaved()) {
     return
   }
 
@@ -118,6 +170,10 @@ async function addAlias(field) {
 
 async function removeAlias(field, index) {
   if (busy.value) {
+    return
+  }
+
+  if (!ensureRemarkTagDefinitionsSaved()) {
     return
   }
 
@@ -165,57 +221,177 @@ function findAliasOwner(value) {
   return ''
 }
 
-async function addUrgentRule() {
+function addRemarkTag() {
   if (busy.value) {
     return
   }
 
-  const text = urgentTextInput.value.trim()
+  if (!ensureRemarkTagDefinitionsSaved()) {
+    return
+  }
+
+  const name = String(remarkTagInput.value || '').trim()
+
+  if (!name) {
+    remarkTagOptionsError.value = '标签名称不能为空。'
+    return
+  }
+
+  if (name.length > 80) {
+    remarkTagOptionsError.value = '标签名称最长为 80 个字符。'
+    return
+  }
+
+  if (findRemarkMatchOwner(name)) {
+    remarkTagOptionsError.value = '标签名称已作为标签名称或包含文字使用。'
+    return
+  }
+
+  draftRemarkTags.value.push({
+    id: null,
+    systemKey: null,
+    name,
+    color: '#3B82F6',
+    containsTexts: []
+  })
+  selectedRemarkTagIndex.value = draftRemarkTags.value.length - 1
+  remarkTagInput.value = ''
+  clearRemarkTagErrors()
+}
+
+async function removeRemarkTag(tag, index) {
+  if (busy.value || isProtectedRemarkTag(tag)) {
+    return
+  }
+
+  if (!ensureRemarkTagDefinitionsSaved(index)) {
+    return
+  }
+
+  if (!window.confirm(`是否删除备注标签「${tag.name}」？既有工单上的该标签也会一并移除。`)) {
+    return
+  }
+
+  draftRemarkTags.value.splice(index, 1)
+  if (selectedRemarkTagIndex.value === index) {
+    selectedRemarkTagIndex.value = -1
+  } else if (selectedRemarkTagIndex.value > index) {
+    selectedRemarkTagIndex.value -= 1
+  }
+
+  if (tag.id === null || tag.id === undefined) {
+    clearRemarkTagErrors()
+    return
+  }
+
+  if (await persistDraft(true)) {
+    setFieldNotice('urgent', `${tag.name}已删除`, 'danger')
+  }
+}
+
+function selectRemarkTag(index) {
+  if (index !== selectedRemarkTagIndex.value && !ensureRemarkTagDefinitionsSaved()) {
+    return
+  }
+
+  selectedRemarkTagIndex.value = index
+  clearRemarkTagErrors()
+}
+
+function handleRemarkTagInputFocus() {
+  selectedRemarkTagIndex.value = -1
+}
+
+function handleRemarkTagInputKeydown(event) {
+  if (event.key === 'Enter' || event.key === ',') {
+    event.preventDefault()
+    addRemarkTag()
+  }
+}
+
+async function saveRemarkTag() {
+  const tag = selectedRemarkTag.value
+
+  if (busy.value || !tag || !selectedRemarkTagChanged.value) {
+    return
+  }
+
+  if (await persistDraft(true)) {
+    setFieldNotice('urgent', `${tag.name}已保存`)
+  }
+}
+
+function addRemarkContainsText() {
+  const tag = selectedRemarkTag.value
+
+  if (busy.value || !tag) {
+    return
+  }
+
+  const text = remarkContainsTextInput.value.trim()
 
   if (!text) {
-    urgentRuleError.value = '表示加急的文字不能为空。'
+    remarkTagEditorErrors.containsText = '包含文字不能为空。'
     return
   }
 
-  if (allUrgentRules().some((rule) =>
-    normalizeUrgentText(rule.text) === normalizeUrgentText(text)
-  )) {
-    urgentRuleError.value = '该文字已经存在。'
+  if (text.length > 120) {
+    remarkTagEditorErrors.containsText = '包含文字最长为 120 个字符。'
     return
   }
 
-  draftUrgentRules.value.push({
-    text,
-    matchType: urgentMatchType.value
-  })
-  urgentRuleError.value = ''
-  const saved = await persistDraft()
+  if (findRemarkMatchOwner(text)) {
+    remarkTagEditorErrors.containsText = '该文字已作为标签名称或包含文字使用。'
+    return
+  }
 
-  if (saved) {
-    urgentTextInput.value = ''
-    setFieldNotice('urgent', `${text}已添加`)
-  } else {
-    urgentTextInput.value = text
+  tag.containsTexts.push(text)
+  remarkContainsTextInput.value = ''
+  remarkTagEditorErrors.containsText = ''
+}
+
+function removeRemarkContainsText(index) {
+  const tag = selectedRemarkTag.value
+
+  if (busy.value || !tag) {
+    return
+  }
+
+  tag.containsTexts.splice(index, 1)
+  remarkTagEditorErrors.containsText = ''
+}
+
+function handleRemarkContainsTextKeydown(event) {
+  if (event.key === 'Enter' || event.key === ',') {
+    event.preventDefault()
+    addRemarkContainsText()
+    return
+  }
+
+  const tag = selectedRemarkTag.value
+  if (event.key === 'Backspace'
+      && !remarkContainsTextInput.value
+      && tag?.containsTexts.length > 0) {
+    event.preventDefault()
+    removeRemarkContainsText(tag.containsTexts.length - 1)
   }
 }
 
-async function removeUrgentRule(index) {
-  if (busy.value) {
-    return
-  }
-
-  const rule = draftUrgentRules.value[index]
-  if (!window.confirm(`是否删除加急文字：${rule.text}？`)) {
-    return
-  }
-
-  draftUrgentRules.value.splice(index, 1)
-  if (await persistDraft()) {
-    setFieldNotice('urgent', `${rule.text}已删除`, 'danger')
+function updateRemarkTagColor(event) {
+  if (selectedRemarkTag.value) {
+    const digits = sanitizeHexDigits(event.target.value)
+    event.target.value = digits
+    selectedRemarkTag.value.color = `#${digits}`
   }
 }
 
-async function persistDraft() {
+function normalizeSelectedRemarkTagColor() {
+  if (selectedRemarkTag.value) {
+    selectedRemarkTag.value.color = normalizeHexColor(selectedRemarkTag.value.color)
+  }
+}
+
+async function persistDraft(refreshWorkOrders = false) {
   actionError.value = ''
 
   if (!validateDraft()) {
@@ -224,6 +400,9 @@ async function persistDraft() {
 
   try {
     await settingsStore.updateImportFieldSettings(currentPayload())
+    if (refreshWorkOrders) {
+      emit('saved')
+    }
     return true
   } catch (error) {
     const message = error.message
@@ -257,6 +436,11 @@ function validateDraft() {
   const aliases = new Map()
   let valid = true
 
+  Object.keys(fieldErrors).forEach((key) => {
+    fieldErrors[key] = ''
+  })
+  clearRemarkTagErrors()
+
   for (const field of draftFields.value) {
     for (const alias of [field.label, ...field.builtInAliases]) {
       const normalized = normalizeAlias(alias)
@@ -283,30 +467,85 @@ function validateDraft() {
     }
   }
 
-  const urgentTexts = new Set()
+  const matchTextOwners = new Map()
 
-  for (const rule of allUrgentRules()) {
-    const normalized = normalizeUrgentText(rule.text)
+  for (const [index, tag] of draftRemarkTags.value.entries()) {
+    const normalizedName = normalizeRemarkTagName(tag.name)
 
-    if (!normalized) {
-      urgentRuleError.value = '表示加急的文字不能为空。'
+    if (!normalizedName) {
+      selectInvalidRemarkTag(index, 'name', '标签名称不能为空。')
       valid = false
-    } else if (urgentTexts.has(normalized)) {
-      urgentRuleError.value = `文字“${rule.text}”重复。`
+    } else if (String(tag.name).trim().length > 80) {
+      selectInvalidRemarkTag(index, 'name', '标签名称最长为 80 个字符。')
+      valid = false
+    } else if (matchTextOwners.has(normalizedName)) {
+      selectInvalidRemarkTag(
+        index,
+        'name',
+        `标签名称“${tag.name}”已作为${matchTextOwners.get(normalizedName)}使用。`
+      )
       valid = false
     } else {
-      urgentTexts.add(normalized)
+      matchTextOwners.set(normalizedName, '标签名称')
+    }
+
+    if (!/^#[0-9A-F]{6}$/.test(normalizeHexColor(tag.color))) {
+      selectInvalidRemarkTag(index, 'color', '标签颜色须填写六位十六进制色码。')
+      valid = false
+    }
+
+    for (const text of tag.containsTexts) {
+      const normalizedText = normalizeRemarkText(text)
+
+      if (!normalizedText) {
+        selectInvalidRemarkTag(index, 'containsText', '包含文字不能为空。')
+        valid = false
+      } else if (String(text).trim().length > 120) {
+        selectInvalidRemarkTag(index, 'containsText', '包含文字最长为 120 个字符。')
+        valid = false
+      } else if (matchTextOwners.has(normalizedText)) {
+        selectInvalidRemarkTag(
+          index,
+          'containsText',
+          `包含文字“${text}”已作为${matchTextOwners.get(normalizedText)}使用。`
+        )
+        valid = false
+      } else {
+        matchTextOwners.set(normalizedText, '包含文字')
+      }
     }
   }
 
   return valid
 }
 
-function allUrgentRules() {
-  return [
-    ...(settingsStore.importFieldSettings.urgentRules?.builtIn || []),
-    ...draftUrgentRules.value
-  ]
+function selectInvalidRemarkTag(index, field, message) {
+  if (!remarkTagEditorErrors.name
+      && !remarkTagEditorErrors.color
+      && !remarkTagEditorErrors.containsText) {
+    selectedRemarkTagIndex.value = index
+    remarkTagEditorErrors[field] = message
+  }
+  remarkTagOptionsError.value ||= message
+}
+
+function findRemarkMatchOwner(value) {
+  const normalized = normalizeRemarkText(value)
+
+  for (const tag of draftRemarkTags.value) {
+    if (normalizeRemarkTagName(tag.name) === normalized) {
+      return `标签名称“${tag.name}”`
+    }
+
+    const containsText = tag.containsTexts.find((text) =>
+      normalizeRemarkText(text) === normalized
+    )
+    if (containsText) {
+      return `包含文字“${containsText}”`
+    }
+  }
+
+  return ''
 }
 
 function currentPayload() {
@@ -315,13 +554,60 @@ function currentPayload() {
       key: field.key,
       customAliases: [...field.customAliases]
     })),
-    urgentRules: {
-      custom: draftUrgentRules.value.map((rule) => ({
-        text: rule.text,
-        matchType: rule.matchType
-      }))
-    }
+    remarkTags: draftRemarkTags.value.map((tag) => ({
+      id: tag.id,
+      systemKey: tag.systemKey,
+      name: String(tag.name || '').trim(),
+      color: normalizeHexColor(tag.color),
+      containsTexts: cloneTextList(tag.containsTexts)
+    }))
   }
+}
+
+function findSavedRemarkTag(tag) {
+  const savedTags = settingsStore.importFieldSettings.remarkTags || []
+  if (tag.id !== null && tag.id !== undefined) {
+    return savedTags.find((savedTag) => String(savedTag.id) === String(tag.id))
+  }
+  if (tag.systemKey) {
+    return savedTags.find((savedTag) => savedTag.systemKey === tag.systemKey)
+  }
+  return null
+}
+
+function cloneTextList(values) {
+  return (values || []).map((value) => String(value || '').trim())
+}
+
+function sameTextList(left, right) {
+  const leftTexts = cloneTextList(left)
+  const rightTexts = cloneTextList(right)
+
+  return leftTexts.length === rightTexts.length
+    && leftTexts.every((text, index) => text === rightTexts[index])
+}
+
+function remarkTagIdentity(tag) {
+  if (!tag) {
+    return ''
+  }
+  if (tag.id !== null && tag.id !== undefined) {
+    return `id:${tag.id}`
+  }
+  if (tag.systemKey) {
+    return `system:${tag.systemKey}`
+  }
+  return `name:${normalizeRemarkTagName(tag.name)}`
+}
+
+function sameRemarkTag(left, right) {
+  if (left.id !== null && left.id !== undefined && right.id !== null && right.id !== undefined) {
+    return String(left.id) === String(right.id)
+  }
+  if (left.systemKey || right.systemKey) {
+    return Boolean(left.systemKey) && left.systemKey === right.systemKey
+  }
+  return normalizeRemarkTagName(left.name) === normalizeRemarkTagName(right.name)
 }
 
 function normalizeAlias(value) {
@@ -331,12 +617,64 @@ function normalizeAlias(value) {
     .replace(/[_\s-]/g, '')
 }
 
-function normalizeUrgentText(value) {
-  return String(value || '').trim().toLowerCase()
+function normalizeRemarkTagName(value) {
+  return trimmedRemarkTagName(value).toLocaleLowerCase('zh-CN')
 }
 
-function isUrgentField(field) {
+function trimmedRemarkTagName(value) {
+  return String(value || '').trim()
+}
+
+function normalizeRemarkText(value) {
+  return String(value || '').trim().toLocaleLowerCase('zh-CN')
+}
+
+function sanitizeHexDigits(value) {
+  return String(value || '')
+    .replace(/^#/, '')
+    .toUpperCase()
+    .replace(/[^0-9A-F]/g, '')
+    .slice(0, 6)
+}
+
+function normalizeHexColor(value) {
+  return `#${sanitizeHexDigits(value)}`
+}
+
+function hexColorDigits(value) {
+  return sanitizeHexDigits(value)
+}
+
+function pickerColor(value) {
+  const color = normalizeHexColor(value)
+  return /^#[0-9A-F]{6}$/.test(color) ? color : '#000000'
+}
+
+function clearRemarkTagErrors() {
+  remarkTagOptionsError.value = ''
+  remarkTagEditorErrors.name = ''
+  remarkTagEditorErrors.color = ''
+  remarkTagEditorErrors.containsText = ''
+}
+
+function ensureRemarkTagDefinitionsSaved(excludedIndex = -1) {
+  const dirtyIndex = dirtyRemarkTagIndexes.value.find((index) => index !== excludedIndex)
+
+  if (dirtyIndex === undefined) {
+    return true
+  }
+
+  selectedRemarkTagIndex.value = dirtyIndex
+  remarkTagOptionsError.value = '请先保存当前标签的名称、颜色和包含文字。'
+  return false
+}
+
+function isRemarkTagField(field) {
   return field.key === 'urgent'
+}
+
+function isProtectedRemarkTag(tag) {
+  return tag.systemKey === 'URGENT'
 }
 
 function fieldInputId(key) {
@@ -347,9 +685,6 @@ function fieldErrorId(key) {
   return `${fieldInputId(key)}-error`
 }
 
-function ruleTypeLabel(matchType) {
-  return matchType === 'CONTAINS' ? '包含文字' : '完全匹配'
-}
 </script>
 
 <template>
@@ -442,88 +777,182 @@ function ruleTypeLabel(matchType) {
           </small>
         </div>
 
-        <div v-if="isUrgentField(field)" class="urgent-rule-settings">
+        <div v-if="isRemarkTagField(field)" class="remark-tag-settings">
           <div class="import-alias-group">
-            <h4>表示加急的文字</h4>
-            <p>匹配备注标签字段的内容后，工单会使用红框并按加急顺序显示。</p>
-            <div class="import-chip-list">
+            <h4>备注标签选项</h4>
+            <p>匹配备注标签字段后，工单外框会使用第一项标签颜色；鼠标悬停时会依序显示全部标签名称。</p>
+            <div
+              class="recipient-tag-input remark-tag-input"
+              :class="{ invalid: remarkTagOptionsError }"
+              @click="$event.currentTarget.querySelector('input')?.focus()"
+            >
               <span
-                v-for="rule in settingsStore.importFieldSettings.urgentRules?.builtIn || []"
-                :key="`${rule.text}-${rule.matchType}`"
-                class="import-chip built-in"
+                v-for="(tag, index) in draftRemarkTags"
+                :key="remarkTagIdentity(tag)"
+                class="recipient-tag remark-tag-option-tag"
+                :class="{ active: selectedRemarkTagIndex === index }"
+                :style="{ '--remark-tag-color': pickerColor(tag.color) }"
               >
-                {{ rule.text }} · {{ ruleTypeLabel(rule.matchType) }}
-              </span>
-              <span
-                v-if="!(settingsStore.importFieldSettings.urgentRules?.builtIn || []).length"
-                class="import-chip-empty"
-              >
-                暂无系统规则
-              </span>
-            </div>
-          </div>
-
-          <div class="import-alias-group">
-            <h4>自定义加急文字</h4>
-            <div v-if="draftUrgentRules.length" class="import-chip-list">
-              <span
-                v-for="(rule, index) in draftUrgentRules"
-                :key="`${rule.text}-${rule.matchType}-${index}`"
-                class="import-chip custom"
-              >
-                <span>{{ rule.text }} · {{ ruleTypeLabel(rule.matchType) }}</span>
                 <button
                   type="button"
-                  :aria-label="`删除加急文字 ${rule.text}`"
+                  class="remark-tag-select-button"
+                  :aria-label="`编辑备注标签 ${tag.name}`"
                   :disabled="busy"
-                  @click="removeUrgentRule(index)"
+                  @click.stop="selectRemarkTag(index)"
                 >
-                  <Trash2 :size="13" aria-hidden="true" />
+                  <span>{{ tag.name }}</span>
+                </button>
+                <button
+                  v-if="!isProtectedRemarkTag(tag)"
+                  type="button"
+                  :aria-label="`删除备注标签 ${tag.name}`"
+                  :disabled="busy"
+                  @click.stop="removeRemarkTag(tag, index)"
+                >
+                  <X :size="13" aria-hidden="true" />
                 </button>
               </span>
-            </div>
-            <span v-else class="import-chip-empty">尚未添加</span>
-
-            <div class="import-add-row urgent-rule-add-row">
-              <label class="visually-hidden" for="urgent-rule-text">新增表示加急的文字</label>
+              <label class="visually-hidden" for="remark-tag-name-input">新增备注标签</label>
               <input
-                id="urgent-rule-text"
-                v-model="urgentTextInput"
+                id="remark-tag-name-input"
+                v-model="remarkTagInput"
+                class="recipient-tag-search"
                 type="text"
-                maxlength="120"
-                placeholder="例如：红旗"
-                :aria-describedby="urgentRuleError ? 'urgent-rule-error' : undefined"
-                :aria-invalid="Boolean(urgentRuleError)"
+                maxlength="80"
+                :placeholder="draftRemarkTags.length ? '继续添加' : '输入标签名称'"
+                :aria-describedby="remarkTagOptionsError ? 'remark-tag-options-error' : undefined"
+                :aria-invalid="Boolean(remarkTagOptionsError)"
                 :disabled="busy"
-                @keydown.enter.prevent="addUrgentRule"
+                @click="handleRemarkTagInputFocus"
+                @focus="handleRemarkTagInputFocus"
+                @keydown="handleRemarkTagInputKeydown"
               />
-              <label class="visually-hidden" for="urgent-rule-match-type">加急文字匹配方式</label>
-              <select id="urgent-rule-match-type" v-model="urgentMatchType" :disabled="busy">
-                <option value="EXACT">完全匹配</option>
-                <option value="CONTAINS">包含文字</option>
-              </select>
-              <button
-                class="icon-button"
-                type="button"
-                :disabled="busy"
-                @click="addUrgentRule"
-              >
-                <Plus :size="16" />
-                添加
-              </button>
             </div>
             <small
-              v-if="urgentRuleError"
-              id="urgent-rule-error"
+              v-if="remarkTagOptionsError"
+              id="remark-tag-options-error"
               class="form-field-error"
               role="alert"
             >
-              {{ urgentRuleError }}
+              {{ remarkTagOptionsError }}
             </small>
+          </div>
+
+          <div v-if="selectedRemarkTag" class="order-source-option-editor remark-tag-option-editor">
+            <label>
+              <span class="form-field-label">
+                标签名称
+                <span class="required-marker" aria-hidden="true">*</span>
+                <small v-if="remarkTagEditorErrors.name" class="form-field-error" role="alert">
+                  {{ remarkTagEditorErrors.name }}
+                </small>
+              </span>
+              <input
+                v-model="selectedRemarkTag.name"
+                type="text"
+                maxlength="80"
+                placeholder="例如 延后"
+                required
+                :aria-invalid="Boolean(remarkTagEditorErrors.name)"
+                :disabled="busy"
+              />
+            </label>
+
+            <label>
+              <span class="form-field-label">
+                标签颜色
+                <span class="required-marker" aria-hidden="true">*</span>
+                <small v-if="remarkTagEditorErrors.color" class="form-field-error" role="alert">
+                  {{ remarkTagEditorErrors.color }}
+                </small>
+              </span>
+              <span class="order-source-color-field">
+                <input
+                  :value="pickerColor(selectedRemarkTag.color)"
+                  type="color"
+                  :disabled="busy"
+                  aria-label="选择备注标签颜色"
+                  @input="selectedRemarkTag.color = $event.target.value.toUpperCase()"
+                />
+                <span class="hex-color-input">
+                  <span aria-hidden="true">#</span>
+                  <input
+                    :value="hexColorDigits(selectedRemarkTag.color)"
+                    type="text"
+                    maxlength="6"
+                    placeholder="FF6F61"
+                    aria-label="备注标签颜色十六进制值"
+                    required
+                    :aria-invalid="Boolean(remarkTagEditorErrors.color)"
+                    :disabled="busy"
+                    @input="updateRemarkTagColor"
+                    @blur="normalizeSelectedRemarkTagColor"
+                  />
+                </span>
+              </span>
+            </label>
+
+            <div class="remark-rule-editor">
+              <h4>包含文字</h4>
+              <div
+                class="recipient-tag-input remark-rule-tag-input"
+                :class="{ invalid: remarkTagEditorErrors.containsText }"
+                @click="$event.currentTarget.querySelector('input')?.focus()"
+              >
+                <span
+                  v-for="(text, index) in selectedRemarkTag.containsTexts"
+                  :key="`${text}-${index}`"
+                  class="recipient-tag import-alias-tag custom"
+                >
+                  <span>{{ text }}</span>
+                  <button
+                    type="button"
+                    :aria-label="`删除包含文字 ${text}`"
+                    :disabled="busy"
+                    @click.stop="removeRemarkContainsText(index)"
+                  >
+                    <X :size="13" aria-hidden="true" />
+                  </button>
+                </span>
+                <label class="visually-hidden" for="remark-contains-text">新增备注标签包含文字</label>
+                <input
+                  id="remark-contains-text"
+                  v-model="remarkContainsTextInput"
+                  class="recipient-tag-search"
+                  type="text"
+                  maxlength="120"
+                  placeholder="输入包含文字"
+                  :aria-describedby="remarkTagEditorErrors.containsText ? 'remark-contains-text-error' : undefined"
+                  :aria-invalid="Boolean(remarkTagEditorErrors.containsText)"
+                  :disabled="busy"
+                  @keydown="handleRemarkContainsTextKeydown"
+                />
+              </div>
+              <small
+                v-if="remarkTagEditorErrors.containsText"
+                id="remark-contains-text-error"
+                class="form-field-error"
+                role="alert"
+              >
+                {{ remarkTagEditorErrors.containsText }}
+              </small>
+            </div>
+
+            <div class="order-source-option-editor-actions">
+              <button
+                class="icon-button primary-action"
+                type="button"
+                :disabled="busy || !selectedRemarkTagChanged"
+                @click="saveRemarkTag"
+              >
+                <span v-if="settingsStore.importFieldSettingsSaving" class="loading-spinner" aria-hidden="true"></span>
+                <Save v-else :size="18" aria-hidden="true" />
+                {{ settingsStore.importFieldSettingsSaving ? '保存中' : '保存' }}
+              </button>
+            </div>
           </div>
         </div>
       </article>
     </div>
-
   </div>
 </template>

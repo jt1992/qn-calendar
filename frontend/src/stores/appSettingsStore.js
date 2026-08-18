@@ -35,10 +35,7 @@ export const useAppSettingsStore = defineStore('appSettings', {
     },
     importFieldSettings: {
       fields: [],
-      urgentRules: {
-        builtIn: [],
-        custom: []
-      }
+      remarkTags: []
     },
     emailRecipients: [],
     settingsLoaded: false,
