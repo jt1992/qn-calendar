@@ -1959,6 +1959,23 @@ select:disabled {
   padding-top: 10px;
 }
 
+.remark-rule-input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: stretch;
+  gap: 8px;
+  min-width: 0;
+}
+
+.remark-rule-input-row .order-source-option-editor-actions {
+  align-items: stretch;
+}
+
+.remark-rule-input-row .order-source-option-editor-actions .icon-button {
+  height: 100%;
+  min-height: 42px;
+}
+
 .form-field-label,
 .dialog .form-field-label {
   display: flex;
@@ -2157,6 +2174,24 @@ select:disabled {
 .dialog .month-picker-select.month-select {
   flex: 1;
   width: auto;
+}
+
+.app-shell select {
+  --select-inline-padding: 10px;
+  --select-arrow-size: 12px;
+
+  -webkit-appearance: none;
+  appearance: none;
+  padding-left: var(--select-inline-padding);
+  padding-right: calc(var(--select-inline-padding) + var(--select-arrow-size) + 4px);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' stroke='%23A4A39B' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right var(--select-inline-padding) center;
+  background-size: var(--select-arrow-size) var(--select-arrow-size);
+}
+
+.app-shell[data-theme="light"] select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' stroke='%23607080' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 
 .recipient-combobox {
