@@ -894,39 +894,53 @@ function fieldErrorId(key) {
 
             <div class="remark-rule-editor">
               <h4>包含文字</h4>
-              <div
-                class="recipient-tag-input remark-rule-tag-input"
-                :class="{ invalid: remarkTagEditorErrors.containsText }"
-                @click="$event.currentTarget.querySelector('input')?.focus()"
-              >
-                <span
-                  v-for="(text, index) in selectedRemarkTag.containsTexts"
-                  :key="`${text}-${index}`"
-                  class="recipient-tag import-alias-tag custom"
+              <div class="remark-rule-input-row">
+                <div
+                  class="recipient-tag-input remark-rule-tag-input"
+                  :class="{ invalid: remarkTagEditorErrors.containsText }"
+                  @click="$event.currentTarget.querySelector('input')?.focus()"
                 >
-                  <span>{{ text }}</span>
-                  <button
-                    type="button"
-                    :aria-label="`删除包含文字 ${text}`"
-                    :disabled="busy"
-                    @click.stop="removeRemarkContainsText(index)"
+                  <span
+                    v-for="(text, index) in selectedRemarkTag.containsTexts"
+                    :key="`${text}-${index}`"
+                    class="recipient-tag import-alias-tag custom"
                   >
-                    <X :size="13" aria-hidden="true" />
+                    <span>{{ text }}</span>
+                    <button
+                      type="button"
+                      :aria-label="`删除包含文字 ${text}`"
+                      :disabled="busy"
+                      @click.stop="removeRemarkContainsText(index)"
+                    >
+                      <X :size="13" aria-hidden="true" />
+                    </button>
+                  </span>
+                  <label class="visually-hidden" for="remark-contains-text">新增备注标签包含文字</label>
+                  <input
+                    id="remark-contains-text"
+                    v-model="remarkContainsTextInput"
+                    class="recipient-tag-search"
+                    type="text"
+                    maxlength="120"
+                    placeholder="输入包含文字"
+                    :aria-describedby="remarkTagEditorErrors.containsText ? 'remark-contains-text-error' : undefined"
+                    :aria-invalid="Boolean(remarkTagEditorErrors.containsText)"
+                    :disabled="busy"
+                    @keydown="handleRemarkContainsTextKeydown"
+                  />
+                </div>
+                <div class="order-source-option-editor-actions">
+                  <button
+                    class="icon-button primary-action"
+                    type="button"
+                    :disabled="busy || !selectedRemarkTagChanged"
+                    @click="saveRemarkTag"
+                  >
+                    <span v-if="settingsStore.importFieldSettingsSaving" class="loading-spinner" aria-hidden="true"></span>
+                    <Save v-else :size="18" aria-hidden="true" />
+                    {{ settingsStore.importFieldSettingsSaving ? '保存中' : '保存' }}
                   </button>
-                </span>
-                <label class="visually-hidden" for="remark-contains-text">新增备注标签包含文字</label>
-                <input
-                  id="remark-contains-text"
-                  v-model="remarkContainsTextInput"
-                  class="recipient-tag-search"
-                  type="text"
-                  maxlength="120"
-                  placeholder="输入包含文字"
-                  :aria-describedby="remarkTagEditorErrors.containsText ? 'remark-contains-text-error' : undefined"
-                  :aria-invalid="Boolean(remarkTagEditorErrors.containsText)"
-                  :disabled="busy"
-                  @keydown="handleRemarkContainsTextKeydown"
-                />
+                </div>
               </div>
               <small
                 v-if="remarkTagEditorErrors.containsText"
@@ -936,19 +950,6 @@ function fieldErrorId(key) {
               >
                 {{ remarkTagEditorErrors.containsText }}
               </small>
-            </div>
-
-            <div class="order-source-option-editor-actions">
-              <button
-                class="icon-button primary-action"
-                type="button"
-                :disabled="busy || !selectedRemarkTagChanged"
-                @click="saveRemarkTag"
-              >
-                <span v-if="settingsStore.importFieldSettingsSaving" class="loading-spinner" aria-hidden="true"></span>
-                <Save v-else :size="18" aria-hidden="true" />
-                {{ settingsStore.importFieldSettingsSaving ? '保存中' : '保存' }}
-              </button>
             </div>
           </div>
         </div>
