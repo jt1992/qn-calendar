@@ -847,7 +847,7 @@ class WorkOrderImportServiceTests {
                 )
         ));
         MockMultipartFile firstImport = xlsxWithRows(
-                List.of("订单编号", "订单价格", "应发货时间", "备注标签"),
+                List.of("订单编号", "买家实付金额", "应发货时间", "备注标签"),
                 List.of(List.of("TAG-XLSX-001", "100", "2026-08-30 16:39:54", "加急并延后"))
         );
 
@@ -877,7 +877,7 @@ class WorkOrderImportServiceTests {
         assertThat(manual.isUrgent()).isTrue();
 
         MockMultipartFile reimport = xlsxWithRows(
-                List.of("订单编号", "订单价格", "应发货时间", "备注标签"),
+                List.of("订单编号", "买家实付金额", "应发货时间", "备注标签"),
                 List.of(List.of("TAG-XLSX-001", "100", "2026-08-30 16:39:54", "普通"))
         );
         importService.importXlsx(reimport);
@@ -1273,8 +1273,8 @@ class WorkOrderImportServiceTests {
             Sheet sheet = workbook.createSheet("orders");
             Row header = sheet.createRow(0);
             header.createCell(0).setCellValue("订单编号");
-            header.createCell(1).setCellValue("订单价格");
-            header.createCell(2).setCellValue("最晚发货日期");
+            header.createCell(1).setCellValue("买家实付金额");
+            header.createCell(2).setCellValue("应发货时间");
 
             CreationHelper creationHelper = workbook.getCreationHelper();
             CellStyle dateStyle = workbook.createCellStyle();

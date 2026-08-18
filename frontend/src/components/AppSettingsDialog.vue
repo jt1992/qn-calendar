@@ -1349,7 +1349,7 @@ function securityLabel(value) {
                     @input="updateSelectedSourceBadgeText"
                   />
                 </label>
-                <div class="order-source-color-editor-field">
+                <label class="order-source-color-editor-field">
                   <span class="form-field-label">
                     标签颜色
                     <span class="required-marker" aria-hidden="true">*</span>
@@ -1386,7 +1386,7 @@ function securityLabel(value) {
                       />
                     </span>
                   </span>
-                </div>
+                </label>
                 <div class="order-source-option-editor-actions">
                   <button
                     class="icon-button primary-action"
