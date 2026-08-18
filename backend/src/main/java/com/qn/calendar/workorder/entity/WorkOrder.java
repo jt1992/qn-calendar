@@ -3,9 +3,12 @@ package com.qn.calendar.workorder.entity;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
+import com.qn.calendar.settings.entity.RemarkTagDefinition;
 import com.qn.calendar.workorder.constant.WorkOrderSource;
 import com.qn.calendar.workorder.constant.WorkOrderStatus;
 
@@ -17,7 +20,11 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.JoinTable;
+import jakarta.persistence.ManyToMany;
 import jakarta.persistence.OneToMany;
+import jakarta.persistence.OrderBy;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
@@ -98,6 +105,19 @@ public class WorkOrder {
 
     @OneToMany(mappedBy = "workOrder", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<WorkOrderSegment> segments = new ArrayList<>();
+
+    @ManyToMany(fetch = jakarta.persistence.FetchType.EAGER)
+    @JoinTable(
+            name = "work_order_remark_tag",
+            joinColumns = @JoinColumn(name = "work_order_id", nullable = false),
+            inverseJoinColumns = @JoinColumn(name = "remark_tag_id", nullable = false),
+            uniqueConstraints = @UniqueConstraint(
+                    name = "uk_work_order_remark_tag",
+                    columnNames = {"work_order_id", "remark_tag_id"}
+            )
+    )
+    @OrderBy("displayOrder ASC, id ASC")
+    private List<RemarkTagDefinition> remarkTags = new ArrayList<>();
 
     protected WorkOrder() {
     }
@@ -334,6 +354,21 @@ public class WorkOrder {
         this.sourceBadgeText = sourceBadgeText;
     }
 
+    public void replaceRemarkTags(List<RemarkTagDefinition> tags) {
+        Map<Long, RemarkTagDefinition> uniqueTags = new LinkedHashMap<>();
+        if (tags != null) {
+            for (RemarkTagDefinition tag : tags) {
+                if (tag != null && tag.getId() != null) {
+                    uniqueTags.putIfAbsent(tag.getId(), tag);
+                }
+            }
+        }
+        this.remarkTags.clear();
+        this.remarkTags.addAll(uniqueTags.values());
+        this.urgent = this.remarkTags.stream()
+                .anyMatch((tag) -> "URGENT".equals(tag.getSystemKey()));
+    }
+
     public Long getId() {
         return id;
     }
@@ -388,6 +423,10 @@ public class WorkOrder {
 
     public boolean isUrgent() {
         return urgent;
+    }
+
+    public List<RemarkTagDefinition> getRemarkTags() {
+        return List.copyOf(remarkTags);
     }
 
     public LocalDateTime getLatestShipTime() {

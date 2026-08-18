@@ -53,7 +53,7 @@
 | `src/components/WorkOrderCalendar.vue` | FullCalendar 配置与全部排程交互编排 |
 | `src/components/CompletedStatsTable.vue` | 完工统计表呈现与月份筛选 UI |
 | `src/components/AppSettingsDialog.vue` | 收件者、SMTP 寄件者、基础设置、字段识别设置四个 tab |
-| `src/components/ImportFieldSettingsPanel.vue` | XLSX 自定义字段别名与加急文字规则 |
+| `src/components/ImportFieldSettingsPanel.vue` | XLSX 自定义字段别名与多备注标签定义/匹配规则 |
 | `src/components/ScheduleEmailDialog.vue` | 收件人 tags、报表类型、日期/月与发送流程 |
 | `src/components/MonthPicker.vue` | 年/月双 select，可限制为实际存在月份 |
 | `src/components/HelpTooltip.vue` | 可复用、支持 hover/focus/Escape 的说明 tooltip |
@@ -130,7 +130,7 @@ API 日期时间以浏览器本机时间格式化为无 offset 的 `yyyy-MM-ddTH
 管理：
 
 - `settings`：基础设置与 `emailSender` 摘要。
-- `importFieldSettings`：七个 canonical 字段的系统/自定义别名与加急文字规则。
+- `importFieldSettings`：七个 canonical 字段的系统/自定义别名，以及有顺序的备注标签名称、颜色与匹配规则。
 - `emailRecipients`。
 - `settingsLoaded`。
 - settings/recipient 的 loading、saving、error。
@@ -224,6 +224,7 @@ lastUsedAt DESC → usageCount DESC → 姓名或 Email（zh-CN）
 - 删除只允许由卡片按钮触发，删除前确认，并提供 loading、disabled、accessible name。
 - 清单标题左侧显示笔数，右侧「新增待排工单」按钮打开表单；订单来源、订单编号、金额、期限必填且显示红色 `*`，建立后刷新待排清单。
 - 手动新增的订单来源选项读取自基础设置；待排与日历使用后端回传的来源单字标签，待排标签颜色也使用来源设置值。
+- 手动新增与 XLSX 共用期限解析优先级：商家备注日期 → 买家留言日期 → 必填应发货时间 fallback。
 - pointer 位移小于 6px 的短按会复制不含 `#` 的订单编号；拖拽不可触发复制。
 - 待排卡片 focus/hover 显示价格、工时、状态、最晚发货、备注 tooltip。
 - 聚焦待排工单时，周视图显示最晚发货红线。
@@ -234,7 +235,7 @@ lastUsedAt DESC → usageCount DESC → 姓名或 Email（zh-CN）
 2. `¥价格` 与工时控制。
 3. 红色时钟最晚发货时间与删除按钮。
 
-不显示「待排」状态标签，不重复显示「订单价格」文字。加急不显示「急」字，仍以红框及 tooltip `[加急]` 表示。
+不显示「待排」状态标签，不重复显示「订单价格」文字。备注标签不另加短文字标记；待排、周表与月表外框使用第一项标签颜色，tooltip/focus 依序显示 `[加急][延后]` 等名称。
 
 ## 9. FullCalendar 交互约束
 
@@ -297,9 +298,12 @@ lastUsedAt DESC → usageCount DESC → 姓名或 Email（zh-CN）
 - `work-order-selected`
 - `work-order-done`
 - `work-order-urgent`
+- `work-order-remark-tag`
 - `work-order-overdue`
 - `work-order-paused`
 - `work-order-pause-history-resize`
+
+`work-order-remark-tag` 使用第一个标签的动态色码；selected、DONE、overdue、paused 与 hover 必须在不吃掉标签色的情况下叠加反馈。
 
 ### 9.5 拖出日历
 
@@ -334,7 +338,10 @@ lastUsedAt DESC → usageCount DESC → 姓名或 Email（zh-CN）
 - 预估工时基础金额必填、大于 0、最多两位小数。
 - 周表默认开始时间只接受 `HH:00` 或 `HH:30`。
 - 基础金额与周表开始时间各自在 `change` 时通过 `PUT /api/settings` 自动保存；成功提示显示在对应字段标题右侧并于 5 秒后消失，不提供基础设置总保存按钮。
-- 订单来源选项使用横跨两栏的 InputTag，默认千牛、小红书；名称、identifier、标签色码与单字标签都必须显示红色 `*` 并通过既有校验。新增后自动聚焦 identifier；未填写 identifier 就重新聚焦添加输入框时，须确认是否放弃，确认后移除未保存标签，取消则重新聚焦 identifier。点击既有标签可编辑并使用编辑器内的保存按钮提交。支持 1–20 个名称/identifier 不重复的选项。
+- 订单来源选项使用横跨两栏的 InputTag，默认千牛、小红书；界面只编辑名称、标签色码与单字标签，不显示内部 identifier。名称 trim 后忽略大小写不可重复；新来源送空 identifier，由后端产生稳定 `SRC_<UID>`，既有来源把隐藏 identifier 原样送回以支援改名。
+- 订单来源 InputTag 的每个 chip 都以该来源的标签颜色渲染边框、底色、文字及互动状态，并在编辑颜色时即时更新。
+- 来源标签单一文字只接受一个 Han 中文字或一个英文字母。色码编辑器固定显示 `#` 前缀，文字框只接受最多六位 `0-9` / `A-F`，小写输入即时转大写；送 API 时组合成 `#RRGGBB`。
+- 点击既有来源标签可编辑并使用编辑器内的保存按钮提交，支持 1–20 个名称不重复的选项。
 - 删除已保存来源前通过后端读取受影响工单数；有工单时确认文案必须明确说明工单与排程会永久删除。确认后调用来源删除 API，并刷新待排、日历与完工统计；红色删除提示显示在订单来源字段标题右侧 5 秒。
 - 来源编辑保存成功后刷新待排清单、目前日历区间与完工统计，使来源名称、标签文字与颜色立即生效。
 - 设置 Dialog 宽度为 860px 上限；标题、四个 tab 与关闭按钮同一横排，tab 不换行，宽度不足时允许水平滚动并只在滚动期间显示滚动条。
@@ -343,13 +350,17 @@ lastUsedAt DESC → usageCount DESC → 姓名或 Email（zh-CN）
 
 - 每个字段以一份 InputTag「别名」清单显示；「别名」位于标准字段名右侧，预设别名在前且不可删除，自定义别名接在后方并提供删除按钮；输入后按 Enter 或逗号新增，自动保存成功后清空并继续聚焦同一输入框；输入为空时按 Backspace 可从最后一个自定义别名开始删除，但仍须经过删除确认。
 - 同一工作簿对同字段同时命中系统与自定义别名时，自定义别名优先；同类同时命中多个仍由后端拒绝。
-- 备注标签字段可维护完全匹配/包含文字两种加急规则；`红旗` 只作为输入范例，不是默认规则。
+- 备注标签字段使用类似订单来源的 InputTag 定义列表；系统只预置不可删除的 `URGENT` 标签，可改显示名称/颜色，并可新增或删除自定义标签。
+- 标签名称本身自动作包含匹配；其他「包含文字」使用 InputTag 草稿，按 Enter 或逗号加入，点删除或空值 Backspace 只修改草稿，并与标签名称、颜色通过同一个保存按钮提交。界面不显示系统匹配文字、匹配方式下拉或添加按钮。
+- 标签 chip 的边框、底色、文字与互动态均跟随标签色；一个栏位可命中多个标签，顺序依设置顺序，未知文字不产生标签。
+- 聚焦备注标签的「继续添加」输入框时收起当前标签编辑器。
+- 只有 systemKey `URGENT` 继续参与 `latestShipTime → urgent → createdAt` 排序；其他标签只改变外框与 tooltip，不改变期限规则。
 - alias trim、转小写并移除空白、`_`、`-` 后不可跨字段重复，也不可与系统别名冲突。
 - 订单付款时间不得显示或新增订单时间、下单时间、下单日期的繁简别名。
-- 新增或确认删除别名、加急文字后立即以完整七字段快照自动保存；失败时回滚 draft 并显示错误，不提供额外保存按钮。
+- 新增或确认删除别名时自动保存完整七字段/标签快照；新增、编辑或删除标签以及增删包含文字都只修改本地 draft，并由标签编辑器的保存按钮统一提交，失败时回滚 draft 并显示错误。
 - 自动保存成功提示显示在对应「别名」文字右侧，内容为具体项目已添加或已删除，并在 5 秒后消失。
-- 删除别名的确认文案必须指出字段与别名；删除加急文字也必须指出文字内容。
-- 自定义字段名与加急文字最长 120 字；字段错误就近显示。
+- 删除别名的确认文案必须指出字段与别名；删除已保存的自定义标签也必须指出具体内容。包含文字的删除只修改本地 draft，不另行确认。
+- 自定义字段名与标签包含文字最长 120 字；字段错误就近显示。
 
 SMTP：
 

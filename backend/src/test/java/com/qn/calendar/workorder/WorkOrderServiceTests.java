@@ -7,7 +7,9 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 
+import com.qn.calendar.settings.repository.RemarkTagDefinitionRepository;
 import com.qn.calendar.workorder.constant.WorkOrderSource;
 import com.qn.calendar.workorder.constant.WorkOrderStatus;
 import com.qn.calendar.workorder.dto.ScheduleWorkOrderRequest;
@@ -45,6 +47,9 @@ class WorkOrderServiceTests {
 
     @Autowired
     private WorkOrderSegmentPauseRepository pauseRepository;
+
+    @Autowired
+    private RemarkTagDefinitionRepository remarkTagRepository;
 
     @Autowired
     private Clock clock;
@@ -100,6 +105,47 @@ class WorkOrderServiceTests {
         )).singleElement().satisfies((segment) -> {
             assertThat(segment.orderNo()).isEqualTo("P802335189951019482");
             assertThat(segment.source()).isEqualTo(WorkOrderSource.XIAOHONGSHU);
+        });
+    }
+
+    @Test
+    void pendingAndCalendarResponsesIncludeRemarkTagMetadata() {
+        var urgentTag = remarkTagRepository.findBySystemKey("URGENT").orElseThrow();
+        WorkOrder workOrder = order(
+                "ORD-REMARK-TAG-RESPONSE",
+                false,
+                LocalDateTime.of(2026, 8, 30, 18, 0)
+        );
+        workOrder.replaceRemarkTags(List.of(urgentTag));
+        workOrder = repository.save(workOrder);
+
+        assertThat(service.getPendingWorkOrders()).singleElement().satisfies((pending) -> {
+            assertThat(pending.urgent()).isTrue();
+            assertThat(pending.remarkTags()).singleElement().satisfies((tag) -> {
+                assertThat(tag.systemKey()).isEqualTo("URGENT");
+                assertThat(tag.name()).isEqualTo("加急");
+                assertThat(tag.color()).isEqualTo("#FF6F61");
+            });
+        });
+
+        scheduleService.schedule(
+                workOrder.getId(),
+                new ScheduleWorkOrderRequest(
+                        LocalDateTime.of(2026, 8, 20, 13, 0),
+                        LocalDateTime.of(2026, 8, 20, 14, 0)
+                )
+        );
+
+        assertThat(service.getCalendarWorkOrders(
+                LocalDate.of(2026, 8, 20),
+                LocalDate.of(2026, 8, 20)
+        )).singleElement().satisfies((segment) -> {
+            assertThat(segment.urgent()).isTrue();
+            assertThat(segment.remarkTags()).singleElement().satisfies((tag) -> {
+                assertThat(tag.systemKey()).isEqualTo("URGENT");
+                assertThat(tag.name()).isEqualTo("加急");
+                assertThat(tag.color()).isEqualTo("#FF6F61");
+            });
         });
     }
 

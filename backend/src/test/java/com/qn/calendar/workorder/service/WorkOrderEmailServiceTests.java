@@ -560,6 +560,7 @@ class WorkOrderEmailServiceTests {
                 minutes,
                 minutes,
                 false,
+                List.of(),
                 scheduledEnd.plusDays(1),
                 status,
                 scheduledStart,

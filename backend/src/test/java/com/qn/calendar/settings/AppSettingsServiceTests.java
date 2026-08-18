@@ -13,8 +13,10 @@ import com.qn.calendar.settings.dto.UpdateEmailSenderSettingsRequest;
 import com.qn.calendar.settings.dto.UpdateAppSettingsRequest;
 import com.qn.calendar.settings.dto.UpdateAppSettingsRequest.OrderSourceOptionRequest;
 import com.qn.calendar.settings.entity.AppSetting;
+import com.qn.calendar.settings.entity.OrderSourceOption;
 import com.qn.calendar.settings.repository.AppSettingRepository;
 import com.qn.calendar.settings.service.AppSettingsService;
+import com.qn.calendar.settings.service.ImportFieldSettingsService;
 import com.qn.calendar.workorder.constant.WorkOrderSource;
 import com.qn.calendar.workorder.entity.WorkOrder;
 import com.qn.calendar.workorder.entity.WorkOrderSegment;
@@ -33,6 +35,9 @@ class AppSettingsServiceTests {
 
     @Autowired
     private AppSettingsService service;
+
+    @Autowired
+    private ImportFieldSettingsService importFieldSettingsService;
 
     @Autowired
     private AppSettingRepository repository;
@@ -62,6 +67,8 @@ class AppSettingsServiceTests {
         assertThat(settings.weekViewDefaultStartTime()).isEqualTo(LocalTime.of(6, 0));
         assertThat(settings.orderSourceOptions()).extracting((option) -> option.name())
                 .containsExactly("千牛", "小红书");
+        assertThat(settings.orderSourceOptions()).extracting((option) -> option.identifier())
+                .containsExactly("QIANNIU", "XIAOHONGSHU");
         assertThat(settings.emailSender().configured()).isFalse();
         assertThat(repository.findAll()).hasSize(1);
         assertThat(repository.findAll().getFirst().getEstimatedHourlyBaseAmount()).isEqualByComparingTo("100");
@@ -69,13 +76,13 @@ class AppSettingsServiceTests {
 
     @Test
     void updateSettingsPersistsBaseAmountForLaterReads() {
-        service.updateSettings(new UpdateAppSettingsRequest(
+        var updatedSettings = service.updateSettings(new UpdateAppSettingsRequest(
                 BigDecimal.valueOf(150),
                 LocalTime.of(8, 30),
                 List.of(
                         source(" 千牛 ", "QIANNIU", "#218BFF", "千"),
                         source("小红书", "XIAOHONGSHU", "#FF5C5C", "书"),
-                        source("抖音", "DOUYIN", "#00AA66", "抖")
+                        source("抖音", null, "#00aa66", "d")
                 )
         ));
 
@@ -86,6 +93,10 @@ class AppSettingsServiceTests {
         assertThat(service.getEstimatedHourlyBaseAmount()).isEqualByComparingTo("150");
         assertThat(service.getOrderSourceOptions()).extracting((option) -> option.getName())
                 .containsExactly("千牛", "小红书", "抖音");
+        assertThat(updatedSettings.orderSourceOptions().get(2).identifier())
+                .matches("SRC_[0-9A-F]{32}");
+        assertThat(updatedSettings.orderSourceOptions().get(2).badgeColor()).isEqualTo("#00AA66");
+        assertThat(updatedSettings.orderSourceOptions().get(2).badgeText()).isEqualTo("d");
     }
 
     @Test
@@ -113,17 +124,52 @@ class AppSettingsServiceTests {
     }
 
     @Test
+    void getSettingsNormalizesLegacyBadgeTextAndCanSaveTheResponseUnchanged() {
+        AppSetting appSetting = new AppSetting(1L, BigDecimal.valueOf(100), LocalTime.of(6, 0));
+        appSetting.updateBasicSettings(
+                BigDecimal.valueOf(100),
+                LocalTime.of(6, 0),
+                List.of(
+                        new OrderSourceOption("123抖音", "DOUYIN", "#00AA66", "1"),
+                        new OrderSourceOption("🎉Shop", "SHOP", "#112233", "🔥"),
+                        new OrderSourceOption("12345", "NUMERIC", "#445566", "9")
+                )
+        );
+        repository.save(appSetting);
+
+        var normalized = service.getSettings();
+
+        assertThat(normalized.orderSourceOptions()).extracting((option) -> option.badgeText())
+                .containsExactly("抖", "S", "其");
+
+        var saved = service.updateSettings(new UpdateAppSettingsRequest(
+                normalized.estimatedHourlyBaseAmount(),
+                normalized.weekViewDefaultStartTime(),
+                normalized.orderSourceOptions().stream()
+                        .map((option) -> source(
+                                option.name(),
+                                option.identifier(),
+                                option.badgeColor(),
+                                option.badgeText()
+                        ))
+                        .toList()
+        ));
+
+        assertThat(saved.orderSourceOptions()).isEqualTo(normalized.orderSourceOptions());
+    }
+
+    @Test
     void updateSettingsRejectsDuplicateOrderSourceOptionsIgnoringCase() {
         assertThatThrownBy(() -> service.updateSettings(new UpdateAppSettingsRequest(
                 BigDecimal.valueOf(100),
                 LocalTime.of(6, 0),
                 List.of(
-                        source("Shop", "SHOP", "#112233", "S"),
-                        source(" shop ", "SHOP_2", "#445566", "店")
+                        source("Shop", "QIANNIU", "#112233", "S"),
+                        source(" shop ", "XIAOHONGSHU", "#445566", "店")
                 )
         )))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("订单来源选项不可重复");
+                .hasMessage("订单来源名称不可重复");
     }
 
     @Test
@@ -143,12 +189,12 @@ class AppSettingsServiceTests {
                 BigDecimal.valueOf(100),
                 LocalTime.of(6, 0),
                 List.of(
-                        source("抖音", "DOUYIN", "#112233", "抖"),
-                        source("快手", " douyin ", "#445566", "快")
+                        source("千牛", "QIANNIU", "#112233", "千"),
+                        source("快手", " qianniu ", "#445566", "快")
                 )
         )))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("订单来源识别文字不可重复");
+                .hasMessage("订单来源内部编号不可重复");
     }
 
     @Test
@@ -156,10 +202,87 @@ class AppSettingsServiceTests {
         assertThatThrownBy(() -> service.updateSettings(new UpdateAppSettingsRequest(
                 BigDecimal.valueOf(100),
                 LocalTime.of(6, 0),
-                List.of(source("抖音", "DOUYIN", "red", "抖音"))
+                List.of(source("千牛", "QIANNIU", "red", "抖音"))
         )))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("订单来源标签颜色必须是六位十六进制色码");
+    }
+
+    @Test
+    void updateSettingsGeneratesStableIdentifierForNewOrderSource() {
+        var created = service.updateSettings(new UpdateAppSettingsRequest(
+                BigDecimal.valueOf(100),
+                LocalTime.of(6, 0),
+                List.of(
+                        source("千牛", "QIANNIU", "#218BFF", "千"),
+                        source("直播", "  ", "#abcdef", "Z")
+                )
+        ));
+        String generatedIdentifier = created.orderSourceOptions().get(1).identifier();
+
+        var renamed = service.updateSettings(new UpdateAppSettingsRequest(
+                BigDecimal.valueOf(100),
+                LocalTime.of(6, 0),
+                List.of(
+                        source("千牛", "QIANNIU", "#218BFF", "千"),
+                        source("直播商城", generatedIdentifier, "#ABCDEF", "商")
+                )
+        ));
+
+        assertThat(generatedIdentifier).matches("SRC_[0-9A-F]{32}");
+        assertThat(renamed.orderSourceOptions().get(1).identifier()).isEqualTo(generatedIdentifier);
+        assertThat(renamed.orderSourceOptions().get(1).name()).isEqualTo("直播商城");
+        assertThat(service.getSettings().orderSourceOptions().get(1).identifier()).isEqualTo(generatedIdentifier);
+    }
+
+    @Test
+    void updateSettingsRejectsUnknownClientProvidedIdentifier() {
+        assertThatThrownBy(() -> service.updateSettings(new UpdateAppSettingsRequest(
+                BigDecimal.valueOf(100),
+                LocalTime.of(6, 0),
+                List.of(source("抖音", "DOUYIN", "#00AA66", "抖"))
+        )))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("订单来源内部编号无效，请重新载入设置后再试");
+    }
+
+    @Test
+    void updateSettingsKeepsExistingLegacyIdentifier() {
+        AppSetting appSetting = new AppSetting(1L, BigDecimal.valueOf(100), LocalTime.of(6, 0));
+        appSetting.updateBasicSettings(
+                BigDecimal.valueOf(100),
+                LocalTime.of(6, 0),
+                List.of(
+                        new OrderSourceOption("千牛", "QIANNIU", "#218BFF", "千"),
+                        new OrderSourceOption("抖音", "DOUYIN", "#00AA66", "抖")
+                )
+        );
+        repository.save(appSetting);
+
+        var updated = service.updateSettings(new UpdateAppSettingsRequest(
+                BigDecimal.valueOf(100),
+                LocalTime.of(6, 0),
+                List.of(
+                        source("千牛", "QIANNIU", "#218BFF", "千"),
+                        source("抖音商城", "DOUYIN", "#00AA66", "抖")
+                )
+        ));
+
+        assertThat(updated.orderSourceOptions().get(1).identifier()).isEqualTo("DOUYIN");
+        assertThat(updated.orderSourceOptions().get(1).name()).isEqualTo("抖音商城");
+    }
+
+    @Test
+    void updateSettingsRejectsBadgeTextOutsideOneHanOrEnglishLetter() {
+        for (String invalidBadgeText : List.of("1", "急件", "🔥")) {
+            assertThatThrownBy(() -> service.updateSettings(new UpdateAppSettingsRequest(
+                    BigDecimal.valueOf(100),
+                    LocalTime.of(6, 0),
+                    List.of(source("千牛", "QIANNIU", "#218BFF", invalidBadgeText))
+            )))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessage("订单来源标签单一文字只能填写一个中文字符或英文字母");
+        }
     }
 
     @Test
@@ -193,15 +316,16 @@ class AppSettingsServiceTests {
 
     @Test
     void deleteOrderSourceReportsImpactAndDeletesItsWorkOrdersAndScheduleRecords() {
-        service.updateSettings(new UpdateAppSettingsRequest(
+        var updatedSettings = service.updateSettings(new UpdateAppSettingsRequest(
                 BigDecimal.valueOf(100),
                 LocalTime.of(6, 0),
                 List.of(
                         source("千牛", "QIANNIU", "#218BFF", "千"),
-                        source("抖音", "DOUYIN", "#00AA66", "抖")
+                        source("抖音", null, "#00AA66", "抖")
                 )
         ));
-        WorkOrder douyinOrder = workOrderRepository.save(new WorkOrder(
+        String douyinIdentifier = updatedSettings.orderSourceOptions().get(1).identifier();
+        WorkOrder douyinOrder = new WorkOrder(
                 "DOUYIN-DELETE-1",
                 null,
                 "无任何备注",
@@ -211,11 +335,14 @@ class AppSettingsServiceTests {
                 LocalDateTime.of(2026, 9, 1, 18, 0),
                 null,
                 WorkOrderSource.CUSTOM,
-                "DOUYIN",
+                douyinIdentifier,
                 "抖音",
                 "#00AA66",
                 "抖"
-        ));
+        );
+        Long urgentTagId = importFieldSettingsService.getSettings().remarkTags().getFirst().id();
+        douyinOrder.replaceRemarkTags(importFieldSettingsService.findRemarkTagsByIds(List.of(urgentTagId)));
+        douyinOrder = workOrderRepository.save(douyinOrder);
         WorkOrder retainedOrder = workOrderRepository.save(new WorkOrder(
                 "QIANNIU-RETAIN-1",
                 null,
@@ -237,13 +364,13 @@ class AppSettingsServiceTests {
                 LocalDateTime.of(2026, 8, 30, 11, 0)
         ));
 
-        var impact = service.getOrderSourceDeletionImpact("douyin");
+        var impact = service.getOrderSourceDeletionImpact(douyinIdentifier.toLowerCase());
 
-        assertThat(impact.identifier()).isEqualTo("DOUYIN");
+        assertThat(impact.identifier()).isEqualTo(douyinIdentifier);
         assertThat(impact.name()).isEqualTo("抖音");
         assertThat(impact.workOrderCount()).isEqualTo(1);
 
-        var result = service.deleteOrderSource("douyin");
+        var result = service.deleteOrderSource(douyinIdentifier.toLowerCase());
 
         assertThat(result.deletedWorkOrderCount()).isEqualTo(1);
         assertThat(result.settings().orderSourceOptions()).extracting((option) -> option.identifier())

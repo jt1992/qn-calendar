@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -44,6 +45,7 @@ public class AppSettingsService {
     );
     private static final Pattern SOURCE_IDENTIFIER_PATTERN = Pattern.compile("[A-Z][A-Z0-9_]{0,39}");
     private static final Pattern BADGE_COLOR_PATTERN = Pattern.compile("#[0-9A-F]{6}");
+    private static final Pattern BADGE_TEXT_PATTERN = Pattern.compile("(?:\\p{IsHan}|[A-Za-z])");
 
     private final AppSettingRepository repository;
     private final WorkOrderRepository workOrderRepository;
@@ -105,14 +107,11 @@ public class AppSettingsService {
     public AppSettingsResponse updateSettings(UpdateAppSettingsRequest request) {
         validateEstimatedHourlyBaseAmount(request.estimatedHourlyBaseAmount());
         validateWeekViewDefaultStartTime(request.weekViewDefaultStartTime());
-        List<OrderSourceOption> orderSourceOptions = normalizeOrderSourceOptions(request.orderSourceOptions());
-
-        AppSetting appSetting = repository.findById(APP_SETTING_ID)
-                .orElseGet(() -> new AppSetting(
-                        APP_SETTING_ID,
-                        DEFAULT_ESTIMATED_HOURLY_BASE_AMOUNT,
-                        DEFAULT_WEEK_VIEW_START_TIME
-                ));
+        AppSetting appSetting = getOrCreateSettings();
+        List<OrderSourceOption> orderSourceOptions = normalizeOrderSourceOptions(
+                request.orderSourceOptions(),
+                appSetting.getOrderSourceOptions()
+        );
 
         appSetting.updateBasicSettings(
                 request.estimatedHourlyBaseAmount(),
@@ -270,7 +269,8 @@ public class AppSettingsService {
     }
 
     private List<OrderSourceOption> normalizeOrderSourceOptions(
-            List<UpdateAppSettingsRequest.OrderSourceOptionRequest> orderSourceOptions
+            List<UpdateAppSettingsRequest.OrderSourceOptionRequest> orderSourceOptions,
+            List<OrderSourceOption> currentOrderSourceOptions
     ) {
         if (orderSourceOptions == null || orderSourceOptions.isEmpty()) {
             throw new IllegalArgumentException("请至少保留一个订单来源选项");
@@ -281,6 +281,10 @@ public class AppSettingsService {
 
         List<OrderSourceOption> normalizedOptions = new ArrayList<>();
         Set<String> normalizedNames = new HashSet<>();
+        Set<String> currentIdentifiers = currentOrderSourceOptions.stream()
+                .map(OrderSourceOption::getIdentifier)
+                .map(this::normalizeIdentifier)
+                .collect(Collectors.toSet());
         Set<String> identifiers = new HashSet<>();
 
         for (UpdateAppSettingsRequest.OrderSourceOptionRequest option : orderSourceOptions) {
@@ -288,7 +292,7 @@ public class AppSettingsService {
                 throw new IllegalArgumentException("订单来源选项不可为空");
             }
             String name = trim(option.name());
-            String identifier = trim(option.identifier()).toUpperCase(Locale.ROOT);
+            String identifier = normalizeIdentifier(option.identifier());
             String badgeColor = trim(option.badgeColor()).toUpperCase(Locale.ROOT);
             String badgeText = trim(option.badgeText());
             if (!hasText(name)) {
@@ -298,24 +302,41 @@ public class AppSettingsService {
                 throw new IllegalArgumentException("订单来源名称最长为 80 个字符");
             }
             if (!normalizedNames.add(name.toLowerCase(Locale.ROOT))) {
-                throw new IllegalArgumentException("订单来源选项不可重复");
+                throw new IllegalArgumentException("订单来源名称不可重复");
             }
-            if (!SOURCE_IDENTIFIER_PATTERN.matcher(identifier).matches()) {
-                throw new IllegalArgumentException("识别文字必须以英文字母开头，且只能使用大写英文字母、数字或下划线");
+            if (!hasText(identifier)) {
+                identifier = generateSourceIdentifier(currentIdentifiers, identifiers);
+            } else if (!currentIdentifiers.contains(identifier)) {
+                throw new IllegalArgumentException("订单来源内部编号无效，请重新载入设置后再试");
             }
             if (!identifiers.add(identifier)) {
-                throw new IllegalArgumentException("订单来源识别文字不可重复");
+                throw new IllegalArgumentException("订单来源内部编号不可重复");
             }
             if (!BADGE_COLOR_PATTERN.matcher(badgeColor).matches()) {
                 throw new IllegalArgumentException("订单来源标签颜色必须是六位十六进制色码");
             }
-            if (badgeText.codePointCount(0, badgeText.length()) != 1) {
-                throw new IllegalArgumentException("订单来源标签文字必须是单一文字");
+            if (!BADGE_TEXT_PATTERN.matcher(badgeText).matches()) {
+                throw new IllegalArgumentException("订单来源标签单一文字只能填写一个中文字符或英文字母");
             }
             normalizedOptions.add(new OrderSourceOption(name, identifier, badgeColor, badgeText));
         }
 
         return List.copyOf(normalizedOptions);
+    }
+
+    private String normalizeIdentifier(String identifier) {
+        return trim(identifier).toUpperCase(Locale.ROOT);
+    }
+
+    private String generateSourceIdentifier(
+            Set<String> currentIdentifiers,
+            Set<String> requestedIdentifiers
+    ) {
+        String identifier;
+        do {
+            identifier = "SRC_" + UUID.randomUUID().toString().replace("-", "").toUpperCase(Locale.ROOT);
+        } while (currentIdentifiers.contains(identifier) || requestedIdentifiers.contains(identifier));
+        return identifier;
     }
 
     private List<OrderSourceOption> normalizeStoredOrderSourceOptions(List<OrderSourceOption> options) {
@@ -340,8 +361,8 @@ public class AppSettingsService {
             if (!BADGE_COLOR_PATTERN.matcher(badgeColor).matches()) {
                 badgeColor = defaultBadgeColor(name);
             }
-            if (badgeText.codePointCount(0, badgeText.length()) != 1) {
-                badgeText = firstCharacter(name);
+            if (!BADGE_TEXT_PATTERN.matcher(badgeText).matches()) {
+                badgeText = firstBadgeCharacter(name);
             }
 
             normalized.add(new OrderSourceOption(name, identifier, badgeColor, badgeText));
@@ -405,12 +426,9 @@ public class AppSettingsService {
         return DEFAULT_BADGE_COLOR;
     }
 
-    private String firstCharacter(String value) {
-        if (!hasText(value)) {
-            return "其";
-        }
-        int endIndex = value.offsetByCodePoints(0, 1);
-        return value.substring(0, endIndex);
+    private String firstBadgeCharacter(String value) {
+        var matcher = BADGE_TEXT_PATTERN.matcher(value);
+        return matcher.find() ? matcher.group() : "其";
     }
 
     private void validateEmailSenderSettings(

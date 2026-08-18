@@ -584,8 +584,15 @@ select:disabled {
   border-color: var(--primary);
 }
 
-.pending-order-card.urgent {
+.pending-order-card.urgent:not(.has-remark-tag) {
   border-color: var(--danger);
+}
+
+.pending-order-card.has-remark-tag,
+.pending-order-card.has-remark-tag:hover,
+.pending-order-card.has-remark-tag:focus-visible {
+  border-color: var(--remark-tag-color);
+  border-left-width: 4px;
 }
 
 .order-line,
@@ -1587,12 +1594,24 @@ select:disabled {
   gap: 6px;
 }
 
-.order-source-option-tag {
+.recipient-tag.order-source-option-tag {
+  border-color: var(--order-source-color);
+  border-left-width: 4px;
+  background: color-mix(in srgb, var(--order-source-color) 18%, var(--surface));
+  color: color-mix(in srgb, var(--order-source-color) 72%, var(--text));
   cursor: pointer;
 }
 
-.order-source-option-tag.active {
-  box-shadow: 0 0 0 2px var(--primary-soft);
+.recipient-tag.order-source-option-tag.active {
+  border-color: var(--order-source-color);
+  background: color-mix(in srgb, var(--order-source-color) 26%, var(--surface));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--order-source-color) 24%, transparent);
+}
+
+.recipient-tag.order-source-option-tag button:hover:not(:disabled),
+.recipient-tag.order-source-option-tag button:focus-visible {
+  background: color-mix(in srgb, var(--order-source-color) 26%, transparent);
+  color: inherit;
 }
 
 .order-source-option-editor {
@@ -1617,9 +1636,47 @@ select:disabled {
   gap: 8px;
 }
 
+.order-source-color-editor-field {
+  grid-column: 1 / -1;
+}
+
 .dialog .order-source-color-field input[type="color"] {
   width: 46px;
   padding: 4px;
+}
+
+.hex-color-input {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--muted);
+  overflow: hidden;
+}
+
+.hex-color-input > span {
+  flex: 0 0 auto;
+  padding-left: 11px;
+  font-weight: 800;
+}
+
+.dialog .hex-color-input input[type="text"] {
+  min-width: 0;
+  border: 0;
+  padding-left: 2px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.hex-color-input:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-soft);
+}
+
+.hex-color-input:has(input[aria-invalid="true"]) {
+  border-color: var(--danger);
 }
 
 .field-save-status {
@@ -1635,7 +1692,9 @@ select:disabled {
 .import-field-list,
 .import-field-item,
 .import-alias-group,
-.urgent-rule-settings {
+.urgent-rule-settings,
+.remark-tag-settings,
+.remark-rule-editor {
   display: grid;
   gap: 10px;
 }
@@ -1644,6 +1703,7 @@ select:disabled {
 .import-field-settings-intro p,
 .import-field-heading h3,
 .import-alias-group h4,
+.remark-rule-editor h4,
 .import-alias-group p,
 .import-field-settings-empty {
   margin: 0;
@@ -1721,7 +1781,8 @@ select:disabled {
   color: var(--primary);
 }
 
-.import-alias-group h4 {
+.import-alias-group h4,
+.remark-rule-editor h4 {
   color: var(--muted);
   font-size: 0.82rem;
 }
@@ -1803,13 +1864,47 @@ select:disabled {
   gap: 8px;
 }
 
-.urgent-rule-settings {
+.remark-tag-settings {
   border-top: 1px solid var(--line);
   padding-top: 10px;
 }
 
-.urgent-rule-add-row {
-  grid-template-columns: minmax(0, 1fr) minmax(118px, 0.45fr) auto;
+.recipient-tag.remark-tag-option-tag {
+  border-color: var(--remark-tag-color);
+  border-left-width: 4px;
+  background: color-mix(in srgb, var(--remark-tag-color) 18%, var(--surface));
+  color: color-mix(in srgb, var(--remark-tag-color) 72%, var(--text));
+}
+
+.recipient-tag.remark-tag-option-tag.active {
+  border-color: var(--remark-tag-color);
+  background: color-mix(in srgb, var(--remark-tag-color) 26%, var(--surface));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--remark-tag-color) 24%, transparent);
+}
+
+.recipient-tag.remark-tag-option-tag button:hover:not(:disabled),
+.recipient-tag.remark-tag-option-tag button:focus-visible {
+  background: color-mix(in srgb, var(--remark-tag-color) 26%, transparent);
+  color: inherit;
+}
+
+.recipient-tag .remark-tag-select-button {
+  display: block;
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  height: auto;
+  overflow: hidden;
+  padding: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.remark-rule-editor {
+  grid-column: 1 / -1;
+  min-width: 0;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
 }
 
 .form-field-label,
@@ -2278,6 +2373,11 @@ select:disabled {
   outline-offset: -2px;
 }
 
+.fc .fc-event.work-order-remark-tag {
+  border-color: var(--remark-tag-color) !important;
+  border-left-width: 4px;
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;
@@ -2404,14 +2504,6 @@ select:disabled {
   .settings-tabs button {
     min-height: 50px;
     font-size: 0.86rem;
-  }
-
-  .urgent-rule-add-row {
-    grid-template-columns: 1fr;
-  }
-
-  .urgent-rule-add-row .icon-button {
-    width: 100%;
   }
 
   .schedule-layout {

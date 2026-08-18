@@ -359,6 +359,7 @@ function eventContent(info) {
   root.dataset.workOrderId = String(info.event.extendedProps.workOrderId || '')
   root.dataset.orderNo = orderNo || ''
   root.dataset.urgent = String(Boolean(info.event.extendedProps.urgent))
+  root.dataset.remarkTags = JSON.stringify(remarkTags(info.event.extendedProps))
   root.dataset.status = info.event.extendedProps.status || ''
   root.dataset.paused = String(isPaused)
   root.dataset.overdue = String(Boolean(info.event.extendedProps.overdue))
@@ -367,7 +368,7 @@ function eventContent(info) {
   root.dataset.remark = info.event.extendedProps.remark || ''
   root.dataset.actualMinutes = String(info.event.extendedProps.totalMinutes || info.event.extendedProps.actualMinutes || '')
   root.dataset.totalMinutes = String(info.event.extendedProps.totalMinutes || '')
-  root.dataset.tooltipTitle = `${info.event.extendedProps.urgent ? '[加急] ' : ''}${orderNo}`
+  root.dataset.tooltipTitle = remarkTagTitle(info.event.extendedProps, orderNo)
   root.dataset.tooltipTimeRange = `${formatDateTime(info.event.start)} - ${formatDateTime(info.event.end)}`
   root.dataset.tooltipDuration = pausedMinutes > 0
     ? `总排程 ${formatDurationText(totalMinutes)}，暂停 ${formatDurationText(pausedMinutes)}`
@@ -448,6 +449,13 @@ function eventContent(info) {
 function bindEventTooltip(info) {
   if (info.event.extendedProps.isDeadlineMarker) {
     return
+  }
+
+  const color = remarkTagColor(info.event.extendedProps)
+  if (color) {
+    info.el.style.setProperty('--remark-tag-color', color)
+  } else {
+    info.el.style.removeProperty('--remark-tag-color')
   }
 
   info.el.__workOrderCalendarEvent = info.event
@@ -563,6 +571,7 @@ function focusEvent(event) {
     id: event.extendedProps.workOrderId,
     orderNo: event.extendedProps.orderNo,
     urgent: event.extendedProps.urgent,
+    remarkTags: remarkTags(event.extendedProps),
     status: event.extendedProps.status,
     latestShipTime: event.extendedProps.latestShipTime,
     price: event.extendedProps.price,
@@ -630,6 +639,7 @@ function focusEventElement(eventElement) {
     id: eventCard.dataset.workOrderId,
     orderNo: eventCard.dataset.orderNo,
     urgent: eventCard.dataset.urgent === 'true',
+    remarkTags: parseRemarkTags(eventCard.dataset.remarkTags),
     status: eventCard.dataset.status,
     latestShipTime: eventCard.dataset.latestShipTime,
     price: eventCard.dataset.price,
@@ -687,6 +697,7 @@ function calendarEventClassNamesFromProps(extendedProps, existingClassNames, foc
     'work-order-selected',
     'work-order-done',
     'work-order-urgent',
+    'work-order-remark-tag',
     'work-order-overdue',
     'work-order-paused',
     'work-order-pause-history-resize'
@@ -709,6 +720,10 @@ function calendarEventClassNamesFromProps(extendedProps, existingClassNames, foc
     classNames.add('work-order-urgent')
   }
 
+  if (remarkTags(extendedProps).length > 0) {
+    classNames.add('work-order-remark-tag')
+  }
+
   if (extendedProps.overdue) {
     classNames.add('work-order-overdue')
   }
@@ -729,6 +744,38 @@ function numberFromDataset(value) {
   return Number.isFinite(number) ? number : undefined
 }
 
+function remarkTags(value) {
+  return Array.isArray(value?.remarkTags) ? value.remarkTags : []
+}
+
+function parseRemarkTags(value) {
+  try {
+    const parsed = JSON.parse(value || '[]')
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function remarkTagColor(value) {
+  const color = remarkTags(value)[0]?.color
+  return /^#[0-9A-F]{6}$/i.test(String(color || '')) ? color : ''
+}
+
+function remarkTagTitle(value, orderNo) {
+  const labels = remarkTags(value)
+    .map((tag) => String(tag.name || '').trim())
+    .filter(Boolean)
+    .map((name) => `[${name}]`)
+    .join('')
+
+  if (labels) {
+    return `${labels} ${orderNo}`
+  }
+
+  return `${value?.urgent ? '[加急] ' : ''}${orderNo}`
+}
+
 function eventClassNames(info, focusedId) {
   if (info.event.extendedProps.isDeadlineMarker) {
     return ['deadline-marker']
@@ -746,6 +793,10 @@ function eventClassNames(info, focusedId) {
 
   if (info.event.extendedProps.urgent) {
     classNames.push('work-order-urgent')
+  }
+
+  if (remarkTags(info.event.extendedProps).length > 0) {
+    classNames.push('work-order-remark-tag')
   }
 
   if (info.event.extendedProps.overdue) {
@@ -1367,7 +1418,7 @@ function showEventTooltip(event, pointerEvent) {
   const pausedMinutes = event.extendedProps.pausedMinutes || 0
 
   eventTooltip.value = {
-    title: `${event.extendedProps.urgent ? '[加急] ' : ''}${event.extendedProps.orderNo || event.title}`,
+    title: remarkTagTitle(event.extendedProps, event.extendedProps.orderNo || event.title),
     timeRange: `${formatDateTime(event.start)} - ${formatDateTime(event.end)}`,
     durationText: pausedMinutes > 0
       ? `总排程 ${formatDurationText(totalMinutes)}，暂停 ${formatDurationText(pausedMinutes)}`

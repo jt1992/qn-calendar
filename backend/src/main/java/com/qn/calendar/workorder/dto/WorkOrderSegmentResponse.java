@@ -2,6 +2,7 @@ package com.qn.calendar.workorder.dto;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 import com.qn.calendar.workorder.constant.WorkOrderSource;
 import com.qn.calendar.workorder.constant.WorkOrderStatus;
@@ -26,6 +27,7 @@ public record WorkOrderSegmentResponse(
         int actualMinutes,
         int totalMinutes,
         boolean urgent,
+        List<RemarkTagResponse> remarkTags,
         LocalDateTime latestShipTime,
         WorkOrderStatus status,
         LocalDateTime scheduledStart,
@@ -77,6 +79,7 @@ public record WorkOrderSegmentResponse(
                 WorkOrderTimeUtils.segmentMinutes(segment),
                 totalMinutes,
                 workOrder.isUrgent(),
+                workOrder.getRemarkTags().stream().map(RemarkTagResponse::from).toList(),
                 workOrder.getLatestShipTime(),
                 workOrder.getStatus(),
                 segment.getScheduledStart(),

@@ -11,7 +11,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
-import com.qn.calendar.settings.constant.ImportUrgentMatchType;
 import com.qn.calendar.settings.dto.UpdateAppSettingsRequest;
 import com.qn.calendar.settings.dto.UpdateAppSettingsRequest.OrderSourceOptionRequest;
 import com.qn.calendar.settings.dto.UpdateImportFieldSettingsRequest;
@@ -19,12 +18,15 @@ import com.qn.calendar.settings.model.ImportFieldKey;
 import com.qn.calendar.settings.repository.AppSettingRepository;
 import com.qn.calendar.settings.repository.ImportFieldAliasRepository;
 import com.qn.calendar.settings.repository.ImportUrgentMatchRuleRepository;
+import com.qn.calendar.settings.repository.RemarkTagDefinitionRepository;
+import com.qn.calendar.settings.repository.RemarkTagMatchRuleRepository;
 import com.qn.calendar.settings.service.AppSettingsService;
 import com.qn.calendar.settings.service.ImportFieldSettingsService;
 import com.qn.calendar.workorder.constant.WorkOrderSource;
 import com.qn.calendar.workorder.constant.WorkOrderStatus;
 import com.qn.calendar.workorder.dto.CreateWorkOrderRequest;
 import com.qn.calendar.workorder.dto.ImportWorkOrderResponse;
+import com.qn.calendar.workorder.dto.WorkOrderResponse;
 import com.qn.calendar.workorder.entity.WorkOrder;
 import com.qn.calendar.workorder.entity.WorkOrderSegment;
 import com.qn.calendar.workorder.entity.WorkOrderSegmentPause;
@@ -77,6 +79,12 @@ class WorkOrderImportServiceTests {
     private ImportUrgentMatchRuleRepository importUrgentMatchRuleRepository;
 
     @Autowired
+    private RemarkTagDefinitionRepository remarkTagRepository;
+
+    @Autowired
+    private RemarkTagMatchRuleRepository remarkTagMatchRuleRepository;
+
+    @Autowired
     private Clock clock;
 
     @Autowired
@@ -90,6 +98,10 @@ class WorkOrderImportServiceTests {
         appSettingRepository.deleteAll();
         importFieldAliasRepository.deleteAll();
         importUrgentMatchRuleRepository.deleteAll();
+        remarkTagRepository.deleteAllWorkOrderAssignments();
+        remarkTagMatchRuleRepository.deleteAllInBatch();
+        remarkTagRepository.deleteAllInBatch();
+        importFieldSettingsService.getSettings();
     }
 
     @Test
@@ -679,12 +691,7 @@ class WorkOrderImportServiceTests {
                                 List.of()
                         ))
                         .toList(),
-                new UpdateImportFieldSettingsRequest.UrgentRules(List.of(
-                        new UpdateImportFieldSettingsRequest.UrgentRule(
-                                "红旗",
-                                ImportUrgentMatchType.EXACT
-                        )
-                ))
+                List.of(urgentTagWithTexts(List.of("红旗")))
         ));
         MockMultipartFile file = xlsxWithRows(
                 List.of(
@@ -706,7 +713,7 @@ class WorkOrderImportServiceTests {
     }
 
     @Test
-    void createsManualPendingWorkOrderWithConfiguredUrgentRuleAndSelectedSource() {
+    void createsManualPendingWorkOrderWithConfiguredUrgentTextAndSelectedSource() {
         importFieldSettingsService.updateSettings(new UpdateImportFieldSettingsRequest(
                 java.util.Arrays.stream(ImportFieldKey.values())
                         .map((fieldKey) -> new UpdateImportFieldSettingsRequest.FieldAliases(
@@ -714,12 +721,7 @@ class WorkOrderImportServiceTests {
                                 List.of()
                         ))
                         .toList(),
-                new UpdateImportFieldSettingsRequest.UrgentRules(List.of(
-                        new UpdateImportFieldSettingsRequest.UrgentRule(
-                                "红旗",
-                                ImportUrgentMatchType.EXACT
-                        )
-                ))
+                List.of(urgentTagWithTexts(List.of("红旗")))
         ));
 
         WorkOrder workOrder = importService.createPendingWorkOrder(new CreateWorkOrderRequest(
@@ -743,8 +745,146 @@ class WorkOrderImportServiceTests {
         assertThat(workOrder.getRemark()).isEqualTo("""
                 买家留言：请小心包装
                 商家备注：8/28发""");
+        assertThat(workOrder.getLatestShipTime()).isEqualTo(LocalDateTime.of(
+                LocalDate.now(clock).getYear(),
+                8,
+                28,
+                23,
+                59,
+                59
+        ));
         assertThat(workOrder.getOrderTime()).isEqualTo(LocalDateTime.of(2026, 8, 17, 9, 30));
         assertThat(repository.findAll()).hasSize(1);
+    }
+
+    @Test
+    void manualCreationResolvesLatestShipTimeFromMerchantThenBuyerThenExplicitValue() {
+        LocalDateTime paidAt = LocalDateTime.of(2026, 5, 21, 14, 38, 39);
+        LocalDateTime explicitLatestShipTime = LocalDateTime.of(2026, 6, 5, 14, 38);
+        int currentYear = LocalDate.now(clock).getYear();
+
+        WorkOrder merchantPriority = importService.createPendingWorkOrder(new CreateWorkOrderRequest(
+                "MANUAL-MERCHANT-DEADLINE",
+                "千牛",
+                BigDecimal.valueOf(100),
+                explicitLatestShipTime,
+                "",
+                "5.23发",
+                "5.22发",
+                paidAt
+        ));
+        WorkOrder buyerFallback = importService.createPendingWorkOrder(new CreateWorkOrderRequest(
+                "MANUAL-BUYER-DEADLINE",
+                "千牛",
+                BigDecimal.valueOf(100),
+                explicitLatestShipTime,
+                "",
+                "24号发",
+                "一般备注",
+                paidAt
+        ));
+        WorkOrder explicitFallback = importService.createPendingWorkOrder(new CreateWorkOrderRequest(
+                "MANUAL-EXPLICIT-DEADLINE",
+                "千牛",
+                BigDecimal.valueOf(100),
+                explicitLatestShipTime,
+                "",
+                "一般留言",
+                "一般备注",
+                paidAt
+        ));
+
+        assertThat(merchantPriority.getLatestShipTime())
+                .isEqualTo(LocalDateTime.of(currentYear, 5, 22, 23, 59, 59));
+        assertThat(buyerFallback.getLatestShipTime())
+                .isEqualTo(LocalDateTime.of(currentYear, 5, 24, 23, 59, 59));
+        assertThat(explicitFallback.getLatestShipTime()).isEqualTo(explicitLatestShipTime);
+    }
+
+    @Test
+    void manualCreationStillRequiresExplicitLatestShipTimeAsFallback() {
+        CreateWorkOrderRequest request = new CreateWorkOrderRequest(
+                "MANUAL-MISSING-EXPLICIT-DEADLINE",
+                "千牛",
+                BigDecimal.valueOf(100),
+                null,
+                "",
+                "",
+                "5.22发",
+                LocalDateTime.of(2026, 5, 21, 14, 38, 39)
+        );
+
+        assertThatThrownBy(() -> importService.createPendingWorkOrder(request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("应发货时间不可为空");
+    }
+
+    @Test
+    void xlsxAndManualCreationMatchMultipleRemarkTagsAndReimportReplacesAssignments() throws Exception {
+        Long urgentId = importFieldSettingsService.getSettings().remarkTags().getFirst().id();
+        importFieldSettingsService.updateSettings(new UpdateImportFieldSettingsRequest(
+                java.util.Arrays.stream(ImportFieldKey.values())
+                        .map((fieldKey) -> new UpdateImportFieldSettingsRequest.FieldAliases(
+                                fieldKey.getApiKey(),
+                                List.of()
+                        ))
+                        .toList(),
+                List.of(
+                        new UpdateImportFieldSettingsRequest.RemarkTag(
+                                urgentId,
+                                "URGENT",
+                                "加急",
+                                "#FF6F61",
+                                List.of()
+                        ),
+                        new UpdateImportFieldSettingsRequest.RemarkTag(
+                                null,
+                                null,
+                                "延后",
+                                "#3B82F6",
+                                List.of()
+                        )
+                )
+        ));
+        MockMultipartFile firstImport = xlsxWithRows(
+                List.of("订单编号", "订单价格", "应发货时间", "备注标签"),
+                List.of(List.of("TAG-XLSX-001", "100", "2026-08-30 16:39:54", "加急并延后"))
+        );
+
+        importService.importXlsx(firstImport);
+        WorkOrder imported = repository.findByOrderNo("TAG-XLSX-001").orElseThrow();
+        assertThat(imported.getRemarkTags())
+                .extracting((tag) -> tag.getName())
+                .containsExactly("加急", "延后");
+        assertThat(WorkOrderResponse.from(imported).remarkTags())
+                .extracting((tag) -> tag.name())
+                .containsExactly("加急", "延后");
+        assertThat(imported.isUrgent()).isTrue();
+
+        WorkOrder manual = importService.createPendingWorkOrder(new CreateWorkOrderRequest(
+                "TAG-MANUAL-001",
+                "千牛",
+                BigDecimal.valueOf(100),
+                LocalDateTime.of(2026, 8, 30, 18, 0),
+                "加急且延后",
+                "",
+                "",
+                null
+        ));
+        assertThat(manual.getRemarkTags())
+                .extracting((tag) -> tag.getName())
+                .containsExactly("加急", "延后");
+        assertThat(manual.isUrgent()).isTrue();
+
+        MockMultipartFile reimport = xlsxWithRows(
+                List.of("订单编号", "订单价格", "应发货时间", "备注标签"),
+                List.of(List.of("TAG-XLSX-001", "100", "2026-08-30 16:39:54", "普通"))
+        );
+        importService.importXlsx(reimport);
+
+        WorkOrder updated = repository.findByOrderNo("TAG-XLSX-001").orElseThrow();
+        assertThat(updated.getRemarkTags()).isEmpty();
+        assertThat(updated.isUrgent()).isFalse();
     }
 
     @Test
@@ -769,11 +909,7 @@ class WorkOrderImportServiceTests {
 
     @Test
     void createsManualPendingWorkOrderWithConfiguredCustomSource() {
-        appSettingsService.updateSettings(new UpdateAppSettingsRequest(
-                BigDecimal.valueOf(100),
-                LocalTime.of(6, 0),
-                sourcesWithDouyin()
-        ));
+        String douyinId = configureSourcesWithDouyin();
 
         WorkOrder workOrder = importService.createPendingWorkOrder(new CreateWorkOrderRequest(
                 "ORD-CUSTOM-SOURCE",
@@ -787,7 +923,7 @@ class WorkOrderImportServiceTests {
         ));
 
         assertThat(workOrder.getSource()).isEqualTo(WorkOrderSource.CUSTOM);
-        assertThat(workOrder.getSourceCode()).isEqualTo("DOUYIN");
+        assertThat(workOrder.getSourceCode()).isEqualTo(douyinId);
         assertThat(workOrder.getSourceName()).isEqualTo("抖音");
         assertThat(workOrder.getSourceBadgeColor()).isEqualTo("#00AA66");
         assertThat(workOrder.getSourceBadgeText()).isEqualTo("抖");
@@ -827,7 +963,7 @@ class WorkOrderImportServiceTests {
                                         : List.of()
                         ))
                         .toList(),
-                new UpdateImportFieldSettingsRequest.UrgentRules(List.of())
+                List.of(urgentTagWithTexts(List.of()))
         ));
         MockMultipartFile file = xlsxWithRows(
                 List.of(
@@ -856,7 +992,7 @@ class WorkOrderImportServiceTests {
                                 fieldKey == ImportFieldKey.PRICE ? List.of("结算金额") : List.of()
                         ))
                         .toList(),
-                new UpdateImportFieldSettingsRequest.UrgentRules(List.of())
+                List.of(urgentTagWithTexts(List.of()))
         ));
         MockMultipartFile file = xlsxWithRows(
                 List.of("订单编号", "结算金额", "用户应付金额(元)", "买家实付金额", "应发货时间"),
@@ -878,7 +1014,7 @@ class WorkOrderImportServiceTests {
                                 fieldKey == ImportFieldKey.ORDER_NO ? List.of("主订单号") : List.of()
                         ))
                         .toList(),
-                new UpdateImportFieldSettingsRequest.UrgentRules(List.of())
+                List.of(urgentTagWithTexts(List.of()))
         ));
         MockMultipartFile file = xlsxWithRows(
                 List.of("主订单号", "订单号", "订单状态", "买家实付金额", "应发货时间"),
@@ -914,11 +1050,7 @@ class WorkOrderImportServiceTests {
 
     @Test
     void detectsConfiguredCustomSourceFromFilename() throws Exception {
-        appSettingsService.updateSettings(new UpdateAppSettingsRequest(
-                BigDecimal.valueOf(100),
-                LocalTime.of(6, 0),
-                sourcesWithDouyin()
-        ));
+        String douyinId = configureSourcesWithDouyin();
         MockMultipartFile file = xlsxWithRows(
                 "抖音导出订单.xlsx",
                 List.of("订单编号", "买家实付金额", "应发货时间"),
@@ -931,18 +1063,14 @@ class WorkOrderImportServiceTests {
         assertThat(response.errors()).isEmpty();
         assertThat(repository.findAll()).singleElement().satisfies((workOrder) -> {
             assertThat(workOrder.getSource()).isEqualTo(WorkOrderSource.CUSTOM);
-            assertThat(workOrder.getSourceCode()).isEqualTo("DOUYIN");
+            assertThat(workOrder.getSourceCode()).isEqualTo(douyinId);
             assertThat(workOrder.getSourceName()).isEqualTo("抖音");
         });
     }
 
     @Test
     void detectsConfiguredCustomSourceFromFilenameBadgeText() throws Exception {
-        appSettingsService.updateSettings(new UpdateAppSettingsRequest(
-                BigDecimal.valueOf(100),
-                LocalTime.of(6, 0),
-                sourcesWithDouyin()
-        ));
+        String douyinId = configureSourcesWithDouyin();
         MockMultipartFile file = xlsxWithRows(
                 "抖订单.xlsx",
                 List.of("订单编号", "买家实付金额", "应发货时间"),
@@ -955,7 +1083,7 @@ class WorkOrderImportServiceTests {
         assertThat(response.errors()).isEmpty();
         assertThat(repository.findAll()).singleElement().satisfies((workOrder) -> {
             assertThat(workOrder.getSource()).isEqualTo(WorkOrderSource.CUSTOM);
-            assertThat(workOrder.getSourceCode()).isEqualTo("DOUYIN");
+            assertThat(workOrder.getSourceCode()).isEqualTo(douyinId);
             assertThat(workOrder.getSourceName()).isEqualTo("抖音");
         });
     }
@@ -1099,12 +1227,36 @@ class WorkOrderImportServiceTests {
         );
     }
 
+    private static UpdateImportFieldSettingsRequest.RemarkTag urgentTagWithTexts(
+            List<String> containsTexts
+    ) {
+        return new UpdateImportFieldSettingsRequest.RemarkTag(
+                null,
+                "URGENT",
+                "加急",
+                "#FF6F61",
+                containsTexts
+        );
+    }
+
     private static List<OrderSourceOptionRequest> sourcesWithDouyin() {
         return List.of(
                 source("千牛", "QIANNIU", "#218BFF", "千"),
                 source("小红书", "XIAOHONGSHU", "#FF5C5C", "书"),
-                source("抖音", "DOUYIN", "#00AA66", "抖")
+                source("抖音", null, "#00AA66", "抖")
         );
+    }
+
+    private String configureSourcesWithDouyin() {
+        return appSettingsService.updateSettings(new UpdateAppSettingsRequest(
+                        BigDecimal.valueOf(100),
+                        LocalTime.of(6, 0),
+                        sourcesWithDouyin()
+                )).orderSourceOptions().stream()
+                .filter((option) -> option.name().equals("抖音"))
+                .findFirst()
+                .orElseThrow()
+                .identifier();
     }
 
     private static OrderSourceOptionRequest source(

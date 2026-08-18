@@ -17,10 +17,12 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import com.qn.calendar.settings.entity.OrderSourceOption;
+import com.qn.calendar.settings.entity.RemarkTagDefinition;
 import com.qn.calendar.settings.model.ImportFieldKey;
 import com.qn.calendar.settings.model.ImportFieldSettingsSnapshot;
 import com.qn.calendar.settings.service.AppSettingsService;
@@ -117,6 +119,12 @@ public class WorkOrderImportService {
 
             FormulaEvaluator evaluator = workbook.getCreationHelper().createFormulaEvaluator();
             ImportFieldSettingsSnapshot importSettings = importFieldSettingsService.getImportSnapshot();
+            Map<Long, RemarkTagDefinition> remarkTagsById = importFieldSettingsService.findRemarkTagsByIds(
+                            importSettings.remarkTags().stream()
+                                    .map(ImportFieldSettingsSnapshot.RemarkTagMatcher::id)
+                                    .toList()
+                    ).stream()
+                    .collect(java.util.stream.Collectors.toMap(RemarkTagDefinition::getId, (tag) -> tag));
             HeaderMapping headerMapping = readHeaders(sheet, evaluator, importSettings);
             validateRequiredHeaders(headerMapping.canonicalHeaders());
             validateXiaohongshuHeaders(headerMapping, filenameSource);
@@ -208,11 +216,15 @@ public class WorkOrderImportService {
                             parsedWorkOrder.sourceBadgeColor(),
                             parsedWorkOrder.sourceBadgeText()
                     );
+                    existingWorkOrder.get().replaceRemarkTags(resolveRemarkTags(
+                            parsedWorkOrder.remarkTagIds(),
+                            remarkTagsById
+                    ));
                     updatedCount++;
                     continue;
                 }
 
-                repository.save(new WorkOrder(
+                WorkOrder workOrder = new WorkOrder(
                         parsedWorkOrder.orderNo(),
                         null,
                         parsedWorkOrder.remark(),
@@ -226,7 +238,12 @@ public class WorkOrderImportService {
                         parsedWorkOrder.sourceName(),
                         parsedWorkOrder.sourceBadgeColor(),
                         parsedWorkOrder.sourceBadgeText()
+                );
+                workOrder.replaceRemarkTags(resolveRemarkTags(
+                        parsedWorkOrder.remarkTagIds(),
+                        remarkTagsById
                 ));
+                repository.save(workOrder);
                 createdCount++;
             }
 
@@ -273,32 +290,44 @@ public class WorkOrderImportService {
         if (remark.length() > 1000) {
             throw new IllegalArgumentException("买家留言与商家备注合并后最长为 1000 个字符");
         }
+        LocalDateTime latestShipTime = resolveLatestShipTime(
+                merchantRemark,
+                buyerMessage,
+                request.paidAt(),
+                request::latestShipTime
+        );
 
         ImportFieldSettingsSnapshot importSettings = importFieldSettingsService.getImportSnapshot();
-        String urgentValue = ImportFieldSettingsService.normalizeUrgentValue(request.urgentText());
-        boolean urgent = importSettings.urgentExactValues().contains(urgentValue)
-                || importSettings.urgentContainsValues().stream().anyMatch(urgentValue::contains);
+        String remarkTagValue = ImportFieldSettingsService.normalizeRemarkTagValue(request.urgentText());
+        List<Long> remarkTagIds = importSettings.matchingRemarkTagIds(remarkTagValue);
+        List<RemarkTagDefinition> remarkTags = importFieldSettingsService.findRemarkTagsByIds(remarkTagIds);
+        boolean urgent = importSettings.containsSystemTag(
+                remarkTagIds,
+                ImportFieldSettingsService.URGENT_SYSTEM_KEY
+        );
         WorkOrderSource source = WorkOrderSource.fromCode(sourceOption.getIdentifier());
         int estimatedMinutes = calculateEstimatedMinutes(
                 request.price(),
                 appSettingsService.getEstimatedHourlyBaseAmount()
         );
 
-        return repository.save(new WorkOrder(
+        WorkOrder workOrder = new WorkOrder(
                 orderNo,
                 null,
                 remark,
                 request.price(),
                 estimatedMinutes,
                 urgent,
-                request.latestShipTime(),
+                latestShipTime,
                 request.paidAt(),
                 source,
                 sourceOption.getIdentifier(),
                 sourceOption.getName(),
                 sourceOption.getBadgeColor(),
                 sourceOption.getBadgeText()
-        ));
+        );
+        workOrder.replaceRemarkTags(remarkTags);
+        return repository.save(workOrder);
     }
 
     private ParsedWorkOrder parseWorkOrder(
@@ -311,8 +340,13 @@ public class WorkOrderImportService {
             SourceSelection sourceSelection
     ) {
         BigDecimal price = readPrice(row, headers.get(ImportFieldKey.PRICE), evaluator);
-        boolean urgent = headers.containsKey(ImportFieldKey.URGENT)
-                && readUrgent(row, headers.get(ImportFieldKey.URGENT), evaluator, importSettings);
+        List<Long> remarkTagIds = headers.containsKey(ImportFieldKey.URGENT)
+                ? readRemarkTagIds(row, headers.get(ImportFieldKey.URGENT), evaluator, importSettings)
+                : List.of();
+        boolean urgent = importSettings.containsSystemTag(
+                remarkTagIds,
+                ImportFieldSettingsService.URGENT_SYSTEM_KEY
+        );
         String buyerMessage = readStringIfPresent(row, headers.get(ImportFieldKey.BUYER_MESSAGE), evaluator);
         String merchantRemark = readStringIfPresent(row, headers.get(ImportFieldKey.MERCHANT_REMARK), evaluator);
         String remark = buildRemark(buyerMessage, merchantRemark);
@@ -326,6 +360,7 @@ public class WorkOrderImportService {
                 price,
                 estimatedMinutes,
                 urgent,
+                remarkTagIds,
                 latestShipTime,
                 orderTime,
                 sourceSelection.source(),
@@ -567,15 +602,24 @@ public class WorkOrderImportService {
         }
     }
 
-    private boolean readUrgent(
+    private List<Long> readRemarkTagIds(
             Row row,
             int index,
             FormulaEvaluator evaluator,
             ImportFieldSettingsSnapshot importSettings
     ) {
-        String value = ImportFieldSettingsService.normalizeUrgentValue(readString(row, index, evaluator));
-        return importSettings.urgentExactValues().contains(value)
-                || importSettings.urgentContainsValues().stream().anyMatch(value::contains);
+        String value = ImportFieldSettingsService.normalizeRemarkTagValue(readString(row, index, evaluator));
+        return importSettings.matchingRemarkTagIds(value);
+    }
+
+    private List<RemarkTagDefinition> resolveRemarkTags(
+            List<Long> remarkTagIds,
+            Map<Long, RemarkTagDefinition> remarkTagsById
+    ) {
+        return remarkTagIds.stream()
+                .map(remarkTagsById::get)
+                .filter(java.util.Objects::nonNull)
+                .toList();
     }
 
     private String buildRemark(String buyerMessage, String merchantRemark) {
@@ -609,20 +653,36 @@ public class WorkOrderImportService {
             LocalDateTime orderTime
     ) {
         String merchantRemark = readStringIfPresent(row, headers.get(ImportFieldKey.MERCHANT_REMARK), evaluator);
-        Optional<LocalDate> merchantShipDate = parseRemarkShipDate(merchantRemark, orderTime);
+        String buyerMessage = readStringIfPresent(row, headers.get(ImportFieldKey.BUYER_MESSAGE), evaluator);
+        return resolveLatestShipTime(
+                merchantRemark,
+                buyerMessage,
+                orderTime,
+                () -> readLatestShipTimeFallback(
+                        row,
+                        headers.get(ImportFieldKey.LATEST_SHIP_TIME),
+                        evaluator
+                )
+        );
+    }
 
+    private LocalDateTime resolveLatestShipTime(
+            String merchantRemark,
+            String buyerMessage,
+            LocalDateTime paidAt,
+            Supplier<LocalDateTime> explicitLatestShipTimeSupplier
+    ) {
+        Optional<LocalDate> merchantShipDate = parseRemarkShipDate(merchantRemark, paidAt);
         if (merchantShipDate.isPresent()) {
             return merchantShipDate.get().atTime(END_OF_DAY);
         }
 
-        String buyerMessage = readStringIfPresent(row, headers.get(ImportFieldKey.BUYER_MESSAGE), evaluator);
-        Optional<LocalDate> buyerShipDate = parseRemarkShipDate(buyerMessage, orderTime);
-
+        Optional<LocalDate> buyerShipDate = parseRemarkShipDate(buyerMessage, paidAt);
         if (buyerShipDate.isPresent()) {
             return buyerShipDate.get().atTime(END_OF_DAY);
         }
 
-        return readLatestShipTimeFallback(row, headers.get(ImportFieldKey.LATEST_SHIP_TIME), evaluator);
+        return explicitLatestShipTimeSupplier.get();
     }
 
     private LocalDateTime readLatestShipTimeFallback(Row row, int index, FormulaEvaluator evaluator) {
@@ -781,6 +841,7 @@ public class WorkOrderImportService {
             BigDecimal price,
             int estimatedMinutes,
             boolean urgent,
+            List<Long> remarkTagIds,
             LocalDateTime latestShipTime,
             LocalDateTime orderTime,
             WorkOrderSource source,
