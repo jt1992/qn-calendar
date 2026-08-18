@@ -1616,7 +1616,8 @@ select:disabled {
 
 .order-source-option-editor {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr)) max-content;
+  align-items: end;
   gap: 10px;
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -1625,9 +1626,17 @@ select:disabled {
 }
 
 .order-source-option-editor-actions {
-  grid-column: 1 / -1;
   display: flex;
+  align-items: flex-end;
   justify-content: flex-end;
+}
+
+.order-source-option-editor-actions .icon-button {
+  height: 42px;
+}
+
+.order-source-option-editor > label {
+  min-width: 0;
 }
 
 .order-source-color-field {
@@ -1637,7 +1646,50 @@ select:disabled {
 }
 
 .order-source-color-editor-field {
-  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.order-source-option-editor .order-source-color-field {
+  height: 42px;
+  gap: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--surface-strong);
+  overflow: hidden;
+}
+
+.dialog .order-source-option-editor .order-source-color-field input[type="color"] {
+  width: 46px;
+  height: 100%;
+  min-height: 0;
+  border: 0;
+  border-right: 1px solid var(--line-strong);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.order-source-option-editor .hex-color-input {
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.order-source-option-editor .hex-color-input:focus-within {
+  box-shadow: none;
+}
+
+.app-shell .dialog .order-source-option-editor .hex-color-input input[type="text"]:focus {
+  box-shadow: none;
+}
+
+.order-source-option-editor .order-source-color-field:focus-within {
+  border-color: var(--primary);
+}
+
+.order-source-option-editor .order-source-color-field:has(input[aria-invalid="true"]) {
+  border-color: var(--danger);
 }
 
 .dialog .order-source-color-field input[type="color"] {

@@ -113,28 +113,23 @@ class ImportFieldSettingsServiceTests {
     }
 
     @Test
-    void defaultsOnlyUseActualRemarkTagHeaderNames() {
+    void defaultsOnlyUseQianniuAndXiaohongshuExportHeaders() {
         ImportFieldSettingsResponse settings = service.getSettings();
 
         assertThat(field(settings, "orderNo").builtInAliases())
-                .containsExactly("訂單編號", "订单编号", "订单号");
+                .containsExactly("订单编号", "订单号");
         assertThat(field(settings, "price").builtInAliases())
-                .contains("买家实付金额", "用户应付金额(元)");
+                .containsExactly("买家实付金额", "用户应付金额(元)");
         assertThat(field(settings, "latestShipTime").builtInAliases())
-                .contains("应发货时间", "承诺发货时间");
+                .containsExactly("应发货时间", "承诺发货时间");
         assertThat(field(settings, "urgent").builtInAliases())
-                .containsExactly("備註標籤", "备注标签", "包裹备注标记")
-                .doesNotContain("加急", "急件");
+                .containsExactly("备注标签", "包裹备注标记");
         assertThat(field(settings, "buyerMessage").builtInAliases())
-                .contains("买家留言", "用户备注");
+                .containsExactly("买家留言", "用户备注");
         assertThat(field(settings, "merchantRemark").builtInAliases())
-                .contains("商家备注", "包裹备注信息");
+                .containsExactly("商家备注", "包裹备注信息");
         assertThat(field(settings, "paidAt").builtInAliases())
-                .contains("订单付款时间", "支付时间")
-                .doesNotContain("訂單時間", "订单时间", "下單時間", "下单时间", "下單日期", "下单日期");
-        assertThat(settings.fields())
-                .flatExtracting(ImportFieldSettingsResponse.FieldSettings::builtInAliases)
-                .noneMatch((alias) -> alias.matches(".*[A-Za-z].*"));
+                .containsExactly("订单付款时间", "支付时间");
     }
 
     @Test
