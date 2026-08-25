@@ -22,8 +22,10 @@ public interface WorkOrderRepository extends JpaRepository<WorkOrder, Long> {
     @Query("""
             select count(workOrder)
             from WorkOrder workOrder
-            where upper(workOrder.sourceCode) = :sourceCode
-               or workOrder.source = :legacySource
+            where upper(trim(workOrder.sourceCode)) = :sourceCode
+               or ((workOrder.sourceCode is null or trim(workOrder.sourceCode) = '')
+                   and (workOrder.source = :legacySource
+                        or (workOrder.source is null and :sourceCode = 'QIANNIU')))
             """)
     long countBySourceIdentifier(
             @Param("sourceCode") String sourceCode,
@@ -42,8 +44,10 @@ public interface WorkOrderRepository extends JpaRepository<WorkOrder, Long> {
                     where work_order_id in (
                         select id
                         from work_order
-                        where upper(source_code) = :sourceCode
-                           or source = :legacySource
+                        where upper(trim(source_code)) = :sourceCode
+                           or ((source_code is null or trim(source_code) = '')
+                               and (source = :legacySource
+                                    or (source is null and :sourceCode = 'QIANNIU')))
                     )
                     """,
             nativeQuery = true
@@ -56,8 +60,10 @@ public interface WorkOrderRepository extends JpaRepository<WorkOrder, Long> {
     @Modifying
     @Query("""
             delete from WorkOrder workOrder
-            where upper(workOrder.sourceCode) = :sourceCode
-               or workOrder.source = :legacySource
+            where upper(trim(workOrder.sourceCode)) = :sourceCode
+               or ((workOrder.sourceCode is null or trim(workOrder.sourceCode) = '')
+                   and (workOrder.source = :legacySource
+                        or (workOrder.source is null and :sourceCode = 'QIANNIU')))
             """)
     int deleteWorkOrdersBySourceIdentifier(
             @Param("sourceCode") String sourceCode,

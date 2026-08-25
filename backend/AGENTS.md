@@ -113,6 +113,8 @@ Spring Boot 同时提供 `/api/**` 与 Vue production build。
 
 `actual_minutes` 是片段长度总和，不一定等于 `scheduled_end - scheduled_start`，因为同工单可有空档。
 
+`source_code` 是来源判断的高优先权字段；只有它为 null 或纯空白时，才可 fallback 到旧 `source`，两者都缺失时依既有相容规则视为 `QIANNIU`。Entity getter、来源影响数与删除工单/片段/暂停的 repository 查询都必须使用同一优先级，不能以无条件 `source_code = ? OR source = ?` 让冲突的旧值参与判断。
+
 ### 4.2 `work_order_segment`
 
 - 多对一属于 `work_order`。
@@ -225,7 +227,7 @@ Spring Boot 同时提供 `/api/**` 与 Vue production build。
 
 - 只读取第一个 sheet。
 - 第一资料行必须是表头；空白资料行略过。
-- POI 会计算公式值。
+- 实际进入字段解析的公式 cell 由 POI 计算；空白行检测只判断原始 cell 是否存在内容，不得提前计算未使用的 fallback 公式。
 - 表头 canonicalize：trim、转小写、移除空白、`_`、`-`。
 - 即使备注能解析期限，也必须存在订单编号、价格、最晚发货三个 canonical 字段。
 
@@ -255,6 +257,8 @@ Spring Boot 同时提供 `/api/**` 与 Vue production build。
 
 - 订单编号不可空。
 - 价格去除逗号、`NT$`、`¥`、`￥`、`$`；允许 0，不允许负数。
+- 一个逻辑字段有多个解析来源时，必须按业务优先级逐一解析并在取得有效值后立即停止；不得预先或继续读取该资料行中更低优先级的 fallback 单元格，也不得对它执行必填检查或格式验证。只有较高优先级来源都未取得有效值、实际进入该 fallback 时，才验证它并回报对应错误；未被使用的 fallback 即使为空或格式错误，也不得产生逐行错误。文件级表头是否必须存在，依 7.1 的表头契约另行判断。
+- 条件式 fallback 来自 HTTP request 时，也不能用 DTO 型别转换或 Bean Validation 在 service 选择来源前提前解析或拒绝它；若错误格式在高优先来源成功时必须被忽略，应先保留原始字串，再由 service 于实际进入 fallback 时转换。
 - 备注标签匹配按 definition 的显示顺序执行；每个标签以自身名称及自定义「包含文字」进行忽略英文字母大小写的包含匹配，同一值可命中多个标签并去重，未知值回空标签清单。
 - 系统不再预置 `true/yes/y/1/是/急件` 等旧文字，也不再支持完全匹配；`urgent` boolean 必须由是否命中 systemKey `URGENT` 的标签推导。
 - `paidAt` 不接受订单时间、下单时间或下单日期的繁简别名；读取字段设置或导入快照时会删除数据库中遗留于 `PAID_AT` 的这些自定义别名，保存设置时也拒绝重新加入。
@@ -262,7 +266,7 @@ Spring Boot 同时提供 `/api/**` 与 Vue production build。
   - `买家留言：...`
   - `商家备注：...`
   - 都空时为 `无任何备注`
-- 订单付款时间可空；有值但格式错误时整列失败。
+- 订单付款时间可空；有值但格式错误时该笔资料失败。
 
 预估工时：
 
@@ -280,13 +284,14 @@ estimated_minutes = ceil(price / estimatedHourlyBaseAmount) × 60
 2. 买家留言中的发货/收到日期。
 3. 最晚发货/应发货字段。
 
-XLSX 与手动新增必须共用上述优先级；手动表单的应发货时间仍必填并作为 fallback。
+XLSX 与手动新增必须共用上述优先级。手动新增 API 的应发货时间保留为可空原始字串，只有前两项都未解析出日期时才作为必填 fallback 转换；现行前端表单仍要求使用者选择应发货时间。
+解析必须短路：商家备注已解析出日期时，不再解析买家留言或应发货字段；买家留言已解析出日期时，不再解析应发货字段。因此，应发货字段只有在前两者都未取得日期时才执行必填与格式验证；若前两者已经取得日期，即使该单元格为空或格式错误也不能回报错误。
 
 备注解析：
 
 - `M/D`、`M.D`、`M月D日` 等月日使用 application Clock 当前年。
 - 只有「D号」时，使用订单付款时间的月份；没有付款月份则继续 fallback。
-- 无效月日不抛出，继续下一来源。
+- 同一则备注有多个候选时，按出现顺序继续寻找第一个有效日期；无效候选不抛出，也不能让该高优先来源提前降级。整则备注都没有有效日期时才继续下一来源。
 
 fallback 字段支持：
 
@@ -641,7 +646,7 @@ HTTP 与 Entity 使用无 offset 的 `LocalDateTime`。不要单独把某一层�
 
 - `APP_DESKTOP_ENABLED=true` 才启用。
 - 默认启动浏览器；`APP_DESKTOP_OPEN_BROWSER=false` 可关闭。
-- URL 依据启动参数/system property/env/`.env` 的 server port 优先级解析，并加进程 launch nonce。
+- URL 依据启动参数/system property/env/`.env` 的 server port 优先级解析，并加进程 launch nonce。只转换最终选中的 port；高优先来源存在时不得转换低优先值，CLI/system/env 都无值时才读取 `.env`；启动后的 `local.server.port` 也优先于且短路 `server.port`。
 - 数据目录中的 `desktop-instance.lock` 保证单一实例。
 - 第二次启动最多等 30 秒；已有服务就只打开浏览器。
 - 支持系统托盘时提供 `Open page` 与 `Exit`。
@@ -678,7 +683,7 @@ mvn package
 
 测试职责：
 
-- `WorkOrderImportServiceTests`：表头、可配置规则、小红书待配货过滤/来源、解析、去重、重导状态保留、手动建立待排工单。
+- `WorkOrderImportServiceTests`：表头、可配置规则、小红书待配货过滤/来源、解析、去重、重导状态保留、手动建立待排工单，以及手动期限 fallback 的 MockMvc API contract。
 - `WorkOrderSegmentServiceTests`：片段、融合、重叠、拆分、暂停、顺延、完成、删除。
 - `WorkOrderServiceTests`：待排、duration、整单清空/删除、统计。
 - `WorkOrderEmailServiceTests`：周/月/统计 view model、模板、PDF、MIME。
@@ -688,7 +693,7 @@ mvn package
 - `QnCalendarApplicationTests`：context 与 business/persistence timezone 分离。
 - `desktop/*Tests`：URL、nonce、单一实例。
 
-当前没有 controller contract、真实 SMTP、Docker、安装器、资料升级 migration 的自动测试。新增高风险路径时，应先建立能重现规则的 service/integration test。
+除了上述手动期限 fallback 外，当前没有系统性的 controller contract、真实 SMTP、Docker、安装器、资料升级 migration 自动测试。新增高风险路径时，应先建立能重现规则的 service/integration test。
 
 ## 21. 不要静默扩展
 

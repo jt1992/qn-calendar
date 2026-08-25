@@ -3,6 +3,9 @@ package com.qn.calendar.workorder;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
@@ -47,10 +50,14 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.test.web.servlet.MockMvc;
 
 @SpringBootTest
+@AutoConfigureMockMvc
 class WorkOrderImportServiceTests {
 
     @Autowired
@@ -91,6 +98,9 @@ class WorkOrderImportServiceTests {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
@@ -680,6 +690,68 @@ class WorkOrderImportServiceTests {
     }
 
     @Test
+    void skipsUnusedLatestShipTimeFallbackValidationForXlsxRows() throws Exception {
+        MockMultipartFile file = xlsxWithRows(
+                List.of("订单编号", "买家实付金额", "商家备注", "买家留言", "应发货时间"),
+                List.of(
+                        List.of("ORD-MERCHANT-BLANK", "100.00", "5.22发", "一般留言", ""),
+                        List.of("ORD-MERCHANT-INVALID", "100.00", "5.23发", "一般留言", "不是日期"),
+                        List.of("ORD-BUYER-BLANK", "100.00", "一般备注", "5.24发", ""),
+                        List.of("ORD-BUYER-INVALID", "100.00", "一般备注", "5.25发", "不是日期")
+                )
+        );
+
+        ImportWorkOrderResponse response = importService.importXlsx(file);
+
+        assertThat(response.createdCount()).isEqualTo(4);
+        assertThat(response.errors()).isEmpty();
+        int currentYear = LocalDate.now(clock).getYear();
+        assertThat(repository.findByOrderNo("ORD-MERCHANT-BLANK").orElseThrow().getLatestShipTime())
+                .isEqualTo(LocalDateTime.of(currentYear, 5, 22, 23, 59, 59));
+        assertThat(repository.findByOrderNo("ORD-MERCHANT-INVALID").orElseThrow().getLatestShipTime())
+                .isEqualTo(LocalDateTime.of(currentYear, 5, 23, 23, 59, 59));
+        assertThat(repository.findByOrderNo("ORD-BUYER-BLANK").orElseThrow().getLatestShipTime())
+                .isEqualTo(LocalDateTime.of(currentYear, 5, 24, 23, 59, 59));
+        assertThat(repository.findByOrderNo("ORD-BUYER-INVALID").orElseThrow().getLatestShipTime())
+                .isEqualTo(LocalDateTime.of(currentYear, 5, 25, 23, 59, 59));
+    }
+
+    @Test
+    void continuesWithinHigherPriorityRemarkUntilItFindsAValidDate() throws Exception {
+        MockMultipartFile file = xlsxWithRows(
+                List.of("订单编号", "买家实付金额", "商家备注", "买家留言", "订单付款时间", "应发货时间"),
+                List.of(
+                        List.of(
+                                "ORD-SECOND-MONTH-DAY",
+                                "100.00",
+                                "13/40发，5/22发",
+                                "5/23发",
+                                "2026-05-21 14:38:39",
+                                "不是日期"
+                        ),
+                        List.of(
+                                "ORD-SECOND-DAY-ONLY",
+                                "100.00",
+                                "32号发，22号发",
+                                "23号发",
+                                "2026-05-21 14:38:39",
+                                "不是日期"
+                        )
+                )
+        );
+
+        ImportWorkOrderResponse response = importService.importXlsx(file);
+
+        assertThat(response.createdCount()).isEqualTo(2);
+        assertThat(response.errors()).isEmpty();
+        int currentYear = LocalDate.now(clock).getYear();
+        assertThat(repository.findByOrderNo("ORD-SECOND-MONTH-DAY").orElseThrow().getLatestShipTime())
+                .isEqualTo(LocalDateTime.of(currentYear, 5, 22, 23, 59, 59));
+        assertThat(repository.findByOrderNo("ORD-SECOND-DAY-ONLY").orElseThrow().getLatestShipTime())
+                .isEqualTo(LocalDateTime.of(currentYear, 5, 22, 23, 59, 59));
+    }
+
+    @Test
     void fallsBackToEarliestEmbeddedShipTimeWhenRemarksHaveNoShipDate() throws Exception {
         MockMultipartFile file = xlsxWithRows(
                 List.of("订单编号", "买家实付金额", "商家备注", "买家留言", "应发货时间"),
@@ -796,7 +868,7 @@ class WorkOrderImportServiceTests {
                 " P802335189951019482 ",
                 "小红书",
                 new BigDecimal("250.00"),
-                LocalDateTime.of(2026, 8, 30, 16, 39, 54),
+                "2026-08-30T16:39:54",
                 "红旗",
                 "请小心包装",
                 "8/28发",
@@ -835,7 +907,7 @@ class WorkOrderImportServiceTests {
                 "MANUAL-MERCHANT-DEADLINE",
                 "千牛",
                 BigDecimal.valueOf(100),
-                explicitLatestShipTime,
+                "不是日期",
                 "",
                 "5.23发",
                 "5.22发",
@@ -845,7 +917,7 @@ class WorkOrderImportServiceTests {
                 "MANUAL-BUYER-DEADLINE",
                 "千牛",
                 BigDecimal.valueOf(100),
-                explicitLatestShipTime,
+                null,
                 "",
                 "24号发",
                 "一般备注",
@@ -855,7 +927,7 @@ class WorkOrderImportServiceTests {
                 "MANUAL-EXPLICIT-DEADLINE",
                 "千牛",
                 BigDecimal.valueOf(100),
-                explicitLatestShipTime,
+                explicitLatestShipTime.toString(),
                 "",
                 "一般留言",
                 "一般备注",
@@ -870,21 +942,56 @@ class WorkOrderImportServiceTests {
     }
 
     @Test
-    void manualCreationStillRequiresExplicitLatestShipTimeAsFallback() {
-        CreateWorkOrderRequest request = new CreateWorkOrderRequest(
+    void manualCreationApiIgnoresMalformedExplicitDeadlineWhenMerchantRemarkResolvesDeadline() throws Exception {
+        mockMvc.perform(post("/api/work-orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "orderNo": "MANUAL-LAZY-DEADLINE",
+                                  "sourceName": "千牛",
+                                  "price": 100,
+                                  "latestShipTime": "不是日期",
+                                  "urgentText": "",
+                                  "buyerMessage": "一般留言",
+                                  "merchantRemark": "5.22发",
+                                  "paidAt": "2026-05-21T14:38:39"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.latestShipTime").value(
+                        LocalDate.now(clock).getYear() + "-05-22T23:59:59"
+                ));
+    }
+
+    @Test
+    void manualCreationRequiresExplicitLatestShipTimeOnlyWhenRemarksHaveNoDate() {
+        CreateWorkOrderRequest missingFallback = new CreateWorkOrderRequest(
                 "MANUAL-MISSING-EXPLICIT-DEADLINE",
                 "千牛",
                 BigDecimal.valueOf(100),
                 null,
                 "",
                 "",
-                "5.22发",
+                "一般备注",
+                LocalDateTime.of(2026, 5, 21, 14, 38, 39)
+        );
+        CreateWorkOrderRequest invalidFallback = new CreateWorkOrderRequest(
+                "MANUAL-INVALID-EXPLICIT-DEADLINE",
+                "千牛",
+                BigDecimal.valueOf(100),
+                "不是日期",
+                "",
+                "一般留言",
+                "一般备注",
                 LocalDateTime.of(2026, 5, 21, 14, 38, 39)
         );
 
-        assertThatThrownBy(() -> importService.createPendingWorkOrder(request))
+        assertThatThrownBy(() -> importService.createPendingWorkOrder(missingFallback))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("应发货时间不可为空");
+        assertThatThrownBy(() -> importService.createPendingWorkOrder(invalidFallback))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("应发货时间格式不正确，请使用 yyyy-MM-dd 或 yyyy-MM-dd HH:mm:ss");
     }
 
     @Test
@@ -933,7 +1040,7 @@ class WorkOrderImportServiceTests {
                 "TAG-MANUAL-001",
                 "千牛",
                 BigDecimal.valueOf(100),
-                LocalDateTime.of(2026, 8, 30, 18, 0),
+                "2026-08-30T18:00:00",
                 "加急且延后",
                 "",
                 "",
@@ -961,7 +1068,7 @@ class WorkOrderImportServiceTests {
                 "ORD-MANUAL-DUPLICATE",
                 "千牛",
                 new BigDecimal("100.00"),
-                LocalDateTime.of(2026, 8, 30, 18, 0),
+                "2026-08-30T18:00:00",
                 "",
                 "",
                 "",
@@ -983,7 +1090,7 @@ class WorkOrderImportServiceTests {
                 "ORD-CUSTOM-SOURCE",
                 "抖音",
                 new BigDecimal("100.00"),
-                LocalDateTime.of(2026, 8, 30, 18, 0),
+                "2026-08-30T18:00:00",
                 "",
                 "",
                 "",
@@ -1008,7 +1115,7 @@ class WorkOrderImportServiceTests {
                 "ORD-UNKNOWN-SOURCE",
                 "抖音",
                 new BigDecimal("100.00"),
-                LocalDateTime.of(2026, 8, 30, 18, 0),
+                "2026-08-30T18:00:00",
                 "",
                 "",
                 "",

@@ -138,7 +138,7 @@ public class WorkOrderImportService {
             for (int rowIndex = 1; rowIndex <= sheet.getLastRowNum(); rowIndex++) {
                 Row row = sheet.getRow(rowIndex);
 
-                if (isRowEmpty(row, evaluator)) {
+                if (isRowEmpty(row)) {
                     continue;
                 }
 
@@ -282,10 +282,6 @@ public class WorkOrderImportService {
         if (request.price().signum() < 0) {
             throw new IllegalArgumentException("买家实付金额不可为负数");
         }
-        if (request.latestShipTime() == null) {
-            throw new IllegalArgumentException("应发货时间不可为空");
-        }
-
         String buyerMessage = trimToEmpty(request.buyerMessage());
         String merchantRemark = trimToEmpty(request.merchantRemark());
         String remark = buildRemark(buyerMessage, merchantRemark);
@@ -296,7 +292,7 @@ public class WorkOrderImportService {
                 merchantRemark,
                 buyerMessage,
                 request.paidAt(),
-                request::latestShipTime
+                () -> parseLatestShipTimeText(request.latestShipTime())
         );
 
         ImportFieldSettingsSnapshot importSettings = importFieldSettingsService.getImportSnapshot();
@@ -534,13 +530,13 @@ public class WorkOrderImportService {
                 .replace('書', '书');
     }
 
-    private boolean isRowEmpty(Row row, FormulaEvaluator evaluator) {
+    private boolean isRowEmpty(Row row) {
         if (row == null) {
             return true;
         }
 
         for (Cell cell : row) {
-            if (!formatter.formatCellValue(cell, evaluator).isBlank()) {
+            if (!formatter.formatCellValue(cell).isBlank()) {
                 return false;
             }
         }
@@ -687,7 +683,11 @@ public class WorkOrderImportService {
             return isDateOnly(dateTime) ? dateTime.toLocalDate().atTime(END_OF_DAY) : dateTime;
         }
 
-        String value = formatter.formatCellValue(cell, evaluator).trim();
+        return parseLatestShipTimeText(formatter.formatCellValue(cell, evaluator));
+    }
+
+    private LocalDateTime parseLatestShipTimeText(String rawValue) {
+        String value = trimToEmpty(rawValue);
 
         if (value.isBlank()) {
             throw new IllegalArgumentException("应发货时间不可为空");
@@ -774,12 +774,16 @@ public class WorkOrderImportService {
         int currentYear = LocalDate.now(clock).getYear();
         Matcher monthDayMatcher = REMARK_MONTH_DAY_PATTERN.matcher(remark);
 
-        if (monthDayMatcher.find()) {
+        while (monthDayMatcher.find()) {
             int month = Integer.parseInt(monthDayMatcher.group(1));
             int day = Integer.parseInt(monthDayMatcher.group(3) == null
                     ? monthDayMatcher.group(2)
                     : monthDayMatcher.group(3));
-            return safeDate(currentYear, month, day);
+            Optional<LocalDate> parsedDate = safeDate(currentYear, month, day);
+
+            if (parsedDate.isPresent()) {
+                return parsedDate;
+            }
         }
 
         Integer paidMonth = paidAt == null ? null : paidAt.getMonthValue();
@@ -790,14 +794,30 @@ public class WorkOrderImportService {
 
         Matcher dayBeforeKeywordMatcher = REMARK_DAY_ONLY_BEFORE_KEYWORD_PATTERN.matcher(remark);
 
-        if (dayBeforeKeywordMatcher.find()) {
-            return safeDate(currentYear, paidMonth, Integer.parseInt(dayBeforeKeywordMatcher.group(1)));
+        while (dayBeforeKeywordMatcher.find()) {
+            Optional<LocalDate> parsedDate = safeDate(
+                    currentYear,
+                    paidMonth,
+                    Integer.parseInt(dayBeforeKeywordMatcher.group(1))
+            );
+
+            if (parsedDate.isPresent()) {
+                return parsedDate;
+            }
         }
 
         Matcher dayAfterKeywordMatcher = REMARK_DAY_ONLY_AFTER_KEYWORD_PATTERN.matcher(remark);
 
-        if (dayAfterKeywordMatcher.find()) {
-            return safeDate(currentYear, paidMonth, Integer.parseInt(dayAfterKeywordMatcher.group(1)));
+        while (dayAfterKeywordMatcher.find()) {
+            Optional<LocalDate> parsedDate = safeDate(
+                    currentYear,
+                    paidMonth,
+                    Integer.parseInt(dayAfterKeywordMatcher.group(1))
+            );
+
+            if (parsedDate.isPresent()) {
+                return parsedDate;
+            }
         }
 
         return Optional.empty();

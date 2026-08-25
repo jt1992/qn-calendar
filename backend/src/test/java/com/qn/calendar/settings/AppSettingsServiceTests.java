@@ -29,6 +29,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 @SpringBootTest
 class AppSettingsServiceTests {
@@ -50,6 +51,9 @@ class AppSettingsServiceTests {
 
     @Autowired
     private WorkOrderSegmentPauseRepository pauseRepository;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @BeforeEach
     void setUp() {
@@ -384,6 +388,95 @@ class AppSettingsServiceTests {
     }
 
     @Test
+    void deleteOrderSourceUsesSourceCodeBeforeConflictingLegacySource() {
+        service.getSettings();
+        WorkOrder retainedOrder = saveWorkOrderWithSchedule(
+                "SOURCE-CODE-PRIORITY",
+                WorkOrderSource.QIANNIU,
+                10
+        );
+        Long urgentTagId = importFieldSettingsService.getSettings().remarkTags().getFirst().id();
+        retainedOrder.replaceRemarkTags(importFieldSettingsService.findRemarkTagsByIds(List.of(urgentTagId)));
+        workOrderRepository.save(retainedOrder);
+        flushWorkOrderSchedule();
+        jdbcTemplate.update(
+                "update work_order set source = ? where id = ?",
+                WorkOrderSource.XIAOHONGSHU.name(),
+                retainedOrder.getId()
+        );
+
+        var impact = service.getOrderSourceDeletionImpact("XIAOHONGSHU");
+        var result = service.deleteOrderSource("XIAOHONGSHU");
+
+        assertThat(impact.workOrderCount()).isZero();
+        assertThat(result.deletedWorkOrderCount()).isZero();
+        assertThat(workOrderRepository.findAll()).extracting(WorkOrder::getOrderNo)
+                .containsExactly("SOURCE-CODE-PRIORITY");
+        assertThat(workOrderRepository.findById(retainedOrder.getId()).orElseThrow().getRemarkTags())
+                .extracting((tag) -> tag.getId())
+                .containsExactly(urgentTagId);
+        assertThat(segmentRepository.findAll()).hasSize(1);
+        assertThat(pauseRepository.findAll()).hasSize(1);
+    }
+
+    @Test
+    void deleteOrderSourceFallsBackToLegacySourceWhenSourceCodeIsMissingOrBlank() {
+        service.getSettings();
+        WorkOrder missingSourceCode = saveWorkOrderWithSchedule(
+                "LEGACY-SOURCE-NULL-CODE",
+                WorkOrderSource.XIAOHONGSHU,
+                10
+        );
+        WorkOrder blankSourceCode = saveWorkOrderWithSchedule(
+                "LEGACY-SOURCE-BLANK-CODE",
+                WorkOrderSource.XIAOHONGSHU,
+                13
+        );
+        flushWorkOrderSchedule();
+        jdbcTemplate.update(
+                "update work_order set source_code = null where id = ?",
+                missingSourceCode.getId()
+        );
+        jdbcTemplate.update(
+                "update work_order set source_code = '   ' where id = ?",
+                blankSourceCode.getId()
+        );
+
+        var impact = service.getOrderSourceDeletionImpact("XIAOHONGSHU");
+        var result = service.deleteOrderSource("XIAOHONGSHU");
+
+        assertThat(impact.workOrderCount()).isEqualTo(2);
+        assertThat(result.deletedWorkOrderCount()).isEqualTo(2);
+        assertThat(workOrderRepository.findAll()).isEmpty();
+        assertThat(segmentRepository.findAll()).isEmpty();
+        assertThat(pauseRepository.findAll()).isEmpty();
+    }
+
+    @Test
+    void deleteQianniuSourceUsesDefaultWhenBothStoredSourceFieldsAreMissing() {
+        service.getSettings();
+        WorkOrder defaultQianniuOrder = saveWorkOrderWithSchedule(
+                "LEGACY-DEFAULT-QIANNIU",
+                WorkOrderSource.QIANNIU,
+                10
+        );
+        flushWorkOrderSchedule();
+        jdbcTemplate.update(
+                "update work_order set source_code = null, source = null where id = ?",
+                defaultQianniuOrder.getId()
+        );
+
+        var impact = service.getOrderSourceDeletionImpact("QIANNIU");
+        var result = service.deleteOrderSource("QIANNIU");
+
+        assertThat(impact.workOrderCount()).isEqualTo(1);
+        assertThat(result.deletedWorkOrderCount()).isEqualTo(1);
+        assertThat(workOrderRepository.findAll()).isEmpty();
+        assertThat(segmentRepository.findAll()).isEmpty();
+        assertThat(pauseRepository.findAll()).isEmpty();
+    }
+
+    @Test
     void deleteOrderSourceRejectsDeletingTheLastOption() {
         service.updateSettings(new UpdateAppSettingsRequest(
                 BigDecimal.valueOf(100),
@@ -478,5 +571,39 @@ class AppSettingsServiceTests {
             String badgeText
     ) {
         return new OrderSourceOptionRequest(name, identifier, badgeColor, badgeText);
+    }
+
+    private WorkOrder saveWorkOrderWithSchedule(
+            String orderNo,
+            WorkOrderSource source,
+            int startHour
+    ) {
+        WorkOrder workOrder = workOrderRepository.save(new WorkOrder(
+                orderNo,
+                null,
+                "无任何备注",
+                BigDecimal.valueOf(100),
+                60,
+                false,
+                LocalDateTime.of(2026, 9, 1, 18, 0),
+                null,
+                source
+        ));
+        WorkOrderSegment segment = segmentRepository.save(new WorkOrderSegment(
+                workOrder,
+                LocalDateTime.of(2026, 8, 30, startHour, 0),
+                LocalDateTime.of(2026, 8, 30, startHour + 1, 0)
+        ));
+        pauseRepository.save(new WorkOrderSegmentPause(
+                segment,
+                LocalDateTime.of(2026, 8, 30, startHour, 30)
+        ));
+        return workOrder;
+    }
+
+    private void flushWorkOrderSchedule() {
+        workOrderRepository.flush();
+        segmentRepository.flush();
+        pauseRepository.flush();
     }
 }
