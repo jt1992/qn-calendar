@@ -114,7 +114,7 @@ public class WorkOrderImportService {
             Sheet sheet = workbook.getNumberOfSheets() > 0 ? workbook.getSheetAt(0) : null;
 
             if (sheet == null || sheet.getPhysicalNumberOfRows() == 0) {
-                throw new IllegalArgumentException("XLSX 至少需要一列表头");
+                throw new IllegalArgumentException("XLSX 必须包含表头行");
             }
 
             FormulaEvaluator evaluator = workbook.getCreationHelper().createFormulaEvaluator();
@@ -133,6 +133,7 @@ public class WorkOrderImportService {
             List<ImportRowError> errors = new ArrayList<>();
             Map<String, ParsedWorkOrder> parsedWorkOrders = new LinkedHashMap<>();
             int skippedCount = 0;
+            int recordNumber = 0;
 
             for (int rowIndex = 1; rowIndex <= sheet.getLastRowNum(); rowIndex++) {
                 Row row = sheet.getRow(rowIndex);
@@ -141,6 +142,7 @@ public class WorkOrderImportService {
                     continue;
                 }
 
+                recordNumber++;
                 int rowNumber = rowIndex + 1;
 
                 try {
@@ -185,7 +187,7 @@ public class WorkOrderImportService {
                     );
                     parsedWorkOrders.put(parsedWorkOrder.orderNo(), parsedWorkOrder);
                 } catch (RuntimeException exception) {
-                    errors.add(new ImportRowError(rowNumber, exception.getMessage()));
+                    errors.add(new ImportRowError(rowNumber, recordNumber, exception.getMessage()));
                 }
             }
 
@@ -379,7 +381,7 @@ public class WorkOrderImportService {
         Row headerRow = sheet.getRow(0);
 
         if (headerRow == null) {
-            throw new IllegalArgumentException("XLSX 第一列必须是表头");
+            throw new IllegalArgumentException("XLSX 第一行必须是表头");
         }
 
         Map<ImportFieldKey, List<HeaderMatch>> builtInMatches = new EnumMap<>(ImportFieldKey.class);
@@ -434,7 +436,7 @@ public class WorkOrderImportService {
 
         throw new IllegalArgumentException(
                 "XLSX 字段「" + matches.get(0).originalName() + "」与「" + matches.get(1).originalName()
-                        + "」同时映射到" + fieldLabel(fieldKey)
+                        + "」同时映射到" + fieldKey.getLabel()
         );
     }
 
@@ -444,11 +446,11 @@ public class WorkOrderImportService {
         }
 
         if (!headers.containsKey(ImportFieldKey.PRICE)) {
-            throw new IllegalArgumentException("XLSX 缺少订单价格字段");
+            throw new IllegalArgumentException("XLSX 缺少买家实付金额字段");
         }
 
         if (!headers.containsKey(ImportFieldKey.LATEST_SHIP_TIME)) {
-            throw new IllegalArgumentException("XLSX 缺少最晚发货日期字段");
+            throw new IllegalArgumentException("XLSX 缺少应发货时间字段");
         }
     }
 
@@ -532,18 +534,6 @@ public class WorkOrderImportService {
                 .replace('書', '书');
     }
 
-    private String fieldLabel(ImportFieldKey fieldKey) {
-        return switch (fieldKey) {
-            case ORDER_NO -> "订单编号";
-            case PRICE -> "订单价格";
-            case LATEST_SHIP_TIME -> "最晚发货日期";
-            case URGENT -> "备注标签";
-            case BUYER_MESSAGE -> "买家留言";
-            case MERCHANT_REMARK -> "商家备注";
-            case PAID_AT -> "订单付款时间";
-        };
-    }
-
     private boolean isRowEmpty(Row row, FormulaEvaluator evaluator) {
         if (row == null) {
             return true;
@@ -586,19 +576,19 @@ public class WorkOrderImportService {
                 .trim();
 
         if (value.isBlank()) {
-            throw new IllegalArgumentException("价格不可为空");
+            throw new IllegalArgumentException("买家实付金额不可为空");
         }
 
         try {
             BigDecimal price = new BigDecimal(value);
 
             if (price.signum() < 0) {
-                throw new IllegalArgumentException("价格不可为负数");
+                throw new IllegalArgumentException("买家实付金额不可为负数");
             }
 
             return price;
         } catch (NumberFormatException exception) {
-            throw new IllegalArgumentException("价格格式不正确");
+            throw new IllegalArgumentException("买家实付金额格式不正确");
         }
     }
 
@@ -689,7 +679,7 @@ public class WorkOrderImportService {
         Cell cell = row.getCell(index, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL);
 
         if (cell == null) {
-            throw new IllegalArgumentException("最晚发货日期不可为空");
+            throw new IllegalArgumentException("应发货时间不可为空");
         }
 
         if (cell.getCellType() == CellType.NUMERIC && DateUtil.isCellDateFormatted(cell)) {
@@ -700,7 +690,7 @@ public class WorkOrderImportService {
         String value = formatter.formatCellValue(cell, evaluator).trim();
 
         if (value.isBlank()) {
-            throw new IllegalArgumentException("最晚发货日期不可为空");
+            throw new IllegalArgumentException("应发货时间不可为空");
         }
 
         Optional<LocalDateTime> embeddedShipTime = parseEmbeddedShipTime(value);
@@ -715,7 +705,7 @@ public class WorkOrderImportService {
             return parsedDateTime.get();
         }
 
-        throw new IllegalArgumentException("最晚发货日期格式不正确，请使用 yyyy-MM-dd 或 yyyy-MM-dd HH:mm:ss");
+        throw new IllegalArgumentException("应发货时间格式不正确，请使用 yyyy-MM-dd 或 yyyy-MM-dd HH:mm:ss");
     }
 
     private Optional<LocalDateTime> parseEmbeddedShipTime(String value) {

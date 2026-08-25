@@ -66,8 +66,11 @@ function clearFocusOnBackground(event) {
       <section v-if="store.importResult?.errors?.length" class="import-errors">
         <h2>导入错误</h2>
         <ul>
-          <li v-for="error in store.importResult.errors" :key="`${error.row}-${error.message}`">
-            第 {{ error.row }} 列：{{ error.message }}
+          <li
+            v-for="error in store.importResult.errors"
+            :key="`${error.recordNumber}-${error.message}`"
+          >
+            第 {{ error.recordNumber }} 笔数据的{{ error.message }}
           </li>
         </ul>
       </section>
