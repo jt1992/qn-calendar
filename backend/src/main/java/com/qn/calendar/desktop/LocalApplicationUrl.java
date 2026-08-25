@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,13 +39,13 @@ public class LocalApplicationUrl {
 
     public URI resolve(ApplicationContext applicationContext) {
         Environment environment = applicationContext.getEnvironment();
-        int port = environment.getProperty(
-                "local.server.port",
-                Integer.class,
-                environment.getProperty("server.port", Integer.class, DEFAULT_PORT)
-        );
+        String configuredPort = environment.getProperty("local.server.port");
 
-        return resolve(port);
+        if (configuredPort == null || configuredPort.isBlank()) {
+            configuredPort = environment.getProperty("server.port");
+        }
+
+        return resolveConfiguredPort(configuredPort);
     }
 
     public URI resolveBeforeStartup(String[] args) {
@@ -52,12 +53,12 @@ public class LocalApplicationUrl {
                 args,
                 System.getProperties(),
                 System.getenv(),
-                loadImportedEnvironmentFiles()
+                this::loadImportedEnvironmentFiles
         );
     }
 
     URI resolveBeforeStartup(String[] args, Properties systemProperties, Map<String, String> environment) {
-        return resolveBeforeStartup(args, systemProperties, environment, new Properties());
+        return resolveBeforeStartup(args, systemProperties, environment, Properties::new);
     }
 
     URI resolveBeforeStartup(
@@ -65,6 +66,15 @@ public class LocalApplicationUrl {
             Properties systemProperties,
             Map<String, String> environment,
             Properties importedEnvironment
+    ) {
+        return resolveBeforeStartup(args, systemProperties, environment, () -> importedEnvironment);
+    }
+
+    URI resolveBeforeStartup(
+            String[] args,
+            Properties systemProperties,
+            Map<String, String> environment,
+            Supplier<Properties> importedEnvironmentSupplier
     ) {
         String commandLinePort = Arrays.stream(args)
                 .filter(argument -> argument.startsWith(SERVER_PORT_ARGUMENT_PREFIX))
@@ -75,11 +85,21 @@ public class LocalApplicationUrl {
                 commandLinePort,
                 systemProperties.getProperty("server.port"),
                 systemProperties.getProperty("SERVER_PORT"),
-                environment.get("SERVER_PORT"),
-                importedEnvironment.getProperty("SERVER_PORT")
+                environment.get("SERVER_PORT")
         );
 
-        return resolve(configuredPort == null ? DEFAULT_PORT : Integer.parseInt(configuredPort));
+        if (configuredPort != null) {
+            return resolveConfiguredPort(configuredPort);
+        }
+
+        Properties importedEnvironment = Objects.requireNonNull(importedEnvironmentSupplier.get());
+        return resolveConfiguredPort(importedEnvironment.getProperty("SERVER_PORT"));
+    }
+
+    private URI resolveConfiguredPort(String configuredPort) {
+        return resolve(configuredPort == null || configuredPort.isBlank()
+                ? DEFAULT_PORT
+                : Integer.parseInt(configuredPort));
     }
 
     private URI resolve(int port) {

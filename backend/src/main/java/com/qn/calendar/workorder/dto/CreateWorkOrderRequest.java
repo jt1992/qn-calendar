@@ -23,8 +23,7 @@ public record CreateWorkOrderRequest(
         @Digits(integer = 12, fraction = 2, message = "买家实付金额最多 12 位整数与 2 位小数")
         BigDecimal price,
 
-        @NotNull(message = "应发货时间不可为空")
-        LocalDateTime latestShipTime,
+        String latestShipTime,
 
         @Size(max = 120, message = "备注标签最长为 120 个字符")
         String urgentText,

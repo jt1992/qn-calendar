@@ -74,8 +74,10 @@ public interface WorkOrderSegmentRepository extends JpaRepository<WorkOrderSegme
             where segment.workOrder.id in (
                 select workOrder.id
                 from WorkOrder workOrder
-                where upper(workOrder.sourceCode) = :sourceCode
-                   or workOrder.source = :legacySource
+                where upper(trim(workOrder.sourceCode)) = :sourceCode
+                   or ((workOrder.sourceCode is null or trim(workOrder.sourceCode) = '')
+                       and (workOrder.source = :legacySource
+                            or (workOrder.source is null and :sourceCode = 'QIANNIU')))
             )
             """)
     void deleteBySourceIdentifier(
